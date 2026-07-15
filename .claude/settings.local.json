@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(New-Item *)",
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(not exist *)",
+      "Bash(npx tsc *)",
+      "PowerShell(Stop-Process *)",
+      "Bash(Select-String -Path \"src\\\\pages\\\\WhatsApp.tsx\" -Pattern \"ChannelBadge|getRecipientChannel|getTemplateChannel|channel:\")",
+      "Bash(Select-Object -First 20)"
+    ]
+  }
+}
