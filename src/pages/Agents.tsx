@@ -197,7 +197,7 @@ const FLOW_GROUPS: FlowGroup[] = [
     flows: [
       {
         id: 'billing-collect',
-        agentId: 'billing-collect',
+        agentId: ['monthly-usage-collector', 'monthly-usage-calculator'],
         title: 'גביית חיובים חודשית',
         trigger: '1 לחודש, 00:00',
         color: 'border-primary text-primary bg-primary/5',
@@ -211,7 +211,7 @@ const FLOW_GROUPS: FlowGroup[] = [
       },
       {
         id: 'cardcom-audit',
-        agentId: 'cardcom-audit',
+        agentId: 'daily-payment-check',
         title: 'ביקורת Cardcom חודשית',
         trigger: '1 לחודש, 02:00',
         color: 'border-primary text-primary bg-primary/5',
@@ -234,7 +234,7 @@ const FLOW_GROUPS: FlowGroup[] = [
     flows: [
       {
         id: 'billing-check-15',
-        agentId: 'billing-check-15',
+        agentId: 'collection-followup',
         title: 'בדיקת גבייה — יום 15',
         trigger: '15 לחודש, 09:00',
         color: 'border-amber-400 text-amber-700 bg-amber-50',
@@ -247,7 +247,7 @@ const FLOW_GROUPS: FlowGroup[] = [
       },
       {
         id: 'billing-check-20',
-        agentId: 'billing-check-20',
+        agentId: 'collection-followup',
         title: 'בדיקת גבייה — יום 20',
         trigger: '20 לחודש, 09:00',
         color: 'border-amber-400 text-amber-700 bg-amber-50',
@@ -260,7 +260,7 @@ const FLOW_GROUPS: FlowGroup[] = [
       },
       {
         id: 'billing-check-25',
-        agentId: 'billing-check-25',
+        agentId: 'collection-followup',
         title: 'בדיקת גבייה — יום 25',
         trigger: '25 לחודש, 09:00',
         color: 'border-amber-400 text-amber-700 bg-amber-50',
@@ -316,7 +316,7 @@ const FLOW_GROUPS: FlowGroup[] = [
       },
       {
         id: 'contacts',
-        agentId: 'contacts',
+        agentId: 'google-contacts',
         title: 'שמירת אנשי קשר',
         trigger: 'שינוי סטטוס ליד',
         color: 'border-gray-400 text-gray-700 bg-gray-50',
