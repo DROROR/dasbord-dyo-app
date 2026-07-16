@@ -17,8 +17,8 @@ import {
   X,
   BarChart2,
 } from 'lucide-react'
-import { getDashboardStats } from '../lib/database'
-import type { DashboardStats } from '../lib/database'
+import { getDashboardStats, getLatestAgentStatus } from '../lib/database'
+import type { DashboardStats, DbAgentLog } from '../lib/database'
 import { supabase } from '../lib/supabase'
 import { TeamOverview } from '../components/TeamOverview'
 import { MOCK_TASKS } from '../data/workMockData'
@@ -30,6 +30,7 @@ interface AgentLog {
   agent_name: string
   result_summary: string | null
   run_at: string
+  status?: 'success' | 'error' | 'running'
 }
 
 function formatHebrewDate(iso: string) {
@@ -54,45 +55,38 @@ async function fetchAgentErrors(): Promise<AgentLog[]> {
   return data ?? []
 }
 
-const ALERTS = [
-  {
-    severity: 'critical' as const,
-    icon: Bell,
-    title: '2 לקוחות בחודש 12',
-    desc: 'המנוי מסתיים בחודש הבא — נדרש חידוש',
-    action: 'צפה בלקוחות',
-  },
-  {
-    severity: 'warning' as const,
-    icon: AlertTriangle,
-    title: '3 לקוחות בחודש 11',
-    desc: 'מומלץ לשלוח תזכורת חידוש כעת',
-    action: 'שלח תזכורת',
-  },
-  {
-    severity: 'error' as const,
-    icon: AlertCircle,
-    title: 'תשלום נכשל',
-    desc: 'מושה לוי — ₪235 — Master Class',
-    action: 'טפל עכשיו',
-  },
+const ALERTS: { severity: 'critical' | 'warning' | 'error'; icon: typeof Bell; title: string; desc: string; action: string }[] = []
+
+// Real agents shown in the home status table, overlaid with live status from agent_logs
+const AGENT_META = [
+  { id: 'woo-new-client',           name: 'לקוח חדש',              desc: 'יצירת לקוח מהרשמה חדשה',          schedule: 'לפי אירוע' },
+  { id: 'cardcom-verify-activate',  name: 'אימות תשלום ראשוני',    desc: 'אימות התשלום הראשון מול Cardcom', schedule: 'לפי אירוע' },
+  { id: 'welcome-message',          name: 'הודעת ברוכים הבאים',    desc: 'הודעת פתיחה ב-WhatsApp',          schedule: 'לפי אירוע' },
+  { id: 'monthly-usage-collector',  name: 'איסוף שימוש חודשי',     desc: 'איסוף OTP ומשתמשים פעילים',       schedule: '1 לחודש' },
+  { id: 'monthly-usage-calculator', name: 'חישוב חיוב חודשי',      desc: 'חישוב החיוב המשתנה לכל לקוח',     schedule: '1 לחודש' },
+  { id: 'daily-payment-check',      name: 'אימות תשלום יומי',      desc: 'בדיקת חידושי מנוי יומית',         schedule: 'כל יום' },
+  { id: 'status-change',            name: 'ניטור סטטוס לקוח',      desc: 'ניטור ביטול והשהיית מנוי',        schedule: 'לפי אירוע' },
+  { id: 'send-bulk',                name: 'שליחת WhatsApp מרוכזת', desc: 'שליחה ללקוחות לפי חבילה',         schedule: 'לפי אירוע' },
 ]
 
-const AGENTS = [
-  { name: 'סוכן גבייה',   desc: 'גובה תשלומים ב-1 לחודש',    status: 'sleeping'  as const, lastRun: 'לפני 3 ימים',   nextRun: '1 ביולי'  },
-  { name: 'סוכן מעקב',   desc: 'מעקב חיוב ב-15, 20, 25',     status: 'active'    as const, lastRun: 'לפני שעה',      nextRun: '20 ביוני' },
-  { name: 'סוכן ביקורת', desc: 'ביקורת חשבונות ב-1 לחודש',   status: 'scheduled' as const, lastRun: 'לפני 3 ימים',   nextRun: '1 ביולי'  },
-  { name: 'סוכן WhatsApp',desc: 'שליחת הודעות אוטומטיות',     status: 'active'    as const, lastRun: 'לפני 20 דקות',  nextRun: 'לפי אירוע'},
-  { name: 'סוכן לידים',  desc: 'חימום לידים אוטומטי',         status: 'paused'    as const, lastRun: 'לפני יומיים',   nextRun: 'מושהה'    },
-]
+async function fetchRecentActivity(): Promise<AgentLog[]> {
+  const { data, error } = await supabase
+    .from('agent_logs')
+    .select('id, agent_name, result_summary, run_at, status')
+    .order('run_at', { ascending: false })
+    .limit(8)
+  if (error) throw error
+  return data ?? []
+}
 
-const ACTIVITY = [
-  { label: 'לקוח חדש נרשם',    detail: 'יוסי כהן — Solo Pro',        time: 'לפני 2 שעות',  icon: UserPlus,      color: 'bg-primary/10 text-primary'          },
-  { label: 'תשלום התקבל',       detail: '₪370 — Studio Master',        time: 'לפני 4 שעות',  icon: CreditCard,    color: 'bg-green-100 text-green-700'         },
-  { label: '150 הודעות נשלחו',  detail: 'קמפיין חודשי — וואטסאפ',     time: 'לפני 6 שעות',  icon: MessageSquare, color: 'bg-secondary/20 text-secondary-dark' },
-  { label: 'סוכן מעקב רץ',      detail: '12 לקוחות טופלו',            time: 'לפני יום',     icon: Zap,           color: 'bg-purple-100 text-purple-700'       },
-  { label: 'כרטיס תמיכה נסגר', detail: '#1042 — בעיית הרשמה',         time: 'לפני יומיים',  icon: CheckCircle2,  color: 'bg-green-100 text-green-700'         },
-]
+function relativeTime(iso: string): string {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  if (mins < 1) return 'עכשיו'
+  if (mins < 60) return `לפני ${mins} דקות`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `לפני ${hrs} שעות`
+  return `לפני ${Math.floor(hrs / 24)} ימים`
+}
 
 // ─── Style maps ───────────────────────────────────────────────────────────────
 
@@ -154,6 +148,8 @@ export function Dashboard() {
   const [tasks,   setTasks]           = useState<Task[]>(MOCK_TASKS)
   const [showTeam, setShowTeam]       = useState(false)
   const [agentErrors, setAgentErrors] = useState<AgentLog[]>([])
+  const [liveAgents, setLiveAgents]   = useState<Record<string, DbAgentLog>>({})
+  const [activity, setActivity]       = useState<AgentLog[]>([])
   const agentTimerRef                 = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -164,10 +160,13 @@ export function Dashboard() {
   }, [])
 
   useEffect(() => {
-    fetchAgentErrors().then(setAgentErrors).catch(() => {})
-    agentTimerRef.current = setInterval(() => {
+    const load = () => {
       fetchAgentErrors().then(setAgentErrors).catch(() => {})
-    }, 60 * 60 * 1000)
+      getLatestAgentStatus().then(setLiveAgents).catch(() => {})
+      fetchRecentActivity().then(setActivity).catch(() => {})
+    }
+    load()
+    agentTimerRef.current = setInterval(load, 60 * 60 * 1000)
     return () => {
       if (agentTimerRef.current) clearInterval(agentTimerRef.current)
     }
@@ -304,18 +303,25 @@ export function Dashboard() {
         <div>
           <SectionHeader title="פעילות אחרונה" />
           <Card className="divide-y divide-gray-50">
-            {ACTIVITY.map(({ label, detail, time, icon: Icon, color }) => (
-              <div key={label} className="flex items-start gap-3 p-4">
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${color}`}>
-                  <Icon size={14} />
+            {activity.length === 0 ? (
+              <div className="p-4 text-xs text-gray-400">אין פעילות אחרונה עדיין</div>
+            ) : activity.map(log => {
+              const isErr = log.status === 'error'
+              const Icon  = isErr ? AlertCircle : CheckCircle2
+              const color = isErr ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+              return (
+                <div key={log.id} className="flex items-start gap-3 p-4">
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${color}`}>
+                    <Icon size={14} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-gray-800 truncate">{log.agent_name}</p>
+                    <p className="text-xs text-gray-400 truncate">{log.result_summary || ''}</p>
+                    <p className="text-xs text-gray-300 mt-0.5">{relativeTime(log.run_at)}</p>
+                  </div>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium text-gray-800 truncate">{label}</p>
-                  <p className="text-xs text-gray-400 truncate">{detail}</p>
-                  <p className="text-xs text-gray-300 mt-0.5">{time}</p>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </Card>
         </div>
       </div>
@@ -356,10 +362,14 @@ export function Dashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {AGENTS.map(({ name, desc, status, lastRun, nextRun }) => {
+              {AGENT_META.map(meta => {
+                const live = liveAgents[meta.id]
+                const status: keyof typeof AGENT_STATUS = !live ? 'sleeping' : live.status === 'error' ? 'error' : 'active'
                 const s = AGENT_STATUS[status]
+                const lastRun = live ? relativeTime(live.run_at) : 'טרם רץ'
+                const { name, desc, schedule: nextRun } = meta
                 return (
-                  <tr key={name} className="hover:bg-gray-50/50 transition-colors">
+                  <tr key={meta.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-5 py-3.5">
                       <span className="font-medium text-gray-800">{name}</span>
                     </td>
