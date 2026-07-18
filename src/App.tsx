@@ -8,6 +8,7 @@ import { Billing } from './pages/Billing'
 import { WhatsApp } from './pages/WhatsApp'
 import { Leads } from './pages/Leads'
 import { Agents } from './pages/Agents'
+import { BotTraining } from './pages/BotTraining'
 import { Permissions } from './pages/Permissions'
 import { Work } from './pages/Work'
 import { Login } from './pages/Login'
@@ -23,6 +24,7 @@ const PAGES: Record<string, React.ReactNode> = {
   whatsapp:    <WhatsApp />,
   leads:       <Leads />,
   agents:      <Agents />,
+  bots:        <BotTraining />,
   permissions: <Permissions />,
   work:        <Work />,
   settings:    <Settings />,

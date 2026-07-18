@@ -398,6 +398,77 @@ export async function updateMessageTemplate(
   return { data, error }
 }
 
+// ── BOT TRAINING ──────────────────────────────────────────────────────────────
+
+export interface DbBotConfig {
+  bot: string
+  base_prompt: string
+  model: string
+  active: boolean
+  updated_at: string
+}
+
+export interface DbBotTraining {
+  id: string
+  bot: string
+  kind: 'rule' | 'example' | 'avoid'
+  situation: string | null
+  content: string
+  active: boolean
+  created_at: string
+}
+
+export async function getBotConfig(bot: string): Promise<DbBotConfig | null> {
+  const { data, error } = await supabase
+    .from('bot_config')
+    .select('*')
+    .eq('bot', bot)
+    .single()
+  if (error) return null
+  return data as DbBotConfig
+}
+
+export async function updateBotConfig(
+  bot: string,
+  updates: Partial<Pick<DbBotConfig, 'base_prompt' | 'model' | 'active'>>
+): Promise<{ error: unknown }> {
+  const { error } = await supabase
+    .from('bot_config')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('bot', bot)
+  return { error }
+}
+
+export async function getBotTraining(bot: string): Promise<DbBotTraining[]> {
+  const { data, error } = await supabase
+    .from('bot_training')
+    .select('*')
+    .eq('bot', bot)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data as DbBotTraining[]
+}
+
+export async function addBotTraining(
+  row: Omit<DbBotTraining, 'id' | 'created_at'>
+): Promise<{ error: unknown }> {
+  const { error } = await supabase.from('bot_training').insert(row)
+  return { error }
+}
+
+export async function updateBotTraining(
+  id: string,
+  updates: Partial<Omit<DbBotTraining, 'id' | 'created_at'>>
+): Promise<{ error: unknown }> {
+  const { error } = await supabase.from('bot_training').update(updates).eq('id', id)
+  return { error }
+}
+
+export async function deleteBotTraining(id: string): Promise<{ error: unknown }> {
+  const { error } = await supabase.from('bot_training').delete().eq('id', id)
+  return { error }
+}
+
 // ── SEQUENCES ─────────────────────────────────────────────────────────────────
 
 export interface DbSequence {

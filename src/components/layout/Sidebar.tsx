@@ -5,6 +5,7 @@ import {
   MessageCircle,
   Target,
   Bot,
+  GraduationCap,
   Shield,
   Settings,
   LogOut,
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { id: 'whatsapp',    label: 'וואטסאפ',   icon: MessageCircle   },
   { id: 'leads',       label: 'לידים',     icon: Target          },
   { id: 'agents',      label: 'סוכנים',    icon: Bot             },
+  { id: 'bots',        label: 'אימון בוטים', icon: GraduationCap },
   { id: 'work',        label: 'Work',      icon: Briefcase       },
   { id: 'permissions', label: 'הרשאות',    icon: Shield          },
 ]
