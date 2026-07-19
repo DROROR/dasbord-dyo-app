@@ -16,6 +16,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAuth } from './hooks/useAuth'
 import { NotificationProvider } from './contexts/NotificationContext'
 import { TimerProvider } from './contexts/TimerContext'
+import { LanguageProvider } from './contexts/LanguageContext'
 import { FloatingTimerWidget } from './components/work/FloatingTimerWidget'
 
 const PAGES: Record<string, React.ReactNode> = {
@@ -54,20 +55,22 @@ export default function App() {
   }
 
   return (
-    <NotificationProvider>
-      <TimerProvider>
-        <Layout
-          activePage={activePage}
-          onNavigate={setActivePage}
-          profile={profile}
-          onSignOut={signOut}
-        >
-          <ErrorBoundary key={activePage}>
-            {PAGES[activePage]}
-          </ErrorBoundary>
-        </Layout>
-        <FloatingTimerWidget onNavigate={setActivePage} />
-      </TimerProvider>
-    </NotificationProvider>
+    <LanguageProvider>
+      <NotificationProvider>
+        <TimerProvider>
+          <Layout
+            activePage={activePage}
+            onNavigate={setActivePage}
+            profile={profile}
+            onSignOut={signOut}
+          >
+            <ErrorBoundary key={activePage}>
+              {PAGES[activePage]}
+            </ErrorBoundary>
+          </Layout>
+          <FloatingTimerWidget onNavigate={setActivePage} />
+        </TimerProvider>
+      </NotificationProvider>
+    </LanguageProvider>
   )
 }

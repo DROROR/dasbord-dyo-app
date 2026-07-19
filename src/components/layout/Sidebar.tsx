@@ -14,21 +14,22 @@ import {
 import logoFull from '../../assets/logo.png'
 import logoSymbol from '../../assets/logo-symbol.png'
 import type { UserProfile } from '../../hooks/useAuth'
+import { useLang } from '../../contexts/LanguageContext'
 
 const NAV_ITEMS = [
-  { id: 'dashboard',   label: 'לוח בקרה',  icon: LayoutDashboard },
-  { id: 'clients',     label: 'לקוחות',    icon: Users           },
-  { id: 'billing',     label: 'חיוב',      icon: CreditCard      },
-  { id: 'whatsapp',    label: 'וואטסאפ',   icon: MessageCircle   },
-  { id: 'leads',       label: 'לידים',     icon: Target          },
-  { id: 'agents',      label: 'סוכנים',    icon: Bot             },
-  { id: 'bots',        label: 'אימון בוטים', icon: GraduationCap },
-  { id: 'work',        label: 'Work',      icon: Briefcase       },
-  { id: 'permissions', label: 'הרשאות',    icon: Shield          },
+  { id: 'dashboard',   he: 'לוח בקרה',    en: 'Dashboard',    icon: LayoutDashboard },
+  { id: 'clients',     he: 'לקוחות',      en: 'Clients',      icon: Users           },
+  { id: 'billing',     he: 'חיוב',        en: 'Billing',      icon: CreditCard      },
+  { id: 'whatsapp',    he: 'וואטסאפ',     en: 'WhatsApp',     icon: MessageCircle   },
+  { id: 'leads',       he: 'לידים',       en: 'Leads',        icon: Target          },
+  { id: 'agents',      he: 'סוכנים',      en: 'Agents',       icon: Bot             },
+  { id: 'bots',        he: 'אימון בוטים', en: 'Bot Training', icon: GraduationCap   },
+  { id: 'work',        he: 'Work',        en: 'Work',         icon: Briefcase       },
+  { id: 'permissions', he: 'הרשאות',      en: 'Permissions',  icon: Shield          },
 ]
 
 const BOTTOM_NAV = [
-  { id: 'settings', label: 'הגדרות', icon: Settings },
+  { id: 'settings', he: 'הגדרות', en: 'Settings', icon: Settings },
 ]
 
 interface Props {
@@ -40,6 +41,7 @@ interface Props {
 }
 
 export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: Props) {
+  const { t } = useLang()
   const initial = profile?.name?.charAt(0).toUpperCase() ?? '?'
 
   return (
@@ -62,7 +64,8 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
         {NAV_ITEMS.filter(({ id }) => {
           if (id === 'work' && profile?.role !== 'admin' && profile?.permissions?.['work'] === 'none') return false
           return true
-        }).map(({ id, label, icon: Icon }) => {
+        }).map(({ id, he, en, icon: Icon }) => {
+          const label = t(he, en)
           const isActive = active === id
           return (
             <button
@@ -87,7 +90,8 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
 
       {/* Bottom nav (settings) */}
       <div className="px-2 pb-1">
-        {BOTTOM_NAV.map(({ id, label, icon: Icon }) => {
+        {BOTTOM_NAV.map(({ id, he, en, icon: Icon }) => {
+          const label = t(he, en)
           const isActive = active === id
           return (
             <button
@@ -114,7 +118,7 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
       <div className="p-2 border-t border-white/10 shrink-0">
         <button
           onClick={onSignOut}
-          title={collapsed ? 'יציאה' : undefined}
+          title={collapsed ? t('יציאה', 'Log out') : undefined}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-white/60 hover:bg-white/8 hover:text-white transition-all text-sm ${
             collapsed ? 'justify-center' : ''
           }`}

@@ -17,18 +17,19 @@ import {
   deleteBotTraining,
 } from '../lib/database'
 import type { DbBotConfig, DbBotTraining } from '../lib/database'
+import { useLang } from '../contexts/LanguageContext'
 
 type BotId = 'support' | 'sales'
 
-const BOTS: { id: BotId; label: string }[] = [
-  { id: 'support', label: 'בוט תמיכה' },
-  { id: 'sales', label: 'בוט מכירות' },
+const BOTS: { id: BotId; he: string; en: string }[] = [
+  { id: 'support', he: 'בוט תמיכה', en: 'Support bot' },
+  { id: 'sales', he: 'בוט מכירות', en: 'Sales bot' },
 ]
 
-const KINDS: { id: DbBotTraining['kind']; label: string; badge: string }[] = [
-  { id: 'rule', label: 'כלל', badge: 'bg-primary/10 text-primary' },
-  { id: 'example', label: 'דוגמה', badge: 'bg-green-100 text-green-700' },
-  { id: 'avoid', label: 'להימנע', badge: 'bg-red-100 text-red-700' },
+const KINDS: { id: DbBotTraining['kind']; he: string; en: string; badge: string }[] = [
+  { id: 'rule', he: 'כלל', en: 'Rule', badge: 'bg-primary/10 text-primary' },
+  { id: 'example', he: 'דוגמה', en: 'Example', badge: 'bg-green-100 text-green-700' },
+  { id: 'avoid', he: 'להימנע', en: 'Avoid', badge: 'bg-red-100 text-red-700' },
 ]
 
 const kindMeta = (k: string) => KINDS.find(x => x.id === k) ?? KINDS[0]
@@ -42,6 +43,7 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
 }
 
 export function BotTraining() {
+  const { t } = useLang()
   const [bot, setBot] = useState<BotId>('support')
   const [config, setConfig] = useState<DbBotConfig | null>(null)
   const [prompt, setPrompt] = useState('')
@@ -116,8 +118,8 @@ export function BotTraining() {
           <GraduationCap size={20} className="text-primary" />
         </div>
         <div>
-          <h1 className="text-lg font-bold text-primary">אימון בוטים</h1>
-          <p className="text-xs text-gray-500">מלמדים את הבוט מה לומר ואיך להתנהג. שינויים נכנסים לתוקף מיד.</p>
+          <h1 className="text-lg font-bold text-primary">{t('אימון בוטים', 'Bot Training')}</h1>
+          <p className="text-xs text-gray-500">{t('מלמדים את הבוט מה לומר ואיך להתנהג. שינויים נכנסים לתוקף מיד.', 'Teach the bot what to say and how to behave. Changes take effect immediately.')}</p>
         </div>
       </div>
 
@@ -131,7 +133,7 @@ export function BotTraining() {
               bot === b.id ? 'bg-primary text-white' : 'bg-surface border border-gray-100 text-gray-600 hover:border-primary/30'
             }`}
           >
-            {b.label}
+            {t(b.he, b.en)}
           </button>
         ))}
       </div>
@@ -146,22 +148,22 @@ export function BotTraining() {
           <Card className="p-5">
             <div className="flex items-center gap-2 mb-3">
               <BookOpen size={16} className="text-primary" />
-              <h2 className="text-sm font-semibold text-primary">ידע בסיס (חוקי האפליקציה)</h2>
+              <h2 className="text-sm font-semibold text-primary">{t('ידע בסיס (חוקי האפליקציה)', 'Base knowledge (app rules)')}</h2>
             </div>
             <p className="text-xs text-gray-500 mb-3">
-              זהו הידע הראשי של הבוט. הדביקו כאן את קובץ הכללים של האפליקציה. הבוט מסתמך על זה בכל תשובה.
+              {t('זהו הידע הראשי של הבוט. הדביקו כאן את קובץ הכללים של האפליקציה. הבוט מסתמך על זה בכל תשובה.', "This is the bot's main knowledge. Paste the app rules here. The bot relies on it for every reply.")}
             </p>
             <textarea
               value={prompt}
               onChange={e => setPrompt(e.target.value)}
               rows={10}
               dir="auto"
-              placeholder="הדביקו כאן את חוקי האפליקציה (קובץ ה-MD)..."
+              placeholder={t('הדביקו כאן את חוקי האפליקציה (קובץ ה-MD)...', 'Paste the app rules here (the MD file)...')}
               className="w-full text-sm border border-gray-200 rounded-xl p-3 focus:outline-none focus:border-primary/50 resize-y font-mono"
             />
             <div className="flex items-center justify-between mt-3">
               <span className="text-xs text-gray-400">
-                {config ? `מודל: ${config.model}` : ''}
+                {config ? `${t('מודל', 'Model')}: ${config.model}` : ''}
               </span>
               <button
                 onClick={savePrompt}
@@ -169,14 +171,14 @@ export function BotTraining() {
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
               >
                 {savingPrompt ? <Loader2 size={14} className="animate-spin" /> : promptSaved ? <Check size={14} /> : <Save size={14} />}
-                {promptSaved ? 'נשמר' : 'שמור ידע בסיס'}
+                {promptSaved ? t('נשמר', 'Saved') : t('שמור ידע בסיס', 'Save base knowledge')}
               </button>
             </div>
           </Card>
 
           {/* Add training item */}
           <Card className="p-5">
-            <h2 className="text-sm font-semibold text-primary mb-3">הוספת הנחיה חדשה</h2>
+            <h2 className="text-sm font-semibold text-primary mb-3">{t('הוספת הנחיה חדשה', 'Add a new instruction')}</h2>
             <div className="space-y-3">
               <div className="flex gap-2">
                 {KINDS.map(k => (
@@ -187,7 +189,7 @@ export function BotTraining() {
                       newKind === k.id ? k.badge + ' ring-1 ring-current' : 'bg-gray-50 text-gray-500'
                     }`}
                   >
-                    {k.label}
+                    {t(k.he, k.en)}
                   </button>
                 ))}
               </div>
@@ -195,7 +197,7 @@ export function BotTraining() {
                 value={newSituation}
                 onChange={e => setNewSituation(e.target.value)}
                 dir="auto"
-                placeholder="מתי זה חל? (למשל: לקוח שואל על החזר כספי) — אופציונלי"
+                placeholder={t('מתי זה חל? (למשל: לקוח שואל על החזר כספי) — אופציונלי', 'When does this apply? (e.g. customer asks about a refund) — optional')}
                 className="w-full text-sm border border-gray-200 rounded-lg p-2.5 focus:outline-none focus:border-primary/50"
               />
               <textarea
@@ -203,7 +205,7 @@ export function BotTraining() {
                 onChange={e => setNewContent(e.target.value)}
                 rows={2}
                 dir="auto"
-                placeholder="מה הבוט צריך לומר או לעשות"
+                placeholder={t('מה הבוט צריך לומר או לעשות', 'What the bot should say or do')}
                 className="w-full text-sm border border-gray-200 rounded-lg p-2.5 focus:outline-none focus:border-primary/50 resize-y"
               />
               <button
@@ -212,7 +214,7 @@ export function BotTraining() {
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary text-white text-sm font-medium hover:bg-secondary/90 disabled:opacity-50"
               >
                 {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                הוסף
+                {t('הוסף', 'Add')}
               </button>
             </div>
           </Card>
@@ -220,10 +222,10 @@ export function BotTraining() {
           {/* Training items list */}
           <div>
             <h2 className="text-sm font-semibold text-primary mb-3">
-              הנחיות ({items.length})
+              {t('הנחיות', 'Instructions')} ({items.length})
             </h2>
             {items.length === 0 ? (
-              <Card className="p-8 text-center text-sm text-gray-400">אין הנחיות עדיין. הוסיפו את הראשונה למעלה.</Card>
+              <Card className="p-8 text-center text-sm text-gray-400">{t('אין הנחיות עדיין. הוסיפו את הראשונה למעלה.', 'No instructions yet. Add the first one above.')}</Card>
             ) : (
               <div className="space-y-2">
                 {items.map(item => {
@@ -232,7 +234,7 @@ export function BotTraining() {
                     <Card key={item.id} className={`p-4 ${item.active ? '' : 'opacity-50'}`}>
                       <div className="flex items-start gap-3">
                         <span className={`shrink-0 text-xs font-medium px-2 py-1 rounded-full ${km.badge}`}>
-                          {km.label}
+                          {t(km.he, km.en)}
                         </span>
                         <div className="flex-1 min-w-0">
                           {item.situation && (
@@ -243,16 +245,16 @@ export function BotTraining() {
                         <div className="flex items-center gap-1 shrink-0">
                           <button
                             onClick={() => toggle(item)}
-                            title={item.active ? 'פעיל' : 'כבוי'}
+                            title={item.active ? t('פעיל', 'Active') : t('כבוי', 'Off')}
                             className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
                               item.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
                             }`}
                           >
-                            {item.active ? 'פעיל' : 'כבוי'}
+                            {item.active ? t('פעיל', 'Active') : t('כבוי', 'Off')}
                           </button>
                           <button
                             onClick={() => remove(item.id)}
-                            title="מחק"
+                            title={t('מחק', 'Delete')}
                             className="p-1.5 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50 transition-colors"
                           >
                             <Trash2 size={14} />
