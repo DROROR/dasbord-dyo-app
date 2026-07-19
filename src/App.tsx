@@ -12,6 +12,7 @@ import { BotTraining } from './pages/BotTraining'
 import { Permissions } from './pages/Permissions'
 import { Work } from './pages/Work'
 import { Login } from './pages/Login'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAuth } from './hooks/useAuth'
 import { NotificationProvider } from './contexts/NotificationContext'
 import { TimerProvider } from './contexts/TimerContext'
@@ -61,7 +62,9 @@ export default function App() {
           profile={profile}
           onSignOut={signOut}
         >
-          {PAGES[activePage]}
+          <ErrorBoundary key={activePage}>
+            {PAGES[activePage]}
+          </ErrorBoundary>
         </Layout>
         <FloatingTimerWidget onNavigate={setActivePage} />
       </TimerProvider>
