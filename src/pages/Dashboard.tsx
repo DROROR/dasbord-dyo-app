@@ -23,6 +23,7 @@ import { supabase } from '../lib/supabase'
 import { TeamOverview } from '../components/TeamOverview'
 import { MOCK_TASKS } from '../data/workMockData'
 import { useAuth } from '../hooks/useAuth'
+import { useLang } from '../contexts/LanguageContext'
 import type { Task } from '../types/work'
 
 interface AgentLog {
@@ -59,14 +60,14 @@ const ALERTS: { severity: 'critical' | 'warning' | 'error'; icon: typeof Bell; t
 
 // Real agents shown in the home status table, overlaid with live status from agent_logs
 const AGENT_META = [
-  { id: 'woo-new-client',           name: 'לקוח חדש',              desc: 'יצירת לקוח מהרשמה חדשה',          schedule: 'לפי אירוע' },
-  { id: 'cardcom-verify-activate',  name: 'אימות תשלום ראשוני',    desc: 'אימות התשלום הראשון מול Cardcom', schedule: 'לפי אירוע' },
-  { id: 'welcome-message',          name: 'הודעת ברוכים הבאים',    desc: 'הודעת פתיחה ב-WhatsApp',          schedule: 'לפי אירוע' },
-  { id: 'monthly-usage-collector',  name: 'איסוף שימוש חודשי',     desc: 'איסוף OTP ומשתמשים פעילים',       schedule: '1 לחודש' },
-  { id: 'monthly-usage-calculator', name: 'חישוב חיוב חודשי',      desc: 'חישוב החיוב המשתנה לכל לקוח',     schedule: '1 לחודש' },
-  { id: 'daily-payment-check',      name: 'אימות תשלום יומי',      desc: 'בדיקת חידושי מנוי יומית',         schedule: 'כל יום' },
-  { id: 'status-change',            name: 'ניטור סטטוס לקוח',      desc: 'ניטור ביטול והשהיית מנוי',        schedule: 'לפי אירוע' },
-  { id: 'send-bulk',                name: 'שליחת WhatsApp מרוכזת', desc: 'שליחה ללקוחות לפי חבילה',         schedule: 'לפי אירוע' },
+  { id: 'woo-new-client',           name: 'לקוח חדש',              en: 'New customer',        desc: 'יצירת לקוח מהרשמה חדשה',          descEn: 'Creates a client from a new signup',     schedule: 'לפי אירוע', scheduleEn: 'On event' },
+  { id: 'cardcom-verify-activate',  name: 'אימות תשלום ראשוני',    en: 'Verify first payment', desc: 'אימות התשלום הראשון מול Cardcom', descEn: 'Confirms the first payment in Cardcom',  schedule: 'לפי אירוע', scheduleEn: 'On event' },
+  { id: 'welcome-message',          name: 'הודעת ברוכים הבאים',    en: 'Welcome message',      desc: 'הודעת פתיחה ב-WhatsApp',          descEn: 'Opening WhatsApp message',               schedule: 'לפי אירוע', scheduleEn: 'On event' },
+  { id: 'monthly-usage-collector',  name: 'איסוף שימוש חודשי',     en: 'Monthly usage collector', desc: 'איסוף OTP ומשתמשים פעילים',    descEn: 'Collects OTP and active users',          schedule: '1 לחודש',   scheduleEn: '1st monthly' },
+  { id: 'monthly-usage-calculator', name: 'חישוב חיוב חודשי',      en: 'Monthly usage calculator', desc: 'חישוב החיוב המשתנה לכל לקוח',  descEn: 'Works out each variable bill',           schedule: '1 לחודש',   scheduleEn: '1st monthly' },
+  { id: 'daily-payment-check',      name: 'אימות תשלום יומי',      en: 'Daily payment check',  desc: 'בדיקת חידושי מנוי יומית',         descEn: 'Checks subscription renewals daily',     schedule: 'כל יום',    scheduleEn: 'Daily' },
+  { id: 'status-change',            name: 'ניטור סטטוס לקוח',      en: 'Customer status monitor', desc: 'ניטור ביטול והשהיית מנוי',     descEn: 'Watches for cancellations & suspensions', schedule: 'לפי אירוע', scheduleEn: 'On event' },
+  { id: 'send-bulk',                name: 'שליחת WhatsApp מרוכזת', en: 'WhatsApp broadcast',   desc: 'שליחה ללקוחות לפי חבילה',         descEn: 'Sends to customers by package',           schedule: 'לפי אירוע', scheduleEn: 'On event' },
 ]
 
 async function fetchRecentActivity(): Promise<AgentLog[]> {
@@ -79,13 +80,20 @@ async function fetchRecentActivity(): Promise<AgentLog[]> {
   return data ?? []
 }
 
-function relativeTime(iso: string): string {
+function relativeTime(iso: string, lang: 'he' | 'en' = 'he'): string {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  const hrs = Math.floor(mins / 60)
+  const days = Math.floor(hrs / 24)
+  if (lang === 'en') {
+    if (mins < 1) return 'just now'
+    if (mins < 60) return `${mins}m ago`
+    if (hrs < 24) return `${hrs}h ago`
+    return `${days}d ago`
+  }
   if (mins < 1) return 'עכשיו'
   if (mins < 60) return `לפני ${mins} דקות`
-  const hrs = Math.floor(mins / 60)
   if (hrs < 24) return `לפני ${hrs} שעות`
-  return `לפני ${Math.floor(hrs / 24)} ימים`
+  return `לפני ${days} ימים`
 }
 
 // ─── Style maps ───────────────────────────────────────────────────────────────
@@ -109,11 +117,11 @@ const SEVERITY = {
 }
 
 const AGENT_STATUS = {
-  active:    { label: 'פעיל',   dot: 'bg-green-500', text: 'text-green-700', bg: 'bg-green-100'  },
-  sleeping:  { label: 'ממתין',  dot: 'bg-blue-400',  text: 'text-blue-700',  bg: 'bg-blue-100'   },
-  scheduled: { label: 'מתוזמן', dot: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-100'  },
-  paused:    { label: 'מושהה',  dot: 'bg-gray-400',  text: 'text-gray-600',  bg: 'bg-gray-100'   },
-  error:     { label: 'שגיאה',  dot: 'bg-red-500',   text: 'text-red-700',   bg: 'bg-red-100'    },
+  active:    { label: 'פעיל',   labelEn: 'Active',    dot: 'bg-green-500', text: 'text-green-700', bg: 'bg-green-100'  },
+  sleeping:  { label: 'ממתין',  labelEn: 'Idle',      dot: 'bg-blue-400',  text: 'text-blue-700',  bg: 'bg-blue-100'   },
+  scheduled: { label: 'מתוזמן', labelEn: 'Scheduled', dot: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-100'  },
+  paused:    { label: 'מושהה',  labelEn: 'Paused',    dot: 'bg-gray-400',  text: 'text-gray-600',  bg: 'bg-gray-100'   },
+  error:     { label: 'שגיאה',  labelEn: 'Error',     dot: 'bg-red-500',   text: 'text-red-700',   bg: 'bg-red-100'    },
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -143,6 +151,7 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
 
 export function Dashboard() {
   const { isAdmin }                   = useAuth()
+  const { t, lang }                   = useLang()
   const [stats, setStats]             = useState<DashboardStats | null>(null)
   const [loading, setLoading]         = useState(true)
   const [tasks,   setTasks]           = useState<Task[]>(MOCK_TASKS)
@@ -174,39 +183,39 @@ export function Dashboard() {
 
   const STAT_CARDS = [
     {
-      label:     'לקוחות פעילים',
+      label:     t('לקוחות פעילים', 'Active customers'),
       value:     loading ? '…' : String(stats?.activeClients ?? 0),
       icon:      Users,
       iconColor: 'text-primary',
       iconBg:    'bg-primary/10',
-      trend:     'לקוחות פעילים כרגע',
+      trend:     t('לקוחות פעילים כרגע', 'Active right now'),
       trendUp:   true,
     },
     {
-      label:     'הכנסה חודשית',
+      label:     t('הכנסה חודשית', 'Monthly revenue'),
       value:     loading ? '…' : `₪${(stats?.monthlyRevenue ?? 0).toLocaleString()}`,
       icon:      CreditCard,
       iconColor: 'text-green-600',
       iconBg:    'bg-green-100',
-      trend:     'MRR — חבילות פעילות',
+      trend:     t('MRR — חבילות פעילות', 'MRR — active packages'),
       trendUp:   true,
     },
     {
-      label:     'לידים פעילים',
+      label:     t('לידים פעילים', 'Active leads'),
       value:     loading ? '…' : String(stats?.openLeads ?? 0),
       icon:      UserPlus,
       iconColor: 'text-secondary-dark',
       iconBg:    'bg-secondary/15',
-      trend:     'לא כולל ארכיב',
+      trend:     t('לא כולל ארכיב', 'Excluding archive'),
       trendUp:   true,
     },
     {
-      label:     'תשלומים פתוחים',
+      label:     t('תשלומים פתוחים', 'Open payments'),
       value:     loading ? '…' : String(stats?.unpaidBilling ?? 0),
       icon:      Clock,
       iconColor: 'text-accent',
       iconBg:    'bg-accent/10',
-      trend:     stats?.unpaidBilling ? 'ממתינים לגבייה' : 'הכל שולם',
+      trend:     stats?.unpaidBilling ? t('ממתינים לגבייה', 'Awaiting collection') : t('הכל שולם', 'All paid'),
       trendUp:   !(stats?.unpaidBilling),
     },
   ]
@@ -221,7 +230,7 @@ export function Dashboard() {
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
               <div className="flex items-center gap-2">
                 <BarChart2 size={18} className="text-primary" />
-                <span className="text-sm font-semibold text-gray-800">סקירת צוות</span>
+                <span className="text-sm font-semibold text-gray-800">{t('סקירת צוות', 'Team overview')}</span>
               </div>
               <button onClick={() => setShowTeam(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><X size={15} /></button>
             </div>
@@ -256,14 +265,14 @@ export function Dashboard() {
 
         {/* Alerts — takes 2 of 3 columns */}
         <div className="lg:col-span-2">
-          <SectionHeader title="התראות פעילות" action="הצג הכל" />
+          <SectionHeader title={t('התראות פעילות', 'Active alerts')} action={t('הצג הכל', 'View all')} />
           <div className="space-y-3">
             {[...ALERTS, ...((stats?.inactiveClients ?? 0) > 0 ? [{
               severity: 'warning' as const,
               icon: AlertTriangle,
-              title: `${stats!.inactiveClients} לקוחות מושהים`,
-              desc: 'סטטוס: מושהה / פג תוקף / בוטל — נדרשת בדיקה',
-              action: 'צפה בלקוחות',
+              title: `${stats!.inactiveClients} ${t('לקוחות מושהים', 'inactive customers')}`,
+              desc: t('סטטוס: מושהה / פג תוקף / בוטל — נדרשת בדיקה', 'Status: paused / expired / cancelled — needs a look'),
+              action: t('צפה בלקוחות', 'View customers'),
             }] : [])].map(({ severity, icon: Icon, title, desc, action }) => {
               const s = SEVERITY[severity]
               return (
@@ -301,10 +310,10 @@ export function Dashboard() {
 
         {/* Recent Activity — takes 1 of 3 columns */}
         <div>
-          <SectionHeader title="פעילות אחרונה" />
+          <SectionHeader title={t('פעילות אחרונה', 'Recent activity')} />
           <Card className="divide-y divide-gray-50">
             {activity.length === 0 ? (
-              <div className="p-4 text-xs text-gray-400">אין פעילות אחרונה עדיין</div>
+              <div className="p-4 text-xs text-gray-400">{t('אין פעילות אחרונה עדיין', 'No activity yet')}</div>
             ) : activity.map(log => {
               const isErr = log.status === 'error'
               const Icon  = isErr ? AlertCircle : CheckCircle2
@@ -317,7 +326,7 @@ export function Dashboard() {
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium text-gray-800 truncate">{log.agent_name}</p>
                     <p className="text-xs text-gray-400 truncate">{log.result_summary || ''}</p>
-                    <p className="text-xs text-gray-300 mt-0.5">{relativeTime(log.run_at)}</p>
+                    <p className="text-xs text-gray-300 mt-0.5">{relativeTime(log.run_at, lang)}</p>
                   </div>
                 </div>
               )
@@ -329,7 +338,7 @@ export function Dashboard() {
       {/* ── Team Overview card (admin only) ── */}
       {isAdmin && (
         <div>
-          <SectionHeader title="צוות פיתוח" />
+          <SectionHeader title={t('צוות פיתוח', 'Development team')} />
           <button
             onClick={() => setShowTeam(true)}
             className="w-full flex items-center gap-4 p-5 bg-surface rounded-2xl border border-gray-100 shadow-sm hover:border-primary/30 hover:shadow-md transition-all text-right"
@@ -338,26 +347,26 @@ export function Dashboard() {
               <BarChart2 size={20} className="text-primary" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-800">סקירת צוות</p>
-              <p className="text-xs text-gray-400 mt-0.5">סטטיסטיקות מפתחים, ביקורות, אישורי וואטסאפ, פעילות</p>
+              <p className="text-sm font-semibold text-gray-800">{t('סקירת צוות', 'Team overview')}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{t('סטטיסטיקות מפתחים, ביקורות, אישורי וואטסאפ, פעילות', 'Developer stats, reviews, WhatsApp approvals, activity')}</p>
             </div>
-            <span className="text-xs text-primary font-semibold shrink-0">פתח →</span>
+            <span className="text-xs text-primary font-semibold shrink-0">{t('פתח →', 'Open →')}</span>
           </button>
         </div>
       )}
 
       {/* ── Agents status ── */}
       <div>
-        <SectionHeader title="סטטוס סוכנים" action="לוח בקרה מלא" />
+        <SectionHeader title={t('סטטוס סוכנים', 'Agent status')} action={t('לוח בקרה מלא', 'Full control panel')} />
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">סוכן</th>
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">תיאור</th>
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">סטטוס</th>
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden md:table-cell">ריצה אחרונה</th>
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden md:table-cell">ריצה הבאה</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">{t('סוכן', 'Agent')}</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">{t('תיאור', 'Description')}</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">{t('סטטוס', 'Status')}</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden md:table-cell">{t('ריצה אחרונה', 'Last run')}</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden md:table-cell">{t('ריצה הבאה', 'Next run')}</th>
                 <th className="px-5 py-3" />
               </tr>
             </thead>
@@ -366,8 +375,10 @@ export function Dashboard() {
                 const live = liveAgents[meta.id]
                 const status: keyof typeof AGENT_STATUS = !live ? 'sleeping' : live.status === 'error' ? 'error' : 'active'
                 const s = AGENT_STATUS[status]
-                const lastRun = live ? relativeTime(live.run_at) : 'טרם רץ'
-                const { name, desc, schedule: nextRun } = meta
+                const lastRun = live ? relativeTime(live.run_at, lang) : t('טרם רץ', 'Not run yet')
+                const name = t(meta.name, meta.en)
+                const desc = t(meta.desc, meta.descEn)
+                const nextRun = t(meta.schedule, meta.scheduleEn)
                 return (
                   <tr key={meta.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-5 py-3.5">
@@ -377,7 +388,7 @@ export function Dashboard() {
                     <td className="px-5 py-3.5">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${status === 'active' ? 'animate-pulse' : ''}`} />
-                        {s.label}
+                        {t(s.label, s.labelEn)}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-gray-400 text-xs hidden md:table-cell">{lastRun}</td>
