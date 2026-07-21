@@ -402,7 +402,8 @@ export async function updateMessageTemplate(
 
 export interface DbBotConfig {
   bot: string
-  base_prompt: string
+  base_prompt: string      // Knowledge: facts, FAQ, solutions
+  behavior_prompt: string  // Behavior: tone, escalation, ticket rules
   model: string
   active: boolean
   updated_at: string
@@ -430,7 +431,7 @@ export async function getBotConfig(bot: string): Promise<DbBotConfig | null> {
 
 export async function updateBotConfig(
   bot: string,
-  updates: Partial<Pick<DbBotConfig, 'base_prompt' | 'model' | 'active'>>
+  updates: Partial<Pick<DbBotConfig, 'base_prompt' | 'behavior_prompt' | 'model' | 'active'>>
 ): Promise<{ error: unknown }> {
   const { error } = await supabase
     .from('bot_config')

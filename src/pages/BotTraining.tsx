@@ -6,6 +6,7 @@ import {
   Trash2,
   Loader2,
   BookOpen,
+  Compass,
   Check,
 } from 'lucide-react'
 import {
@@ -51,6 +52,9 @@ export function BotTraining() {
   const [loading, setLoading] = useState(true)
   const [savingPrompt, setSavingPrompt] = useState(false)
   const [promptSaved, setPromptSaved] = useState(false)
+  const [behavior, setBehavior] = useState('')
+  const [savingBehavior, setSavingBehavior] = useState(false)
+  const [behaviorSaved, setBehaviorSaved] = useState(false)
 
   // new item form
   const [newKind, setNewKind] = useState<DbBotTraining['kind']>('rule')
@@ -63,6 +67,7 @@ export function BotTraining() {
     const [cfg, list] = await Promise.all([getBotConfig(b), getBotTraining(b).catch(() => [])])
     setConfig(cfg)
     setPrompt(cfg?.base_prompt ?? '')
+    setBehavior(cfg?.behavior_prompt ?? '')
     setItems(list)
     setLoading(false)
   }
@@ -78,6 +83,16 @@ export function BotTraining() {
     if (!error) {
       setPromptSaved(true)
       setTimeout(() => setPromptSaved(false), 2000)
+    }
+  }
+
+  async function saveBehavior() {
+    setSavingBehavior(true)
+    const { error } = await updateBotConfig(bot, { behavior_prompt: behavior })
+    setSavingBehavior(false)
+    if (!error) {
+      setBehaviorSaved(true)
+      setTimeout(() => setBehaviorSaved(false), 2000)
     }
   }
 
@@ -144,21 +159,21 @@ export function BotTraining() {
         </div>
       ) : (
         <>
-          {/* Base knowledge */}
+          {/* Knowledge */}
           <Card className="p-5">
             <div className="flex items-center gap-2 mb-3">
               <BookOpen size={16} className="text-primary" />
-              <h2 className="text-sm font-semibold text-primary">{t('ידע בסיס (חוקי האפליקציה)', 'Base knowledge (app rules)')}</h2>
+              <h2 className="text-sm font-semibold text-primary">{t('ידע (עובדות ופתרונות)', 'Knowledge (facts and solutions)')}</h2>
             </div>
             <p className="text-xs text-gray-500 mb-3">
-              {t('זהו הידע הראשי של הבוט. הדביקו כאן את קובץ הכללים של האפליקציה. הבוט מסתמך על זה בכל תשובה.', "This is the bot's main knowledge. Paste the app rules here. The bot relies on it for every reply.")}
+              {t('כאן נכנס הידע של הבוט: שאלות נפוצות, מדריכים ופתרונות מאושרים. הבוט עונה מתוך זה.', 'The bot’s knowledge: FAQ, guides, and approved solutions. The bot answers from this.')}
             </p>
             <textarea
               value={prompt}
               onChange={e => setPrompt(e.target.value)}
-              rows={10}
+              rows={9}
               dir="auto"
-              placeholder={t('הדביקו כאן את חוקי האפליקציה (קובץ ה-MD)...', 'Paste the app rules here (the MD file)...')}
+              placeholder={t('הדביקו כאן את קובץ הידע (Knowledge MD)...', 'Paste the knowledge file here (Knowledge MD)...')}
               className="w-full text-sm border border-gray-200 rounded-xl p-3 focus:outline-none focus:border-primary/50 resize-y font-mono"
             />
             <div className="flex items-center justify-between mt-3">
@@ -171,7 +186,36 @@ export function BotTraining() {
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
               >
                 {savingPrompt ? <Loader2 size={14} className="animate-spin" /> : promptSaved ? <Check size={14} /> : <Save size={14} />}
-                {promptSaved ? t('נשמר', 'Saved') : t('שמור ידע בסיס', 'Save base knowledge')}
+                {promptSaved ? t('נשמר', 'Saved') : t('שמור ידע', 'Save knowledge')}
+              </button>
+            </div>
+          </Card>
+
+          {/* Behavior */}
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Compass size={16} className="text-secondary-dark" />
+              <h2 className="text-sm font-semibold text-primary">{t('התנהגות (טון וכללים)', 'Behavior (tone and rules)')}</h2>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              {t('כאן נכנסת ההתנהגות: הטון, מתי להסלים, כללי פתיחת פנייה ואיך לתקשר עם הלקוח.', 'The bot’s behavior: tone, when to escalate, ticket rules, and how to talk to the customer.')}
+            </p>
+            <textarea
+              value={behavior}
+              onChange={e => setBehavior(e.target.value)}
+              rows={9}
+              dir="auto"
+              placeholder={t('הדביקו כאן את קובץ ההתנהגות (Behavior MD)...', 'Paste the behavior file here (Behavior MD)...')}
+              className="w-full text-sm border border-gray-200 rounded-xl p-3 focus:outline-none focus:border-primary/50 resize-y font-mono"
+            />
+            <div className="flex items-center justify-end mt-3">
+              <button
+                onClick={saveBehavior}
+                disabled={savingBehavior}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
+              >
+                {savingBehavior ? <Loader2 size={14} className="animate-spin" /> : behaviorSaved ? <Check size={14} /> : <Save size={14} />}
+                {behaviorSaved ? t('נשמר', 'Saved') : t('שמור התנהגות', 'Save behavior')}
               </button>
             </div>
           </Card>
