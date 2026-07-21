@@ -13,6 +13,7 @@ import {
   getBillingRecords,
 } from '../lib/database'
 import type { DbClient, DbContact, DbBillingRecord } from '../lib/database'
+import { useLang } from '../contexts/LanguageContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ interface Client {
 }
 
 interface BillingMonth {
-  month: string; fixed: number; otpCount: number; otpTotal: number
+  month: string; monthEn?: string; fixed: number; otpCount: number; otpTotal: number
   usersCount: number; extraUsers: number; blocks: number
   usersTotal: number; total: number; paid: boolean
 }
@@ -85,17 +86,25 @@ const STATUS_COLOR: Record<ClientStatus, string> = {
 const STATUS_LABEL: Record<ClientStatus, string> = {
   active: 'פעיל', pending: 'ממתין', on_hold: 'מושהה', expired: 'פג תוקף', cancelled: 'בוטל',
 }
+const STATUS_LABEL_EN: Record<ClientStatus, string> = {
+  active: 'Active', pending: 'Pending', on_hold: 'On hold', expired: 'Expired', cancelled: 'Cancelled',
+}
 
 const TICKET_PRIORITY_COLOR: Record<TicketPriority, string> = {
   high: 'bg-red-100 text-red-600', medium: 'bg-amber-100 text-amber-600', low: 'bg-gray-100 text-gray-500',
 }
 const TICKET_PRIORITY_LABEL: Record<TicketPriority, string> = { high: 'דחוף', medium: 'בינוני', low: 'נמוך' }
+const TICKET_PRIORITY_LABEL_EN: Record<TicketPriority, string> = { high: 'High', medium: 'Medium', low: 'Low' }
 const TICKET_STATUS_COLOR: Record<TicketStatus, string> = {
   open: 'bg-blue-100 text-blue-700', pending: 'bg-amber-100 text-amber-700', closed: 'bg-gray-100 text-gray-400',
 }
 const TICKET_STATUS_LABEL: Record<TicketStatus, string> = { open: 'פתוח', pending: 'בטיפול', closed: 'סגור' }
+const TICKET_STATUS_LABEL_EN: Record<TicketStatus, string> = { open: 'Open', pending: 'In progress', closed: 'Closed' }
 
 const ROLE_OPTIONS: ContactRole[] = ['בעלים', 'מנהל אפליקציה', 'מזין תוכן', 'אחר']
+const ROLE_LABEL_EN: Record<ContactRole, string> = {
+  'בעלים': 'Owner', 'מנהל אפליקציה': 'App manager', 'מזין תוכן': 'Content editor', 'אחר': 'Other',
+}
 const ROLE_COLOR: Record<ContactRole, string> = {
   'בעלים':            'bg-primary/10 text-primary',
   'מנהל אפליקציה':   'bg-secondary/20 text-teal-700',
@@ -195,7 +204,9 @@ function contactToDbInsert(c: Contact): Omit<DbContact, 'id' | 'client_id' | 'cr
 }
 
 const HEB_MONTHS = ['', 'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר']
+const EN_MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const fmtBillingMonth = (m: number, y: number) => `${HEB_MONTHS[m]} ${String(y).slice(2)}`
+const fmtBillingMonthEn = (m: number, y: number) => `${EN_MONTHS[m]} ${String(y).slice(2)}`
 
 function generateBilling(client: Client, settings: AppSettings): BillingMonth[] {
   const MONTHS = ['ינואר 25', 'פברואר 25', 'מרץ 25', 'אפריל 25', 'מאי 25', 'יוני 25']
@@ -252,15 +263,17 @@ const TICKETS: Record<string, SupportTicket[]> = {
 // ─── Loading / error states ───────────────────────────────────────────────────
 
 function LoadingScreen() {
+  const { t } = useLang()
   return (
     <div className="flex flex-col items-center justify-center h-64 gap-3 text-gray-400">
       <Loader2 size={32} className="animate-spin text-primary/40" />
-      <p className="text-sm">טוען לקוחות...</p>
+      <p className="text-sm">{t('טוען לקוחות...', 'Loading customers...')}</p>
     </div>
   )
 }
 
 function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const { t } = useLang()
   return (
     <div className="flex flex-col items-center justify-center h-64 gap-4 text-gray-400">
       <AlertCircle size={32} className="text-red-300" />
@@ -269,18 +282,19 @@ function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => voi
         onClick={onRetry}
         className="flex items-center gap-2 text-xs text-primary border border-primary/30 px-3 py-2 rounded-lg hover:bg-primary/5 transition-colors"
       >
-        <RefreshCw size={13} />נסה שוב
+        <RefreshCw size={13} />{t('נסה שוב', 'Try again')}
       </button>
     </div>
   )
 }
 
 function SaveErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  const { t } = useLang()
   return (
     <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600 mb-4">
       <div className="flex items-center gap-2">
         <AlertCircle size={15} className="shrink-0" />
-        <span>שגיאה בשמירה: {message}</span>
+        <span>{t('שגיאה בשמירה', 'Save error')}: {message}</span>
       </div>
       <button onClick={onDismiss} className="text-red-400 hover:text-red-600"><X size={15} /></button>
     </div>
@@ -313,6 +327,7 @@ function NumberField({ label, value, editing, onChange, prefix = '', defaultVal 
   label: string; value: number | undefined; editing: boolean
   onChange: (v: number | undefined) => void; prefix?: string; defaultVal?: number
 }) {
+  const { t } = useLang()
   return (
     <div>
       <label className="block text-xs text-gray-400 mb-1">{label}</label>
@@ -320,14 +335,14 @@ function NumberField({ label, value, editing, onChange, prefix = '', defaultVal 
         ? <div className="relative">
             {prefix && <span className="absolute top-1/2 -translate-y-1/2 end-3 text-xs text-gray-400">{prefix}</span>}
             <input type="number"
-              value={value ?? ''} placeholder={defaultVal !== undefined ? `ברירת מחדל: ${defaultVal}` : ''}
+              value={value ?? ''} placeholder={defaultVal !== undefined ? `${t('ברירת מחדל', 'Default')}: ${defaultVal}` : ''}
               onChange={e => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
               className="w-full border border-gray-200 rounded-lg px-3 pe-7 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
             />
           </div>
         : value !== undefined
           ? <p className="text-sm font-medium text-gray-800">{prefix}{value}</p>
-          : <p className="text-sm text-gray-400 italic">ברירת מחדל: {prefix}{defaultVal}</p>
+          : <p className="text-sm text-gray-400 italic">{t('ברירת מחדל', 'Default')}: {prefix}{defaultVal}</p>
       }
     </div>
   )
@@ -343,6 +358,7 @@ function ContactRow({
   onUpdate: (field: keyof Contact, value: unknown) => void
   onRemove: () => void
 }) {
+  const { t } = useLang()
   const initials = contact.name
     ? contact.name.split(' ').slice(0, 2).map(w => w[0]).join('')
     : '?'
@@ -356,13 +372,13 @@ function ContactRow({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-gray-800">{contact.name || '—'}</span>
-            <Badge className={ROLE_COLOR[contact.role]}>{contact.role}</Badge>
+            <Badge className={ROLE_COLOR[contact.role]}>{t(contact.role, ROLE_LABEL_EN[contact.role])}</Badge>
           </div>
           <p className="text-xs text-gray-400 mt-0.5" dir="ltr">{contact.phone || '—'}</p>
         </div>
         <div className="flex items-center gap-1.5 text-base shrink-0">
-          {contact.receivesPayments && <span title="מקבל דרישות תשלום">💳</span>}
-          {contact.receivesUpdates  && <span title="מקבל עדכונים">📢</span>}
+          {contact.receivesPayments && <span title={t('מקבל דרישות תשלום', 'Receives payment requests')}>💳</span>}
+          {contact.receivesUpdates  && <span title={t('מקבל עדכונים', 'Receives updates')}>📢</span>}
         </div>
       </div>
     )
@@ -373,19 +389,19 @@ function ContactRow({
       <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-2 items-center">
         <input
           value={contact.name} onChange={e => onUpdate('name', e.target.value)}
-          placeholder="שם מלא"
+          placeholder={t('שם מלא', 'Full name')}
           className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
         />
         <input
           value={contact.phone} onChange={e => onUpdate('phone', e.target.value)}
-          placeholder="טלפון" dir="ltr"
+          placeholder={t('טלפון', 'Phone')} dir="ltr"
           className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
         />
         <select
           value={contact.role} onChange={e => onUpdate('role', e.target.value as ContactRole)}
           className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
         >
-          {ROLE_OPTIONS.map(r => <option key={r}>{r}</option>)}
+          {ROLE_OPTIONS.map(r => <option key={r} value={r}>{t(r, ROLE_LABEL_EN[r])}</option>)}
         </select>
         <button onClick={onRemove} className="p-1 text-red-300 hover:text-red-500 transition-colors">
           <Trash2 size={14} />
@@ -398,7 +414,7 @@ function ContactRow({
             onChange={e => onUpdate('receivesPayments', e.target.checked)}
             className="rounded accent-primary"
           />
-          💳 מקבל דרישות תשלום
+          💳 {t('מקבל דרישות תשלום', 'Receives payment requests')}
         </label>
         <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
           <input
@@ -406,7 +422,7 @@ function ContactRow({
             onChange={e => onUpdate('receivesUpdates', e.target.checked)}
             className="rounded accent-primary"
           />
-          📢 מקבל עדכונים
+          📢 {t('מקבל עדכונים', 'Receives updates')}
         </label>
       </div>
     </div>
@@ -420,6 +436,7 @@ function ContactsSection({
   editing: boolean
   onChange: (contacts: Contact[]) => void
 }) {
+  const { t } = useLang()
   const addContact = () => {
     const base = contacts.length === 0
     onChange([...contacts, {
@@ -462,7 +479,7 @@ function ContactsSection({
     <section>
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="text-sm font-semibold text-primary">אנשי קשר</h3>
+          <h3 className="text-sm font-semibold text-primary">{t('אנשי קשר', 'Contacts')}</h3>
           {!editing && contacts.length > 0 && (
             <p className="text-xs text-gray-400 mt-0.5">
               {[
@@ -477,14 +494,14 @@ function ContactsSection({
             onClick={addContact}
             className="flex items-center gap-1 text-xs text-primary hover:text-primary-dark border border-primary/30 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1.5 rounded-lg transition-colors"
           >
-            <Plus size={12} />הוסף
+            <Plus size={12} />{t('הוסף', 'Add')}
           </button>
         )}
       </div>
 
       {contacts.length === 0 ? (
         <p className="text-sm text-gray-400">
-          {editing ? 'לחץ "+ הוסף" להוספת איש קשר.' : 'אין אנשי קשר מוגדרים.'}
+          {editing ? t('לחץ "+ הוסף" להוספת איש קשר.', 'Click "+ Add" to add a contact.') : t('אין אנשי קשר מוגדרים.', 'No contacts set.')}
         </p>
       ) : (
         <div className="space-y-2">
@@ -506,6 +523,7 @@ function ContactsSection({
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
 function DetailsTab({ client, onSave }: { client: Client; onSave: (c: Client) => void }) {
+  const { t } = useLang()
   const { settings } = useSettings()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(client)
@@ -520,19 +538,19 @@ function DetailsTab({ client, onSave }: { client: Client; onSave: (c: Client) =>
       {/* Contact info */}
       <section>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-primary">פרטי קשר</h3>
+          <h3 className="text-sm font-semibold text-primary">{t('פרטי קשר', 'Contact details')}</h3>
           {!editing
-            ? <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-primary transition-colors"><Pencil size={13} />עריכה</button>
+            ? <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-primary transition-colors"><Pencil size={13} />{t('עריכה', 'Edit')}</button>
             : <div className="flex gap-2">
-                <button onClick={handleSave}   className="flex items-center gap-1 text-xs bg-primary text-white px-3 py-1.5 rounded-lg hover:bg-primary-dark transition-colors"><Save size={12} />שמור</button>
-                <button onClick={handleCancel} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5 rounded-lg transition-colors"><X size={12} />ביטול</button>
+                <button onClick={handleSave}   className="flex items-center gap-1 text-xs bg-primary text-white px-3 py-1.5 rounded-lg hover:bg-primary-dark transition-colors"><Save size={12} />{t('שמור', 'Save')}</button>
+                <button onClick={handleCancel} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5 rounded-lg transition-colors"><X size={12} />{t('ביטול', 'Cancel')}</button>
               </div>
           }
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="שם מלא" value={draft.name}         editing={editing} onChange={v => set('name', v)} />
-          <Field label="שם עסק" value={draft.businessName} editing={editing} onChange={v => set('businessName', v)} />
-          <Field label="אימייל" value={draft.email}        editing={editing} onChange={v => set('email', v)} />
+          <Field label={t('שם מלא', 'Full name')} value={draft.name}         editing={editing} onChange={v => set('name', v)} />
+          <Field label={t('שם עסק', 'Business name')} value={draft.businessName} editing={editing} onChange={v => set('businessName', v)} />
+          <Field label={t('אימייל', 'Email')} value={draft.email}        editing={editing} onChange={v => set('email', v)} />
         </div>
       </section>
 
@@ -545,60 +563,60 @@ function DetailsTab({ client, onSave }: { client: Client; onSave: (c: Client) =>
 
       {/* Subscription */}
       <section>
-        <h3 className="text-sm font-semibold text-primary mb-4">פרטי מנוי</h3>
+        <h3 className="text-sm font-semibold text-primary mb-4">{t('פרטי מנוי', 'Subscription details')}</h3>
         <div className="grid grid-cols-3 gap-4">
           <div>
-            <label className="block text-xs text-gray-400 mb-1">חבילה</label>
+            <label className="block text-xs text-gray-400 mb-1">{t('חבילה', 'Package')}</label>
             <Badge className={PKG_COLOR[client.package]}>{client.package}</Badge>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">סטטוס</label>
+            <label className="block text-xs text-gray-400 mb-1">{t('סטטוס', 'Status')}</label>
             {editing
               ? <select value={draft.status} onChange={e => set('status', e.target.value as ClientStatus)}
                   className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary">
-                  <option value="active">פעיל</option>
-                  <option value="on_hold">מושהה</option>
-                  <option value="cancelled">בוטל</option>
-                  <option value="pending">ממתין</option>
-                  <option value="expired">פג תוקף</option>
+                  <option value="active">{t('פעיל', 'Active')}</option>
+                  <option value="on_hold">{t('מושהה', 'On hold')}</option>
+                  <option value="cancelled">{t('בוטל', 'Cancelled')}</option>
+                  <option value="pending">{t('ממתין', 'Pending')}</option>
+                  <option value="expired">{t('פג תוקף', 'Expired')}</option>
                 </select>
-              : <Badge className={STATUS_COLOR[draft.status]}>{STATUS_LABEL[draft.status]}</Badge>
+              : <Badge className={STATUS_COLOR[draft.status]}>{t(STATUS_LABEL[draft.status], STATUS_LABEL_EN[draft.status])}</Badge>
             }
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">חודש מנוי</label>
+            <label className="block text-xs text-gray-400 mb-1">{t('חודש מנוי', 'Subscription month')}</label>
             <span className={`text-sm font-semibold ${client.subscriptionMonth >= 11 ? 'text-accent' : 'text-gray-800'}`}>
               {client.subscriptionMonth} / 12
             </span>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">תאריך הצטרפות</label>
+            <label className="block text-xs text-gray-400 mb-1">{t('תאריך הצטרפות', 'Join date')}</label>
             <p className="text-sm font-medium text-gray-800">{client.joinDate}</p>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">מחיר חבילה</label>
-            <p className="text-sm font-medium text-gray-800">₪{PACKAGE_PRICE[client.package]}/חודש</p>
+            <label className="block text-xs text-gray-400 mb-1">{t('מחיר חבילה', 'Package price')}</label>
+            <p className="text-sm font-medium text-gray-800">₪{PACKAGE_PRICE[client.package]}/{t('חודש', 'mo')}</p>
           </div>
         </div>
       </section>
 
       {/* Custom pricing */}
       <section>
-        <h3 className="text-sm font-semibold text-primary mb-4">תמחור מותאם אישית</h3>
+        <h3 className="text-sm font-semibold text-primary mb-4">{t('תמחור מותאם אישית', 'Custom pricing')}</h3>
         <div className="grid grid-cols-3 gap-4">
-          <NumberField label="מחיר OTP"     value={draft.otpPrice}      editing={editing} onChange={v => set('otpPrice', v)}      prefix="₪" defaultVal={settings.DEFAULT_OTP_PRICE} />
-          <NumberField label="סף משתמשים"   value={draft.userThreshold} editing={editing} onChange={v => set('userThreshold', v)}             defaultVal={settings.DEFAULT_USER_THRESHOLD} />
-          <NumberField label={`מחיר בלוק (${settings.DEFAULT_BLOCK_SIZE})`} value={draft.blockPrice} editing={editing} onChange={v => set('blockPrice', v)} prefix="₪" defaultVal={settings.DEFAULT_BLOCK_PRICE} />
+          <NumberField label={t('מחיר OTP', 'OTP price')}     value={draft.otpPrice}      editing={editing} onChange={v => set('otpPrice', v)}      prefix="₪" defaultVal={settings.DEFAULT_OTP_PRICE} />
+          <NumberField label={t('סף משתמשים', 'User threshold')}   value={draft.userThreshold} editing={editing} onChange={v => set('userThreshold', v)}             defaultVal={settings.DEFAULT_USER_THRESHOLD} />
+          <NumberField label={`${t('מחיר בלוק', 'Block price')} (${settings.DEFAULT_BLOCK_SIZE})`} value={draft.blockPrice} editing={editing} onChange={v => set('blockPrice', v)} prefix="₪" defaultVal={settings.DEFAULT_BLOCK_PRICE} />
         </div>
         <p className="text-xs text-gray-400 mt-3">
-          * חיוב משתנה: ₪{draft.otpPrice ?? settings.DEFAULT_OTP_PRICE} לכל OTP
-          {' + '}₪{draft.blockPrice ?? settings.DEFAULT_BLOCK_PRICE} לכל {settings.DEFAULT_BLOCK_SIZE} משתמשים מעל {(draft.userThreshold ?? settings.DEFAULT_USER_THRESHOLD).toLocaleString()}
+          * {t('חיוב משתנה', 'Variable charge')}: ₪{draft.otpPrice ?? settings.DEFAULT_OTP_PRICE} {t('לכל OTP', 'per OTP')}
+          {' + '}₪{draft.blockPrice ?? settings.DEFAULT_BLOCK_PRICE} {t('לכל', 'per')} {settings.DEFAULT_BLOCK_SIZE} {t('משתמשים מעל', 'users above')} {(draft.userThreshold ?? settings.DEFAULT_USER_THRESHOLD).toLocaleString()}
         </p>
       </section>
 
       {/* Notes */}
       <section>
-        <h3 className="text-sm font-semibold text-primary mb-3">הערות</h3>
+        <h3 className="text-sm font-semibold text-primary mb-3">{t('הערות', 'Notes')}</h3>
         {editing
           ? <textarea value={draft.notes} onChange={e => set('notes', e.target.value)} rows={3}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
@@ -610,15 +628,16 @@ function DetailsTab({ client, onSave }: { client: Client; onSave: (c: Client) =>
 }
 
 function BillingTable({ billing }: { billing: BillingMonth[] }) {
+  const { t } = useLang()
   const total = billing.reduce((s, r) => s + r.total, 0)
   const paid  = billing.filter(r => r.paid).reduce((s, r) => s + r.total, 0)
   return (
     <div className="p-5">
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
-          { label: 'סה"כ תקופה',  value: `₪${total.toLocaleString()}`,          color: 'text-primary'   },
-          { label: 'שולם',        value: `₪${paid.toLocaleString()}`,            color: 'text-green-600' },
-          { label: 'יתרה לגבייה', value: `₪${(total - paid).toLocaleString()}`, color: 'text-accent'    },
+          { label: t('סה"כ תקופה', 'Period total'),   value: `₪${total.toLocaleString()}`,          color: 'text-primary'   },
+          { label: t('שולם', 'Paid'),                 value: `₪${paid.toLocaleString()}`,            color: 'text-green-600' },
+          { label: t('יתרה לגבייה', 'Left to collect'), value: `₪${(total - paid).toLocaleString()}`, color: 'text-accent'    },
         ].map(s => (
           <Card key={s.label} className="p-4 text-center">
             <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
@@ -631,15 +650,15 @@ function BillingTable({ billing }: { billing: BillingMonth[] }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
-                {['חודש', 'קבוע', 'OTP כמות', 'OTP ₪', 'משתמשים', 'בלוקים', '₪ משתנה', 'סה"כ', 'שולם'].map(h => (
-                  <th key={h} className="text-right text-xs font-medium text-gray-400 px-4 py-3 whitespace-nowrap">{h}</th>
+                {[['חודש', 'Month'], ['קבוע', 'Fixed'], ['OTP כמות', 'OTP count'], ['OTP ₪', 'OTP ₪'], ['משתמשים', 'Users'], ['בלוקים', 'Blocks'], ['₪ משתנה', 'Variable ₪'], ['סה"כ', 'Total'], ['שולם', 'Paid']].map(([he, en]) => (
+                  <th key={he} className="text-right text-xs font-medium text-gray-400 px-4 py-3 whitespace-nowrap">{t(he, en)}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {billing.map(r => (
                 <tr key={r.month} className="hover:bg-gray-50/40 transition-colors">
-                  <td className="px-4 py-3 font-medium text-gray-700 whitespace-nowrap">{r.month}</td>
+                  <td className="px-4 py-3 font-medium text-gray-700 whitespace-nowrap">{t(r.month, r.monthEn ?? r.month)}</td>
                   <td className="px-4 py-3 text-gray-600">₪{r.fixed}</td>
                   <td className="px-4 py-3 text-gray-600">{r.otpCount}</td>
                   <td className="px-4 py-3 text-gray-600">₪{r.otpTotal}</td>
@@ -649,8 +668,8 @@ function BillingTable({ billing }: { billing: BillingMonth[] }) {
                   <td className="px-4 py-3 font-semibold text-primary">₪{r.total.toLocaleString()}</td>
                   <td className="px-4 py-3">
                     {r.paid
-                      ? <span className="inline-flex items-center gap-1 text-green-600 text-xs"><Check size={12} />שולם</span>
-                      : <span className="inline-flex items-center gap-1 text-amber-500 text-xs"><Clock size={12} />ממתין</span>}
+                      ? <span className="inline-flex items-center gap-1 text-green-600 text-xs"><Check size={12} />{t('שולם', 'Paid')}</span>
+                      : <span className="inline-flex items-center gap-1 text-amber-500 text-xs"><Clock size={12} />{t('ממתין', 'Pending')}</span>}
                   </td>
                 </tr>
               ))}
@@ -663,6 +682,7 @@ function BillingTable({ billing }: { billing: BillingMonth[] }) {
 }
 
 function BillingTab({ client }: { client: Client }) {
+  const { t } = useLang()
   const { settings } = useSettings()
   const [records, setRecords] = useState<DbBillingRecord[] | null>(null)
   const [connErr, setConnErr] = useState(false)
@@ -684,7 +704,7 @@ function BillingTab({ client }: { client: Client }) {
     return (
       <div className="flex items-center justify-center h-36 gap-2 text-gray-400">
         <Loader2 size={18} className="animate-spin text-primary/40" />
-        <span className="text-sm">טוען נתוני חיוב...</span>
+        <span className="text-sm">{t('טוען נתוני חיוב...', 'Loading billing data...')}</span>
       </div>
     )
   }
@@ -693,7 +713,7 @@ function BillingTab({ client }: { client: Client }) {
     return (
       <div className="flex flex-col items-center justify-center h-40 gap-2 text-gray-400">
         <CreditCard size={28} className="text-gray-200" />
-        <p className="text-sm">אין היסטוריית חיובים עדיין</p>
+        <p className="text-sm">{t('אין היסטוריית חיובים עדיין', 'No billing history yet')}</p>
       </div>
     )
   }
@@ -705,6 +725,7 @@ function BillingTab({ client }: { client: Client }) {
     const blocks = effBlockPrice > 0 ? Math.round(r.block_cost / effBlockPrice) : 0
     return {
       month:      fmtBillingMonth(r.month, r.year),
+      monthEn:    fmtBillingMonthEn(r.month, r.year),
       fixed:      r.package_price,
       otpCount:   r.otp_count,
       otpTotal:   r.otp_cost,
@@ -721,6 +742,7 @@ function BillingTab({ client }: { client: Client }) {
 }
 
 function WhatsAppTab({ clientId, contacts }: { clientId: string; contacts: Contact[] }) {
+  const { t } = useLang()
   const msgs = WHATSAPP[clientId] ?? []
 
   const paymentContact = contacts.find(c => c.receivesPayments)
@@ -737,24 +759,24 @@ function WhatsAppTab({ clientId, contacts }: { clientId: string; contacts: Conta
       {/* Routing panel */}
       {contacts.length > 0 && (
         <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-100 space-y-2 text-xs">
-          <p className="font-semibold text-gray-500 mb-1.5">ניתוב הודעות</p>
+          <p className="font-semibold text-gray-500 mb-1.5">{t('ניתוב הודעות', 'Message routing')}</p>
           <div className="flex items-center gap-2">
             <span className="text-base">💳</span>
-            <span className="text-gray-500">דרישות תשלום:</span>
+            <span className="text-gray-500">{t('דרישות תשלום', 'Payment requests')}:</span>
             {paymentContact
               ? <span className="font-medium text-gray-700">
                   {paymentContact.name}{' '}
                   <span className="text-gray-400 font-normal" dir="ltr">({paymentContact.phone})</span>
                 </span>
-              : <span className="text-amber-600 font-medium">לא הוגדר נמען לתשלומים</span>
+              : <span className="text-amber-600 font-medium">{t('לא הוגדר נמען לתשלומים', 'No payment recipient set')}</span>
             }
           </div>
           <div className="flex items-start gap-2">
             <span className="text-base shrink-0">📢</span>
-            <span className="text-gray-500 shrink-0">עדכונים:</span>
+            <span className="text-gray-500 shrink-0">{t('עדכונים', 'Updates')}:</span>
             {updateContacts.length > 0
               ? <span className="font-medium text-gray-700">{updateContacts.map(c => c.name).join(', ')}</span>
-              : <span className="text-gray-400">לא הוגדרו נמענים לעדכונים</span>
+              : <span className="text-gray-400">{t('לא הוגדרו נמענים לעדכונים', 'No update recipients set')}</span>
             }
           </div>
         </div>
@@ -764,7 +786,7 @@ function WhatsAppTab({ clientId, contacts }: { clientId: string; contacts: Conta
       {msgs.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-48 text-gray-300">
           <MessageSquare size={32} className="mb-2" />
-          <p className="text-sm">אין הודעות</p>
+          <p className="text-sm">{t('אין הודעות', 'No messages')}</p>
         </div>
       ) : (
         <div className="space-y-3 max-h-80 overflow-y-auto" dir="ltr">
@@ -791,41 +813,42 @@ function WhatsAppTab({ clientId, contacts }: { clientId: string; contacts: Conta
 
       {/* Input */}
       <div className="flex gap-2 border-t border-gray-100 pt-4">
-        <input placeholder="כתוב הודעה..." className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
-        <button className="bg-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-primary-dark transition-colors">שלח</button>
+        <input placeholder={t('כתוב הודעה...', 'Type a message...')} className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
+        <button className="bg-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-primary-dark transition-colors">{t('שלח', 'Send')}</button>
       </div>
     </div>
   )
 }
 
 function TicketsTab({ clientId }: { clientId: string }) {
+  const { t } = useLang()
   const tickets = TICKETS[clientId] ?? []
 
   if (!tickets.length) return (
     <div className="flex flex-col items-center justify-center h-48 text-gray-300">
       <Ticket size={32} className="mb-2" />
-      <p className="text-sm">אין כרטיסי תמיכה</p>
+      <p className="text-sm">{t('אין כרטיסי תמיכה', 'No support tickets')}</p>
     </div>
   )
 
   return (
     <div className="p-5 space-y-3">
-      {tickets.map(t => (
-        <Card key={t.id} className="p-4">
+      {tickets.map(tk => (
+        <Card key={tk.id} className="p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-800">{t.subject}</p>
-              <p className="text-xs text-gray-400 mt-1">נפתח: {t.createdAt}{t.closedAt && ` · נסגר: ${t.closedAt}`}</p>
+              <p className="text-sm font-medium text-gray-800">{tk.subject}</p>
+              <p className="text-xs text-gray-400 mt-1">{t('נפתח', 'Opened')}: {tk.createdAt}{tk.closedAt && ` · ${t('נסגר', 'Closed')}: ${tk.closedAt}`}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <Badge className={TICKET_PRIORITY_COLOR[t.priority]}>{TICKET_PRIORITY_LABEL[t.priority]}</Badge>
-              <Badge className={TICKET_STATUS_COLOR[t.status]}>{TICKET_STATUS_LABEL[t.status]}</Badge>
+              <Badge className={TICKET_PRIORITY_COLOR[tk.priority]}>{t(TICKET_PRIORITY_LABEL[tk.priority], TICKET_PRIORITY_LABEL_EN[tk.priority])}</Badge>
+              <Badge className={TICKET_STATUS_COLOR[tk.status]}>{t(TICKET_STATUS_LABEL[tk.status], TICKET_STATUS_LABEL_EN[tk.status])}</Badge>
             </div>
           </div>
         </Card>
       ))}
       <button className="w-full border-2 border-dashed border-gray-200 rounded-xl py-3 text-sm text-gray-400 hover:border-primary hover:text-primary transition-colors">
-        + פתח כרטיס חדש
+        + {t('פתח כרטיס חדש', 'Open a new ticket')}
       </button>
     </div>
   )
@@ -833,20 +856,21 @@ function TicketsTab({ clientId }: { clientId: string }) {
 
 // ─── Client detail panel ──────────────────────────────────────────────────────
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: 'details',  label: 'פרטים'   },
-  { id: 'billing',  label: 'חיוב'    },
-  { id: 'whatsapp', label: 'וואטסאפ' },
-  { id: 'tickets',  label: 'תמיכה'   },
+const TABS: { id: TabId; he: string; en: string }[] = [
+  { id: 'details',  he: 'פרטים',   en: 'Details'  },
+  { id: 'billing',  he: 'חיוב',    en: 'Billing'  },
+  { id: 'whatsapp', he: 'וואטסאפ', en: 'WhatsApp' },
+  { id: 'tickets',  he: 'תמיכה',   en: 'Support'  },
 ]
 
 function ClientDetail({ client, onBack, onSave }: { client: Client; onBack: () => void; onSave: (c: Client) => void }) {
+  const { t } = useLang()
   const [tab, setTab] = useState<TabId>('details')
 
   return (
     <div className="max-w-4xl mx-auto">
       <button onClick={onBack} className="flex items-center gap-2 text-sm text-gray-400 hover:text-primary mb-5 transition-colors">
-        <ArrowRight size={16} />חזרה לרשימה
+        <ArrowRight size={16} />{t('חזרה לרשימה', 'Back to list')}
       </button>
 
       <Card>
@@ -862,22 +886,22 @@ function ClientDetail({ client, onBack, onSave }: { client: Client; onBack: () =
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {client.subscriptionMonth >= 11 && (
-              <Badge className="bg-accent/10 text-accent">חודש {client.subscriptionMonth} — חדש מנוי</Badge>
+              <Badge className="bg-accent/10 text-accent">{t('חודש', 'Month')} {client.subscriptionMonth} — {t('חדש מנוי', 'renewal due')}</Badge>
             )}
             <Badge className={PKG_COLOR[client.package]}>{client.package}</Badge>
-            <Badge className={STATUS_COLOR[client.status]}>{STATUS_LABEL[client.status]}</Badge>
+            <Badge className={STATUS_COLOR[client.status]}>{t(STATUS_LABEL[client.status], STATUS_LABEL_EN[client.status])}</Badge>
           </div>
         </div>
 
         <div className="flex gap-1 px-5 pt-3 border-b border-gray-100">
-          {TABS.map(({ id, label }) => (
+          {TABS.map(({ id, he, en }) => (
             <button
               key={id} onClick={() => setTab(id)}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${
                 tab === id ? 'border-primary text-primary' : 'border-transparent text-gray-400 hover:text-gray-600'
               }`}
             >
-              {label}
+              {t(he, en)}
             </button>
           ))}
         </div>
@@ -894,6 +918,7 @@ function ClientDetail({ client, onBack, onSave }: { client: Client; onBack: () =
 // ─── Clients list view ────────────────────────────────────────────────────────
 
 function ClientsList({ clients, onSelect }: { clients: Client[]; onSelect: (c: Client) => void }) {
+  const { t } = useLang()
   type SortKey = 'name' | 'subscriptionMonth' | 'joinDate' | 'status'
 
   const [search,    setSearch]    = useState('')
@@ -933,10 +958,10 @@ function ClientsList({ clients, onSelect }: { clients: Client[]; onSelect: (c: C
     <div className="space-y-5 max-w-7xl mx-auto">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'סה"כ לקוחות',  value: clients.length,              icon: Users,       color: 'text-primary',        bg: 'bg-primary/10'   },
-          { label: 'לקוחות פעילים', value: active.length,               icon: TrendingUp,  color: 'text-green-600',      bg: 'bg-green-100'    },
-          { label: 'הכנסה חודשית',  value: `₪${mrr.toLocaleString()}`, icon: CreditCard,  color: 'text-secondary-dark', bg: 'bg-secondary/15' },
-          { label: 'ממתינים',         value: onPending,                   icon: Clock,       color: 'text-yellow-600',     bg: 'bg-yellow-100'   },
+          { label: t('סה"כ לקוחות', 'Total customers'),  value: clients.length,              icon: Users,       color: 'text-primary',        bg: 'bg-primary/10'   },
+          { label: t('לקוחות פעילים', 'Active customers'), value: active.length,               icon: TrendingUp,  color: 'text-green-600',      bg: 'bg-green-100'    },
+          { label: t('הכנסה חודשית', 'Monthly revenue'),  value: `₪${mrr.toLocaleString()}`, icon: CreditCard,  color: 'text-secondary-dark', bg: 'bg-secondary/15' },
+          { label: t('ממתינים', 'Pending'),               value: onPending,                   icon: Clock,       color: 'text-yellow-600',     bg: 'bg-yellow-100'   },
         ].map(({ label, value, icon: Icon, color, bg }) => (
           <Card key={label} className="p-4 flex items-center gap-4">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${bg}`}>
@@ -955,14 +980,14 @@ function ClientsList({ clients, onSelect }: { clients: Client[]; onSelect: (c: C
           <Search size={15} className="absolute top-1/2 -translate-y-1/2 end-3 text-gray-400 pointer-events-none" />
           <input
             value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="חיפוש לפי שם, אימייל, טלפון..."
+            placeholder={t('חיפוש לפי שם, אימייל, טלפון...', 'Search by name, email, phone...')}
             className="w-full bg-surface border border-gray-200 rounded-xl text-sm pe-9 ps-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
           />
         </div>
         <div className="relative">
           <select value={pkgFilter} onChange={e => setPkgFilter(e.target.value as PackageType | '')}
             className="appearance-none bg-surface border border-gray-200 rounded-xl text-sm px-4 pe-8 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
-            <option value="">כל החבילות</option>
+            <option value="">{t('כל החבילות', 'All packages')}</option>
             <option>Solo Pro</option><option>Master Class</option><option>Community Master</option>
           </select>
           <ChevronDown size={13} className="absolute top-1/2 -translate-y-1/2 start-3 text-gray-400 pointer-events-none" />
@@ -970,16 +995,16 @@ function ClientsList({ clients, onSelect }: { clients: Client[]; onSelect: (c: C
         <div className="relative">
           <select value={stsFilter} onChange={e => setStsFilter(e.target.value as ClientStatus | '')}
             className="appearance-none bg-surface border border-gray-200 rounded-xl text-sm px-4 pe-8 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
-            <option value="">כל הסטטוסים</option>
-            <option value="active">פעיל</option>
-            <option value="on_hold">מושהה</option>
-            <option value="cancelled">בוטל</option>
-            <option value="pending">ממתין</option>
-            <option value="expired">פג תוקף</option>
+            <option value="">{t('כל הסטטוסים', 'All statuses')}</option>
+            <option value="active">{t('פעיל', 'Active')}</option>
+            <option value="on_hold">{t('מושהה', 'On hold')}</option>
+            <option value="cancelled">{t('בוטל', 'Cancelled')}</option>
+            <option value="pending">{t('ממתין', 'Pending')}</option>
+            <option value="expired">{t('פג תוקף', 'Expired')}</option>
           </select>
           <ChevronDown size={13} className="absolute top-1/2 -translate-y-1/2 start-3 text-gray-400 pointer-events-none" />
         </div>
-        <span className="text-xs text-gray-400">{filtered.length} לקוחות</span>
+        <span className="text-xs text-gray-400">{filtered.length} {t('לקוחות', 'customers')}</span>
       </div>
 
       <Card className="overflow-hidden">
@@ -988,15 +1013,15 @@ function ClientsList({ clients, onSelect }: { clients: Client[]; onSelect: (c: C
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
                 {([
-                  { label: 'שם לקוח',       key: 'name'             },
-                  { label: 'עסק'                                     },
-                  { label: 'אימייל'                                  },
-                  { label: 'טלפון'                                   },
-                  { label: 'חבילה'                                   },
-                  { label: 'תאריך הצטרפות', key: 'joinDate'          },
-                  { label: 'חודש',           key: 'subscriptionMonth' },
-                  { label: 'סטטוס',          key: 'status'            },
-                ] as { label: string; key?: SortKey }[]).map(({ label, key }) => (
+                  { label: 'שם לקוח',       en: 'Customer',  key: 'name'             },
+                  { label: 'עסק',            en: 'Business'                            },
+                  { label: 'אימייל',         en: 'Email'                               },
+                  { label: 'טלפון',          en: 'Phone'                               },
+                  { label: 'חבילה',          en: 'Package'                             },
+                  { label: 'תאריך הצטרפות', en: 'Join date', key: 'joinDate'          },
+                  { label: 'חודש',           en: 'Month',     key: 'subscriptionMonth' },
+                  { label: 'סטטוס',          en: 'Status',    key: 'status'            },
+                ] as { label: string; en: string; key?: SortKey }[]).map(({ label, en, key }) => (
                   <th
                     key={label}
                     onClick={key ? () => handleSort(key) : undefined}
@@ -1007,7 +1032,7 @@ function ClientsList({ clients, onSelect }: { clients: Client[]; onSelect: (c: C
                     }`}
                   >
                     <span className="inline-flex items-center gap-1">
-                      {label}
+                      {t(label, en)}
                       {key && sortKey === key && (
                         sortDir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />
                       )}
@@ -1028,7 +1053,7 @@ function ClientsList({ clients, onSelect }: { clients: Client[]; onSelect: (c: C
                       <div>
                         <span className="font-medium text-gray-800">{client.name}</span>
                         {client.contacts.length > 0 && (
-                          <span className="text-xs text-gray-400 block">{client.contacts.length} אנשי קשר</span>
+                          <span className="text-xs text-gray-400 block">{client.contacts.length} {t('אנשי קשר', 'contacts')}</span>
                         )}
                       </div>
                     </div>
@@ -1043,11 +1068,11 @@ function ClientsList({ clients, onSelect }: { clients: Client[]; onSelect: (c: C
                       {client.subscriptionMonth}/12
                     </span>
                   </td>
-                  <td className="px-5 py-3.5"><Badge className={STATUS_COLOR[client.status]}>{STATUS_LABEL[client.status]}</Badge></td>
+                  <td className="px-5 py-3.5"><Badge className={STATUS_COLOR[client.status]}>{t(STATUS_LABEL[client.status], STATUS_LABEL_EN[client.status])}</Badge></td>
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={8} className="px-5 py-12 text-center text-gray-300 text-sm">לא נמצאו לקוחות</td></tr>
+                <tr><td colSpan={8} className="px-5 py-12 text-center text-gray-300 text-sm">{t('לא נמצאו לקוחות', 'No customers found')}</td></tr>
               )}
             </tbody>
           </table>
@@ -1060,6 +1085,7 @@ function ClientsList({ clients, onSelect }: { clients: Client[]; onSelect: (c: C
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export function Clients() {
+  const { t } = useLang()
   const [clients,   setClients]   = useState<Client[]>([])
   const [selected,  setSelected]  = useState<Client | null>(null)
   const [loading,   setLoading]   = useState(true)
@@ -1075,7 +1101,7 @@ export function Clients() {
     } catch (err) {
       const e = err as { message?: string; details?: string; hint?: string }
       console.error('getClients failed', e.message, e.details, e.hint)
-      setFetchError(e.message ?? 'שגיאה בטעינת לקוחות')
+      setFetchError(e.message ?? t('שגיאה בטעינת לקוחות', 'Error loading customers'))
     } finally {
       setLoading(false)
     }
@@ -1095,7 +1121,7 @@ export function Clients() {
     } catch (err) {
       console.error('SAVE ERROR:', JSON.stringify(err, Object.getOwnPropertyNames(err)))
       const e = err as { message?: string; details?: string; hint?: string }
-      setSaveError(e.message ?? 'שגיאה לא ידועה')
+      setSaveError(e.message ?? t('שגיאה לא ידועה', 'Unknown error'))
       setClients(snapshot)
       setSelected(snapshot.find(c => c.id === updated.id) ?? updated)
     }
