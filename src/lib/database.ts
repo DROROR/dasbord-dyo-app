@@ -470,49 +470,6 @@ export async function deleteBotTraining(id: string): Promise<{ error: unknown }>
   return { error }
 }
 
-// ── TIME LOGS (team hours reporting) ──────────────────────────────────────────
-
-export interface DbTimeLog {
-  id: string
-  user_id: string | null
-  person: string
-  work_date: string   // 'YYYY-MM-DD'
-  task: string
-  hours: number
-  created_at: string
-}
-
-export async function getTimeLogs(fromDate: string, toDate: string): Promise<DbTimeLog[]> {
-  const { data, error } = await supabase
-    .from('time_logs')
-    .select('*')
-    .gte('work_date', fromDate)
-    .lte('work_date', toDate)
-    .order('work_date', { ascending: false })
-    .order('created_at', { ascending: false })
-  if (error) throw error
-  return data as DbTimeLog[]
-}
-
-export async function addTimeLog(row: Omit<DbTimeLog, 'id' | 'created_at'>): Promise<DbTimeLog> {
-  const { data, error } = await supabase.from('time_logs').insert(row).select().single()
-  if (error) throw error
-  return data as DbTimeLog
-}
-
-export async function updateTimeLog(
-  id: string,
-  updates: Partial<Pick<DbTimeLog, 'work_date' | 'task' | 'hours'>>
-): Promise<{ error: unknown }> {
-  const { error } = await supabase.from('time_logs').update(updates).eq('id', id)
-  return { error }
-}
-
-export async function deleteTimeLog(id: string): Promise<{ error: unknown }> {
-  const { error } = await supabase.from('time_logs').delete().eq('id', id)
-  return { error }
-}
-
 // ── SEQUENCES ─────────────────────────────────────────────────────────────────
 
 export interface DbSequence {

@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Plus, LayoutGrid, FileText, BarChart2, Bot, User, Briefcase,
-  Settings, X, Check, Pencil, ChevronDown, Trash2, Loader2, Clock,
+  Settings, X, Check, Pencil, ChevronDown, Trash2, Loader2,
 } from 'lucide-react'
 import type { Task, Board, PriorityDef, WorkDoc, BoardStatus } from '../types/work'
 import { ASSIGNEES, MOCK_CLIENTS, MOCK_DOCS } from '../data/workMockData'
@@ -19,17 +19,15 @@ import { DocsTab }          from '../components/work/DocsTab'
 import { AiTaskCreator }    from '../components/work/AiTaskCreator'
 import { TaskDetailModal }  from '../components/work/TaskDetailModal'
 import { GanttTab }         from '../components/work/GanttTab'
-import { HoursTab }         from '../components/work/HoursTab'
 import { useAuth }          from '../hooks/useAuth'
 import { useNotifications } from '../contexts/NotificationContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type WorkTab = 'myboard' | 'hours' | 'tasks' | 'gantt' | 'docs' | 'ai'
+type WorkTab = 'myboard' | 'tasks' | 'gantt' | 'docs' | 'ai'
 
 const WORK_TABS: { id: WorkTab; label: string; icon: LucideIcon }[] = [
   { id: 'myboard', label: 'My Board',      icon: User       },
-  { id: 'hours',   label: 'Hours',         icon: Clock      },
   { id: 'tasks',   label: 'Tasks',         icon: LayoutGrid },
   { id: 'gantt',   label: 'Gantt',         icon: BarChart2  },
   { id: 'docs',    label: 'Docs',          icon: FileText   },
@@ -646,10 +644,6 @@ export function Work() {
             onOpenTask={setOpenId}
             onStatusChange={changeStatus}
           />
-        )}
-
-        {tab === 'hours' && (
-          <HoursTab currentUser={currentUser} userId={profile?.id ?? null} isAdmin={isAdmin} />
         )}
 
         {!tasksLoading && tab === 'tasks' && (
