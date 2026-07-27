@@ -82,4 +82,12 @@ export const INITIAL_BOARDS: Board[] = [
     statuses: DEFAULT_BOARD_STATUSES,
     createdAt: '2026-01-01T00:00:00Z',
   },
+  {
+    id: 'prosperity',
+    name: 'Prosperity',
+    isDefault: false,
+    access: { Prosperity: 'full', Dror: 'full' },
+    statuses: DEFAULT_BOARD_STATUSES,
+    createdAt: '2026-07-27T00:00:00Z',
+  },
 ]
