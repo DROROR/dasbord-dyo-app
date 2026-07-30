@@ -18,26 +18,36 @@ const PAGE_TITLES: Record<string, { he: string; en: string }> = {
 }
 
 const NOTIF_ICON: Record<NotificationType, React.ElementType> = {
-  support_opened:   AlertTriangle,
-  code_review:      Code,
-  ux_review:        Palette,
-  fixing:           RotateCcw,
-  review_stale:     Clock,
-  ticket_unclaimed: AlertTriangle,
-  ticket_stale:     AlertTriangle,
-  wa_pending:       MessageSquare,
+  support_opened:        AlertTriangle,
+  support_escalation:    MessageSquare,
+  code_review:           Code,
+  ux_review:             Palette,
+  fixing:                RotateCcw,
+  review_stale:          Clock,
+  ticket_unclaimed:      AlertTriangle,
+  ticket_stale:          AlertTriangle,
+  wa_pending:            MessageSquare,
+  status_owner_assigned: Bell,
+  task_done_return:      Check,
 }
 
 const NOTIF_COLOR: Record<NotificationType, string> = {
-  support_opened:   'bg-red-100 text-red-600',
-  code_review:      'bg-purple-100 text-purple-600',
-  ux_review:        'bg-pink-100 text-pink-600',
-  fixing:           'bg-orange-100 text-orange-600',
-  review_stale:     'bg-red-100 text-red-600',
-  ticket_unclaimed: 'bg-red-100 text-red-600',
-  ticket_stale:     'bg-red-100 text-red-600',
-  wa_pending:       'bg-green-100 text-green-600',
+  support_opened:        'bg-red-100 text-red-600',
+  support_escalation:    'bg-amber-100 text-amber-700',
+  code_review:           'bg-purple-100 text-purple-600',
+  ux_review:             'bg-pink-100 text-pink-600',
+  fixing:                'bg-orange-100 text-orange-600',
+  review_stale:          'bg-red-100 text-red-600',
+  ticket_unclaimed:      'bg-red-100 text-red-600',
+  ticket_stale:          'bg-red-100 text-red-600',
+  wa_pending:            'bg-green-100 text-green-600',
+  status_owner_assigned: 'bg-blue-100 text-blue-600',
+  task_done_return:      'bg-green-100 text-green-600',
 }
+
+// A notification type with no entry above must never blank the screen.
+const FALLBACK_ICON  = Bell
+const FALLBACK_COLOR = 'bg-gray-100 text-gray-600'
 
 function fmtRelative(iso: string) {
   const diff = Date.now() - new Date(iso).getTime()
@@ -204,8 +214,8 @@ export function Topbar({ activePage, onToggleSidebar }: Props) {
                   </div>
                 ) : (
                   notifications.map(n => {
-                    const Icon    = NOTIF_ICON[n.type]
-                    const iconCls = NOTIF_COLOR[n.type]
+                    const Icon    = NOTIF_ICON[n.type]  ?? FALLBACK_ICON
+                    const iconCls = NOTIF_COLOR[n.type] ?? FALLBACK_COLOR
                     const isHigh  = n.severity === 'high'
                     const isWa    = n.type === 'wa_pending'
                     return (

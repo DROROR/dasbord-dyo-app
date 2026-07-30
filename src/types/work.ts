@@ -130,6 +130,7 @@ export type NotificationType =
   | 'wa_pending'
   | 'status_owner_assigned'
   | 'task_done_return'
+  | 'support_escalation'
 
 export interface AppNotification {
   id: string

@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
-import type { Task, TimeEntry, StatusHistoryEntry, TaskComment, Attachment } from '../types/work'
+import type { Task, TimeEntry, StatusHistoryEntry, TaskComment, Attachment, Board, BoardStatus, AccessLevel, AppNotification, NotificationType } from '../types/work'
+import { INITIAL_BOARDS } from '../data/workConstants'
 
 // ── DB Row Types (mirror schema exactly) ────────────────────────────────────────
 
@@ -703,5 +704,170 @@ export async function updateTask(id: string, updates: Partial<Task>): Promise<Ta
 
 export async function deleteTask(id: string): Promise<void> {
   const { error } = await supabase.from('tasks').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ── BOARDS ──────────────────────────────────────────────────────────────────
+interface DbBoard {
+  id: string
+  name: string
+  is_default: boolean
+  access: Record<string, AccessLevel>
+  statuses: BoardStatus[]
+  created_at: string
+}
+
+function dbToBoard(b: DbBoard): Board {
+  return {
+    id:        b.id,
+    name:      b.name,
+    isDefault: b.is_default,
+    access:    b.access ?? {},
+    statuses:  b.statuses ?? [],
+    createdAt: b.created_at,
+  }
+}
+
+function boardToRow(b: Board): Record<string, unknown> {
+  return {
+    id:         b.id,
+    name:       b.name,
+    is_default: b.isDefault,
+    access:     b.access,
+    statuses:   b.statuses,
+    created_at: b.createdAt,
+  }
+}
+
+// Load all boards. On the very first run the table is empty, so seed it with the
+// built-in boards so nothing is lost and every user shares the same starting set.
+export async function getBoards(): Promise<Board[]> {
+  const { data, error } = await supabase
+    .from('boards')
+    .select('*')
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  const rows = data as DbBoard[]
+  if (rows.length === 0) {
+    // Seed the built-in boards once. If the write is not permitted (e.g. no auth
+    // session), fall back to the built-ins so the UI still works.
+    const { error: seedErr } = await supabase
+      .from('boards')
+      .upsert(INITIAL_BOARDS.map(boardToRow), { onConflict: 'id', ignoreDuplicates: true })
+    if (seedErr) console.warn('Board seed skipped, using built-ins:', seedErr.message)
+    return INITIAL_BOARDS
+  }
+  return rows.map(dbToBoard)
+}
+
+export async function createBoard(board: Board): Promise<Board> {
+  const { data, error } = await supabase
+    .from('boards')
+    .insert(boardToRow(board))
+    .select()
+    .single()
+  if (error) throw error
+  return dbToBoard(data as DbBoard)
+}
+
+export async function updateBoard(board: Board): Promise<Board> {
+  const { data, error } = await supabase
+    .from('boards')
+    .update(boardToRow(board))
+    .eq('id', board.id)
+    .select()
+    .single()
+  if (error) throw error
+  return dbToBoard(data as DbBoard)
+}
+
+export async function deleteBoard(id: string): Promise<void> {
+  const { error } = await supabase.from('boards').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+// Persisted so that alerts raised outside the browser (n8n support-bot
+// escalations, auto-created tickets) reach the management interface.
+
+interface DbNotification {
+  id: string
+  type: string
+  message: string
+  recipient: string | null
+  severity: string
+  read: boolean
+  task_id: string | null
+  task_title: string | null
+  client_id: string | null
+  client_name: string | null
+  phone: string | null
+  wa_details: { clientName: string; message: string } | null
+  dedupe_key: string | null
+  created_at: string
+}
+
+function dbToNotification(n: DbNotification): AppNotification {
+  return {
+    id: n.id,
+    type: n.type as NotificationType,
+    message: n.message,
+    taskId: n.task_id ?? undefined,
+    taskTitle: n.task_title ?? undefined,
+    timestamp: n.created_at,
+    read: n.read,
+    severity: (n.severity === 'high' ? 'high' : 'normal'),
+    waDetails: n.wa_details ?? undefined,
+  }
+}
+
+export async function getNotifications(limit = 100): Promise<AppNotification[]> {
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return (data as DbNotification[]).map(dbToNotification)
+}
+
+export async function createNotification(n: {
+  type: string
+  message: string
+  taskId?: string
+  taskTitle?: string
+  severity?: 'normal' | 'high'
+  waDetails?: { clientName: string; message: string }
+  dedupeKey?: string
+}): Promise<AppNotification | null> {
+  const row = {
+    type: n.type,
+    message: n.message,
+    task_id: n.taskId ?? null,
+    task_title: n.taskTitle ?? null,
+    severity: n.severity ?? 'normal',
+    wa_details: n.waDetails ?? null,
+    dedupe_key: n.dedupeKey ?? null,
+  }
+  // Recurring scan alerts carry a dedupe_key so a repeated page load does not
+  // create the same alert again; the unique index makes the retry a no-op.
+  const { data, error } = n.dedupeKey
+    ? await supabase
+        .from('notifications')
+        .upsert(row, { onConflict: 'dedupe_key', ignoreDuplicates: true })
+        .select()
+        .maybeSingle()
+    : await supabase.from('notifications').insert(row).select().single()
+  if (error) throw error
+  return data ? dbToNotification(data as DbNotification) : null
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  const { error } = await supabase.from('notifications').update({ read: true }).eq('id', id)
+  if (error) throw error
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  const { error } = await supabase.from('notifications').update({ read: true }).eq('read', false)
   if (error) throw error
 }

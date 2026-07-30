@@ -10,6 +10,10 @@ import {
   getTasks,
   createTask as dbCreateTask,
   updateTask as dbUpdateTask,
+  getBoards,
+  createBoard as dbCreateBoard,
+  updateBoard as dbUpdateBoard,
+  deleteBoard as dbDeleteBoard,
 } from '../lib/database'
 import { PENDING_KEY } from '../contexts/TimerContext'
 import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES } from '../data/workConstants'
@@ -452,16 +456,16 @@ export function Work() {
             const hrs = (Date.now() - new Date(entry.timestamp).getTime()) / 3_600_000
             if (hrs < 48) return
             const reviewer = t.status === 'pending_code_review' ? t.codeReviewer : t.uxReviewer
-            addNotification({ type: 'review_stale', message: `"${t.title}" has been in ${t.status === 'pending_code_review' ? 'Code' : 'UX'} Review for ${Math.round(hrs)}h`, taskId: t.id, taskTitle: t.title, severity: 'high' })
-            if (reviewer) addNotification({ type: 'review_stale', message: `${reviewer}: review overdue (${Math.round(hrs)}h) for "${t.title}"`, taskId: t.id, taskTitle: t.title })
+            addNotification({ type: 'review_stale', message: `"${t.title}" has been in ${t.status === 'pending_code_review' ? 'Code' : 'UX'} Review for ${Math.round(hrs)}h`, taskId: t.id, taskTitle: t.title, severity: 'high', dedupeKey: `review_stale:${t.id}:${t.status}` })
+            if (reviewer) addNotification({ type: 'review_stale', message: `${reviewer}: review overdue (${Math.round(hrs)}h) for "${t.title}"`, taskId: t.id, taskTitle: t.title, dedupeKey: `review_stale_owner:${t.id}:${t.status}:${reviewer}` })
           })
           data.forEach(t => {
             if (t.board !== 'support') return
             const created = t.statusHistory[0]?.timestamp
             if (!created) return
             const hrs = (Date.now() - new Date(created).getTime()) / 3_600_000
-            if (!t.claimed && hrs >= 24) addNotification({ type: 'ticket_unclaimed', message: `Unclaimed support ticket for ${Math.round(hrs)}h: "${t.title}"`, taskId: t.id, taskTitle: t.title, severity: 'high' })
-            if (t.status !== 'done' && t.status !== 'archived' && hrs >= 48) addNotification({ type: 'ticket_stale', message: `Unresolved support ticket (${Math.round(hrs)}h): "${t.title}"`, taskId: t.id, taskTitle: t.title, severity: 'high' })
+            if (!t.claimed && hrs >= 24) addNotification({ type: 'ticket_unclaimed', message: `Unclaimed support ticket for ${Math.round(hrs)}h: "${t.title}"`, taskId: t.id, taskTitle: t.title, severity: 'high', dedupeKey: `ticket_unclaimed:${t.id}` })
+            if (t.status !== 'done' && t.status !== 'archived' && hrs >= 48) addNotification({ type: 'ticket_stale', message: `Unresolved support ticket (${Math.round(hrs)}h): "${t.title}"`, taskId: t.id, taskTitle: t.title, severity: 'high', dedupeKey: `ticket_stale:${t.id}` })
           })
         }
       } catch (err) {
@@ -471,6 +475,22 @@ export function Work() {
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Load boards from Supabase so they persist and are shared across the whole team.
+  // First run seeds the built-in boards, so nothing is lost.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const dbBoards = await getBoards()
+        if (dbBoards.length > 0) {
+          setBoards(dbBoards)
+          setActiveBoard(prev => dbBoards.some(b => b.id === prev) ? prev : dbBoards[0].id)
+        }
+      } catch (err) {
+        console.error('Failed to load boards:', err)
+      }
+    })()
   }, [])
 
   // Keep tasksRef current so event/effect handlers always see latest tasks
@@ -589,11 +609,13 @@ export function Work() {
   function saveBoardSettings(updated: Board, newPDefs: PriorityDef[]) {
     setBoards(prev => prev.map(b => b.id === updated.id ? updated : b))
     setPriorityDefs(newPDefs)
+    void dbUpdateBoard(updated).catch(err => console.error('Board save failed:', err))
   }
 
   function deleteBoard(id: string) {
     setBoards(prev => prev.filter(b => b.id !== id))
     if (activeBoard === id) setActiveBoard(INITIAL_BOARDS[0].id)
+    void dbDeleteBoard(id).catch(err => console.error('Board delete failed:', err))
   }
 
   if (workAccess === 'none') {
@@ -749,7 +771,7 @@ export function Work() {
       {showAddBoard && isAdmin && (
         <AddBoardModal
           assignees={ASSIGNEES}
-          onSave={b => setBoards(prev => [...prev, b])}
+          onSave={b => { setBoards(prev => [...prev, b]); void dbCreateBoard(b).catch(err => console.error('Board create failed:', err)) }}
           onClose={() => setShowAddBoard(false)}
         />
       )}
