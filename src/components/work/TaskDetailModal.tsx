@@ -235,6 +235,15 @@ export function TaskDetailModal({
     const updated = attachments.filter(a => a.id !== id); setAttachments(updated); save({ attachments: updated })
   }
 
+  // Support tickets and urgent work sit on everyone's board until claimed.
+  const isUrgentPriority =
+    priority === 'critical' || /urgent|דחוף/i.test(priorityCfg[priority]?.label ?? '')
+  const isUnclaimed =
+    !task.claimed &&
+    status !== 'done' && status !== 'archived' &&
+    ((task.board === 'support' && status === 'not_started') ||
+     (task.board !== 'support' && isUrgentPriority && !assignee))
+
   function claimTicket() {
     const newHistory: StatusHistoryEntry[] = [...history, { status: 'in_progress', timestamp: new Date().toISOString(), changedBy: currentUser }]
     setAssignee(currentUser); setStatus('in_progress'); setHistory(newHistory)
@@ -276,12 +285,18 @@ export function TaskDetailModal({
           <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors shrink-0"><X size={15} /></button>
         </div>
 
-        {/* Unclaimed banner */}
-        {task.board === 'support' && status === 'not_started' && !task.claimed && (
+        {/* Unclaimed banner — support tickets, and urgent work on any board */}
+        {isUnclaimed && (
           <div className="flex items-center gap-3 px-6 py-3 bg-red-50 border-b border-red-100 shrink-0">
             <AlertCircle size={15} className="text-red-500 shrink-0" />
-            <p className="text-sm text-red-800 flex-1">This support ticket is unclaimed — be the first to take it.</p>
-            <button onClick={claimTicket} className="shrink-0 px-4 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-colors">Take this ticket</button>
+            <p className="text-sm text-red-800 flex-1">
+              {task.board === 'support'
+                ? 'This support ticket is unclaimed — be the first to take it.'
+                : `This ${(priorityCfg[priority]?.label ?? 'urgent').toLowerCase()} task is unclaimed — be the first to take it.`}
+            </p>
+            <button onClick={claimTicket} className="shrink-0 px-4 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-colors">
+              {task.board === 'support' ? 'Take this ticket' : 'Take this task'}
+            </button>
           </div>
         )}
 

@@ -183,11 +183,23 @@ export function MyBoard({
   const inProgress   = myTasks.filter(t => t.status === 'in_progress')
   const overdueTasks = myTasks.filter(t => isOverdue(t.dueDate) && t.status !== 'done' && t.status !== 'archived')
   const pendingClose = myTasks.filter(t => t.status === 'done')
-  // Unclaimed support tickets only reach people marked as Technical Support,
-  // so everyone else's board stays free of them.
-  const unclaimed    = isTechnicalSupport
-    ? tasks.filter(t => t.board === 'support' && t.claimed === false)
+  // Two things land on everyone's board until somebody takes them:
+  //   • support tickets, but only for people marked as Technical Support
+  //   • any urgent task, for the whole team
+  // Claiming a task assigns it, which removes it from everybody else's list.
+  const isOpen = (t: Task) => t.status !== 'done' && t.status !== 'archived'
+  const isUrgent = (t: Task) => {
+    // Already claimed or already given an owner means it is not up for grabs.
+    if (t.claimed || t.assignee) return false
+    const label = priorityCfg[t.priority]?.label ?? ''
+    return t.priority === 'critical' || /urgent|דחוף/i.test(label)
+  }
+
+  const unclaimedSupport = isTechnicalSupport
+    ? tasks.filter(t => t.board === 'support' && t.claimed === false && isOpen(t))
     : []
+  const unclaimedUrgent  = tasks.filter(t => t.board !== 'support' && isUrgent(t) && isOpen(t))
+  const unclaimed        = [...unclaimedSupport, ...unclaimedUrgent]
   const thisMonth = new Date().toISOString().slice(0, 7)
   const hoursThisMonth = myTasks
     .flatMap(t => t.timeEntries)
@@ -265,16 +277,26 @@ export function MyBoard({
             </button>
           ))}
 
-          {unclaimed.map(t => (
-            <button key={t.id} onClick={() => onOpenTask(t.id)}
-              className="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5 hover:bg-orange-100 transition-colors text-left w-full"
-            >
-              <Ticket size={14} className="text-orange-500 shrink-0" />
-              <span className="text-[10px] font-mono text-orange-400 shrink-0">{t.id}</span>
-              <span className="text-sm font-medium text-orange-800 flex-1 truncate">{t.title}</span>
-              <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold animate-pulse shrink-0">UNCLAIMED</span>
-            </button>
-          ))}
+          {unclaimed.map(t => {
+            const urgent = t.board !== 'support'
+            return (
+              <button key={t.id} onClick={() => onOpenTask(t.id)}
+                className="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5 hover:bg-orange-100 transition-colors text-left w-full"
+              >
+                {urgent
+                  ? <AlertCircle size={14} className="text-red-500 shrink-0" />
+                  : <Ticket      size={14} className="text-orange-500 shrink-0" />}
+                <span className="text-[10px] font-mono text-orange-400 shrink-0">{t.id}</span>
+                <span className="text-sm font-medium text-orange-800 flex-1 truncate">{t.title}</span>
+                {urgent && (
+                  <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded font-bold shrink-0">
+                    {priorityCfg[t.priority]?.label ?? 'Urgent'}
+                  </span>
+                )}
+                <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold animate-pulse shrink-0">UNCLAIMED</span>
+              </button>
+            )
+          })}
         </div>
       )}
 

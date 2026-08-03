@@ -25,8 +25,13 @@ function isOverdue(due?: string) {
 // ─── TaskCard ─────────────────────────────────────────────────────────────────
 
 function TaskCard({
-  task, priorityCfg, onClick,
-}: { task: Task; priorityCfg: Record<string, PriorityDef>; onClick: () => void }) {
+  task, priorityCfg, statusDef, onClick,
+}: {
+  task: Task
+  priorityCfg: Record<string, PriorityDef>
+  statusDef?: BoardStatus
+  onClick: () => void
+}) {
   const p         = priorityCfg[task.priority]
   const overdue   = isOverdue(task.dueDate)
   const unclaimed = task.board === 'support' && task.claimed === false
@@ -55,15 +60,21 @@ function TaskCard({
         )}
       </div>
 
-      {/* Row 2 — id + meta */}
-      <div className="flex items-center gap-2 w-full">
-        <span className="text-[10px] font-mono text-gray-300 shrink-0">{task.id}</span>
-        <div className="flex-1" />
+      {/* Row 2 — status + priority, then id + meta */}
+      <div className="flex items-center gap-2 w-full flex-wrap">
+        {statusDef && (
+          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg shrink-0 ${statusDef.pillCls}`}>
+            {statusDef.label}
+          </span>
+        )}
         {p && (
-          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border shrink-0 ${p.textCls} ${p.bgCls} ${p.borderCls}`}>
+          <span className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-lg border shrink-0 ${p.textCls} ${p.bgCls} ${p.borderCls}`}>
+            <span className={`w-2 h-2 rounded-full ${p.dotCls}`} />
             {p.label}
           </span>
         )}
+        <span className="text-[10px] font-mono text-gray-300 shrink-0">{task.id}</span>
+        <div className="flex-1" />
         {task.dueDate && (
           <span className={`text-[10px] flex items-center gap-0.5 shrink-0 ${overdue ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
             <Calendar size={9} />
@@ -105,7 +116,7 @@ function StatusSection({
         className="flex items-center gap-2.5 w-full px-4 py-2.5 bg-gray-50/80 hover:bg-gray-100/60 transition-colors text-left border-b border-gray-100 rounded-t-lg"
       >
         <ChevronDown size={13} className={`text-gray-400 transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} />
-        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${col.pillCls}`}>
+        <span className={`text-xs font-bold px-3 py-1 rounded-full ${col.pillCls}`}>
           {col.label}
         </span>
         <span className="text-xs font-bold text-gray-400 bg-white border border-gray-200 rounded-full px-1.5 min-w-[20px] text-center">
@@ -125,6 +136,7 @@ function StatusSection({
               key={task.id}
               task={task}
               priorityCfg={priorityCfg}
+              statusDef={col}
               onClick={() => onCardClick(task.id)}
             />
           ))}
