@@ -138,6 +138,9 @@ export interface AppNotification {
   message: string
   taskId?: string
   taskTitle?: string
+  clientId?: string
+  clientName?: string
+  phone?: string
   timestamp: string
   read: boolean
   severity: 'normal' | 'high'

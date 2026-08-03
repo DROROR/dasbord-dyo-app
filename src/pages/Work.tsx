@@ -18,6 +18,7 @@ import {
   getProfiles,
 } from '../lib/database'
 import { PENDING_KEY } from '../contexts/TimerContext'
+import { takeTaskFocus } from '../lib/focusTarget'
 import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES } from '../data/workConstants'
 import { VerticalBoard }    from '../components/work/VerticalBoard'
 import { MyBoard }          from '../components/work/MyBoard'
@@ -499,6 +500,19 @@ export function Work() {
       }
     })()
   }, [])
+
+  // Arriving from a notification link: open that ticket straight away. Reads
+  // `tasks` rather than the ref, which is only refreshed by a later effect.
+  useEffect(() => {
+    if (tasksLoading || tasks.length === 0) return
+    const focusId = takeTaskFocus()
+    if (!focusId) return
+    const target = tasks.find(t => t.id === focusId)
+    if (!target) return
+    setTab('tasks')
+    setActiveBoard(target.board)
+    setOpenId(focusId)
+  }, [tasksLoading, tasks])
 
   // Clients and team members come straight from the database, so adding or
   // removing either is picked up here with no code change.

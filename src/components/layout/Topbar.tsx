@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react'
-import { Bell, Search, PanelRight, X, Check, AlertTriangle, MessageSquare, Code, Palette, RotateCcw, Clock, Send, Globe } from 'lucide-react'
+import { Bell, Search, PanelRight, X, Check, AlertTriangle, MessageSquare, Code, Palette, RotateCcw, Clock, Send, Globe, ExternalLink } from 'lucide-react'
 import { useNotifications } from '../../contexts/NotificationContext'
+import { requestTaskFocus, requestClientFocus } from '../../lib/focusTarget'
 import { useLang } from '../../contexts/LanguageContext'
 import type { NotificationType, AppNotification } from '../../types/work'
 
@@ -96,9 +97,10 @@ function WaApprovalPanel({ n, onDone }: { n: AppNotification; onDone: () => void
 interface Props {
   activePage: string
   onToggleSidebar: () => void
+  onNavigate: (page: string) => void
 }
 
-export function Topbar({ activePage, onToggleSidebar }: Props) {
+export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications()
   const { t, lang, toggle } = useLang()
   const pt = PAGE_TITLES[activePage]
@@ -125,6 +127,22 @@ export function Topbar({ activePage, onToggleSidebar }: Props) {
     } else {
       markRead(n.id)
     }
+  }
+
+  function openTicket(n: AppNotification) {
+    if (!n.taskId) return
+    markRead(n.id)
+    setPanelOpen(false)
+    requestTaskFocus(n.taskId)
+    onNavigate('work')
+  }
+
+  function openClient(n: AppNotification) {
+    if (!n.clientId) return
+    markRead(n.id)
+    setPanelOpen(false)
+    requestClientFocus(n.clientId)
+    onNavigate('clients')
   }
 
   return (
@@ -234,6 +252,41 @@ export function Topbar({ activePage, onToggleSidebar }: Props) {
                             {n.taskTitle && n.taskTitle !== n.message && (
                               <p className="text-[10px] text-gray-400 mt-0.5 truncate">{n.taskTitle}</p>
                             )}
+
+                            {/* Who it is about, and how to get to them */}
+                            {(n.clientName || n.phone) && (
+                              <p className="text-[10px] text-gray-500 mt-1 truncate">
+                                <span className="font-semibold">{n.clientName || 'לקוח לא מזוהה'}</span>
+                                {n.phone && <span className="text-gray-400"> · {n.phone}</span>}
+                              </p>
+                            )}
+                            {(n.taskId || n.clientId) && (
+                              <span className="flex items-center gap-3 mt-1.5">
+                                {n.taskId && (
+                                  <span
+                                    role="link"
+                                    tabIndex={0}
+                                    onClick={e => { e.stopPropagation(); openTicket(n) }}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); openTicket(n) } }}
+                                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline cursor-pointer"
+                                  >
+                                    <ExternalLink size={9} />פתח קריאה
+                                  </span>
+                                )}
+                                {n.clientId && (
+                                  <span
+                                    role="link"
+                                    tabIndex={0}
+                                    onClick={e => { e.stopPropagation(); openClient(n) }}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); openClient(n) } }}
+                                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline cursor-pointer"
+                                  >
+                                    <ExternalLink size={9} />כרטיס לקוח
+                                  </span>
+                                )}
+                              </span>
+                            )}
+
                             <p className="text-[10px] text-gray-300 mt-0.5">{fmtRelative(n.timestamp)}</p>
                           </div>
                           {!n.read && <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0 mt-1.5" />}

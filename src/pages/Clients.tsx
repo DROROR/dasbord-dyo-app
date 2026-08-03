@@ -13,6 +13,7 @@ import {
   getBillingRecords,
 } from '../lib/database'
 import type { DbClient, DbContact, DbBillingRecord } from '../lib/database'
+import { takeClientFocus } from '../lib/focusTarget'
 import { useLang } from '../contexts/LanguageContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1108,6 +1109,15 @@ export function Clients() {
   }
 
   useEffect(() => { load() }, [])
+
+  // Arriving from a notification link: open that client's card straight away.
+  useEffect(() => {
+    if (loading || clients.length === 0) return
+    const focusId = takeClientFocus()
+    if (!focusId) return
+    const target = clients.find(c => c.id === focusId)
+    if (target) setSelected(target)
+  }, [loading, clients])
 
   const handleSave = async (updated: Client) => {
     setSaveError(null)
