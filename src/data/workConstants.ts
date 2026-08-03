@@ -64,6 +64,7 @@ export const INITIAL_BOARDS: Board[] = [
     isDefault: true,
     access: { Fahad: 'full', Alexander: 'full', Dana: 'full', Roi: 'full', Dror: 'full' },
     statuses: DEFAULT_BOARD_STATUSES,
+    priorities: DEFAULT_PRIORITY_DEFS,
     createdAt: '2026-01-01T00:00:00Z',
   },
   {
@@ -72,6 +73,7 @@ export const INITIAL_BOARDS: Board[] = [
     isDefault: true,
     access: { Fahad: 'full', Alexander: 'full', Dana: 'full', Roi: 'full', Dror: 'full' },
     statuses: DEFAULT_BOARD_STATUSES,
+    priorities: DEFAULT_PRIORITY_DEFS,
     createdAt: '2026-01-01T00:00:00Z',
   },
   {
@@ -80,6 +82,7 @@ export const INITIAL_BOARDS: Board[] = [
     isDefault: true,
     access: { Fahad: 'full', Alexander: 'full', Dana: 'full', Roi: 'full', Dror: 'full' },
     statuses: DEFAULT_BOARD_STATUSES,
+    priorities: DEFAULT_PRIORITY_DEFS,
     createdAt: '2026-01-01T00:00:00Z',
   },
   {
@@ -88,6 +91,7 @@ export const INITIAL_BOARDS: Board[] = [
     isDefault: false,
     access: { Prosperity: 'full', Dror: 'full' },
     statuses: DEFAULT_BOARD_STATUSES,
+    priorities: DEFAULT_PRIORITY_DEFS,
     createdAt: '2026-07-27T00:00:00Z',
   },
 ]

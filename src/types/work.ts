@@ -107,6 +107,7 @@ export interface Board {
   isDefault: boolean
   access: Record<string, AccessLevel>
   statuses: BoardStatus[]
+  priorities: PriorityDef[]
   createdAt: string
 }
 

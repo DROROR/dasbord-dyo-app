@@ -61,6 +61,7 @@ function AddBoardModal({ assignees, onSave, onClose }: {
       isDefault: false,
       access: defaultAccess,
       statuses: DEFAULT_BOARD_STATUSES,
+      priorities: DEFAULT_PRIORITY_DEFS,
       createdAt: new Date().toISOString(),
     })
     onClose()
@@ -415,7 +416,6 @@ export function Work() {
   const [tab,          setTab]          = useState<WorkTab>('myboard')
   const [boards,       setBoards]       = useState<Board[]>(INITIAL_BOARDS)
   const [activeBoard,  setActiveBoard]  = useState(INITIAL_BOARDS[0].id)
-  const [priorityDefs, setPriorityDefs] = useState<PriorityDef[]>(DEFAULT_PRIORITY_DEFS)
   const [tasks,        setTasks]        = useState<Task[]>([])
   const [tasksLoading, setTasksLoading] = useState(true)
   const [docs,         setDocs]         = useState<WorkDoc[]>(MOCK_DOCS)
@@ -431,10 +431,15 @@ export function Work() {
   const alertsRunRef = useRef(false)
   const tasksRef     = useRef<Task[]>([])
 
-  const priorityCfg = useMemo(
-    () => Object.fromEntries(priorityDefs.map(p => [p.id, p])),
-    [priorityDefs],
-  )
+  // Priorities belong to the board they were edited on. My Board and the task
+  // modal show tasks from several boards at once, so labels are looked up in a
+  // map merged across every board.
+  const priorityCfg = useMemo(() => {
+    const merged: Record<string, PriorityDef> = {}
+    DEFAULT_PRIORITY_DEFS.forEach(p => { merged[p.id] = p })
+    boards.forEach(b => (b.priorities ?? []).forEach(p => { merged[p.id] = p }))
+    return merged
+  }, [boards])
 
   const visibleBoards = useMemo(
     () => boards.filter(b => isAdmin || (b.access[currentUser] ?? 'full') !== 'none'),
@@ -645,9 +650,10 @@ export function Work() {
   }
 
   function saveBoardSettings(updated: Board, newPDefs: PriorityDef[]) {
-    setBoards(prev => prev.map(b => b.id === updated.id ? updated : b))
-    setPriorityDefs(newPDefs)
-    void dbUpdateBoard(updated).catch(err => console.error('Board save failed:', err))
+    // Priorities are saved on the board itself, so edits survive a refresh.
+    const withPriorities: Board = { ...updated, priorities: newPDefs }
+    setBoards(prev => prev.map(b => b.id === withPriorities.id ? withPriorities : b))
+    void dbUpdateBoard(withPriorities).catch(err => console.error('Board save failed:', err))
   }
 
   function deleteBoard(id: string) {
@@ -784,7 +790,7 @@ export function Work() {
         {tab === 'ai' && (
           <AiTaskCreator
             boards={visibleBoards}
-            priorityDefs={priorityDefs}
+            priorityDefs={activeBoardObj?.priorities ?? DEFAULT_PRIORITY_DEFS}
             assignees={assignees}
             clients={clients}
             onCreateTask={createTask}
@@ -819,7 +825,7 @@ export function Work() {
         <BoardSettingsModal
           board={settingsBoard}
           assignees={assignees}
-          priorityDefs={priorityDefs}
+          priorityDefs={settingsBoard.priorities ?? DEFAULT_PRIORITY_DEFS}
           tasks={tasks}
           onSave={saveBoardSettings}
           onDelete={() => deleteBoard(settingsBoard.id)}

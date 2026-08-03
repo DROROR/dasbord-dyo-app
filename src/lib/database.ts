@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
-import type { Task, TimeEntry, StatusHistoryEntry, TaskComment, Attachment, Board, BoardStatus, AccessLevel, AppNotification, NotificationType } from '../types/work'
-import { INITIAL_BOARDS } from '../data/workConstants'
+import type { Task, TimeEntry, StatusHistoryEntry, TaskComment, Attachment, Board, BoardStatus, PriorityDef, AccessLevel, AppNotification, NotificationType } from '../types/work'
+import { INITIAL_BOARDS, DEFAULT_PRIORITY_DEFS } from '../data/workConstants'
 
 // ── DB Row Types (mirror schema exactly) ────────────────────────────────────────
 
@@ -750,6 +750,7 @@ interface DbBoard {
   is_default: boolean
   access: Record<string, AccessLevel>
   statuses: BoardStatus[]
+  priorities: PriorityDef[] | null
   created_at: string
 }
 
@@ -760,6 +761,10 @@ function dbToBoard(b: DbBoard): Board {
     isDefault: b.is_default,
     access:    b.access ?? {},
     statuses:  b.statuses ?? [],
+    // Boards created before priorities were saved fall back to the defaults.
+    priorities: (b.priorities && b.priorities.length > 0)
+      ? b.priorities
+      : DEFAULT_PRIORITY_DEFS,
     createdAt: b.created_at,
   }
 }
@@ -771,6 +776,7 @@ function boardToRow(b: Board): Record<string, unknown> {
     is_default: b.isDefault,
     access:     b.access,
     statuses:   b.statuses,
+    priorities: b.priorities,
     created_at: b.createdAt,
   }
 }
