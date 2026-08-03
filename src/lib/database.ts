@@ -91,6 +91,42 @@ export interface DbAgentLog {
 
 // ── CLIENTS ─────────────────────────────────────────────────────────────────────
 
+// ─── Profiles (real team members) ──────────────────────────────────────────────
+// The team list is whoever has registered in the panel — never a hardcoded list.
+
+export interface DbProfile {
+  id: string
+  name: string
+  email: string
+  role: 'admin' | 'staff'
+  permissions: Record<string, unknown>
+  is_technical_support: boolean
+  created_at: string
+}
+
+export async function getProfiles(): Promise<DbProfile[]> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .order('name', { ascending: true })
+  if (error) throw error
+  return data as DbProfile[]
+}
+
+export async function updateProfile(
+  id: string,
+  updates: Partial<Pick<DbProfile, 'name' | 'role' | 'permissions' | 'is_technical_support'>>,
+): Promise<DbProfile> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw error
+  return data as DbProfile
+}
+
 export async function getClients(): Promise<DbClient[]> {
   const { data, error } = await supabase
     .from('clients')

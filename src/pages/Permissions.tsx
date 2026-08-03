@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { UserPlus, Shield, ShieldCheck, Check, Trash2, Mail, Lock } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { UserPlus, Shield, ShieldCheck, Check, Trash2, Lock, LifeBuoy, Loader2 } from 'lucide-react'
+import { getProfiles, updateProfile } from '../lib/database'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ interface AppUser {
   role: Role
   permissions: ModulePermission
   joinedAt: string
+  isTechnicalSupport: boolean
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -70,25 +72,6 @@ const OPTION_ACTIVE: Record<string, string> = {
   send: 'bg-teal-100 text-teal-700',
   full: 'bg-primary text-white',
 }
-
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_USERS: AppUser[] = [
-  {
-    id: '1', name: 'דרור יוסף', email: 'droryosef1@gmail.com',
-    role: 'admin', permissions: FULL_PERMISSIONS, joinedAt: '01/01/2025',
-  },
-  {
-    id: '2', name: 'נועה ברק', email: 'noabarak@dyo.co.il',
-    role: 'staff',
-    permissions: {
-      dashboard: 'view', clients: 'edit', billing: 'view',
-      whatsapp: 'send', leads: 'full', agents: 'view',
-      work: 'edit', pricing: 'none', permissions: 'none',
-    },
-    joinedAt: '15/03/2025',
-  },
-]
 
 // ─── Shared small components ──────────────────────────────────────────────────
 
@@ -200,22 +183,27 @@ function UserDetailPanel({
   user, isMainAdmin, onSave, onRemove,
 }: {
   user: AppUser; isMainAdmin: boolean
-  onSave: (id: string, role: Role, perms: ModulePermission) => void
+  onSave: (id: string, role: Role, perms: ModulePermission, isSupport: boolean) => void
   onRemove: (id: string) => void
 }) {
   const [draftRole, setDraftRole] = useState<Role>(user.role)
   const [draftPerms, setDraftPerms] = useState<ModulePermission>(user.permissions)
+  const [draftSupport, setDraftSupport] = useState(user.isTechnicalSupport)
   const [saved, setSaved] = useState(false)
+
+  // No reset effect needed: the panel is keyed on the user id, so selecting a
+  // different user remounts it with fresh drafts.
 
   const isDirty =
     draftRole !== user.role ||
+    draftSupport !== user.isTechnicalSupport ||
     JSON.stringify(draftPerms) !== JSON.stringify(user.permissions)
 
   const setPermission = (key: keyof ModulePermission, value: string) =>
     setDraftPerms(p => ({ ...p, [key]: value } as ModulePermission))
 
   const handleSave = () => {
-    onSave(user.id, draftRole, draftRole === 'admin' ? FULL_PERMISSIONS : draftPerms)
+    onSave(user.id, draftRole, draftRole === 'admin' ? FULL_PERMISSIONS : draftPerms, draftSupport)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -277,6 +265,30 @@ function UserDetailPanel({
         </div>
       )}
 
+      {/* Technical Support — drives who gets unclaimed support tickets */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">תמיכה טכנית</p>
+        <button
+          onClick={() => setDraftSupport(v => !v)}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all text-right ${
+            draftSupport
+              ? 'border-teal-300 bg-teal-50 text-teal-800'
+              : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
+          }`}
+        >
+          <LifeBuoy size={16} className={draftSupport ? 'text-teal-600 shrink-0' : 'text-gray-300 shrink-0'} />
+          <span className="flex-1 text-sm font-medium">
+            {draftSupport ? 'מקבל פניות תמיכה' : 'לא מקבל פניות תמיכה'}
+          </span>
+          <span className={`w-9 h-5 rounded-full relative transition-colors shrink-0 ${draftSupport ? 'bg-teal-500' : 'bg-gray-200'}`}>
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${draftSupport ? 'right-0.5' : 'left-0.5'}`} />
+          </span>
+        </button>
+        <p className="text-xs text-gray-400 mt-1.5">
+          כרטיסי תמיכה חדשים שטרם נלקחו יופיעו בלוח האישי רק של משתמשים עם תפקיד זה
+        </p>
+      </div>
+
       {/* Permissions */}
       <div>
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
@@ -330,171 +342,54 @@ function UserDetailPanel({
   )
 }
 
-// ─── Add user panel ───────────────────────────────────────────────────────────
-
-function AddUserPanel({
-  onAdd, onCancel,
-}: {
-  onAdd: (u: Omit<AppUser, 'id' | 'joinedAt'>) => void
-  onCancel: () => void
-}) {
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [role, setRole] = useState<Role>('staff')
-  const [permissions, setPermissions] = useState<ModulePermission>(DEFAULT_STAFF_PERMISSIONS)
-  const [sent, setSent] = useState(false)
-
-  const setPermission = (key: keyof ModulePermission, value: string) =>
-    setPermissions(p => ({ ...p, [key]: value } as ModulePermission))
-
-  const canCreate = name.trim().length > 0 && email.trim().length > 0
-
-  const handleCreate = () => {
-    if (!canCreate || sent) return
-    onAdd({
-      name: name.trim(), email: email.trim(), role,
-      permissions: role === 'admin' ? FULL_PERMISSIONS : permissions,
-    })
-    setSent(true)
-    setTimeout(() => onCancel(), 1500)
-  }
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-bold text-primary">הוסף משתמש חדש</h2>
-        <button onClick={onCancel} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">
-          ביטול
-        </button>
-      </div>
-
-      {/* Basic fields */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">שם מלא</label>
-          <input
-            type="text" value={name} onChange={e => setName(e.target.value)}
-            placeholder="ישראל ישראלי"
-            className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">אימייל</label>
-          <input
-            type="email" value={email} onChange={e => setEmail(e.target.value)}
-            placeholder="user@dyo.co.il"
-            className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-          />
-        </div>
-      </div>
-
-      {/* Role selector */}
-      <div>
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">תפקיד</p>
-        <div className="grid grid-cols-2 gap-3">
-          {([
-            { r: 'admin' as Role, title: 'מנהל', desc: 'גישה מלאה לכל המערכת', Icon: ShieldCheck },
-            { r: 'staff' as Role, title: 'צוות', desc: 'גישה מוגבלת — הגדר הרשאות למטה', Icon: Shield },
-          ]).map(({ r, title, desc, Icon }) => (
-            <button
-              key={r}
-              onClick={() => setRole(r)}
-              className={`text-right p-4 rounded-2xl border-2 transition-all ${
-                role === r
-                  ? r === 'admin'
-                    ? 'border-primary bg-primary/5'
-                    : 'border-secondary bg-secondary/10'
-                  : 'border-gray-100 hover:border-gray-200 bg-gray-50/40'
-              }`}
-            >
-              <Icon size={20} className={
-                role === r
-                  ? r === 'admin' ? 'text-primary mb-2' : 'text-teal-600 mb-2'
-                  : 'text-gray-300 mb-2'
-              } />
-              <p className={`text-sm font-semibold ${
-                role === r ? (r === 'admin' ? 'text-primary' : 'text-teal-700') : 'text-gray-500'
-              }`}>{title}</p>
-              <p className="text-xs text-gray-400 mt-0.5 leading-snug">{desc}</p>
-              {role === r && (
-                <div className={`w-4 h-4 rounded-full flex items-center justify-center mt-2.5 ${
-                  r === 'admin' ? 'bg-primary' : 'bg-secondary'
-                }`}>
-                  <Check size={10} className="text-white" />
-                </div>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Permissions grid — staff only */}
-      {role === 'staff' && (
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">הרשאות מודולים</p>
-          <PermissionsGrid permissions={permissions} onChange={setPermission} />
-        </div>
-      )}
-
-      {/* Admin note */}
-      {role === 'admin' && (
-        <div className="flex items-center gap-2.5 p-4 bg-primary/5 border border-primary/10 rounded-2xl">
-          <ShieldCheck size={16} className="text-primary shrink-0" />
-          <p className="text-sm text-primary">המשתמש יקבל גישה מלאה לכל המערכת</p>
-        </div>
-      )}
-
-      {/* Action */}
-      <div className="flex items-center gap-3 border-t border-gray-50 pt-4">
-        <button
-          onClick={handleCreate}
-          disabled={!canCreate || sent}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
-            sent
-              ? 'bg-green-500 text-white'
-              : canCreate
-                ? 'bg-primary text-white hover:bg-primary-dark'
-                : 'bg-gray-100 text-gray-400 cursor-default'
-          }`}
-        >
-          {sent ? <Check size={14} /> : <Mail size={14} />}
-          {sent ? 'הזמנה נשלחה!' : 'צור משתמש ושלח הזמנה'}
-        </button>
-        <button onClick={onCancel} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">
-          ביטול
-        </button>
-      </div>
-    </div>
-  )
-}
-
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export function Permissions() {
-  const [users, setUsers] = useState<AppUser[]>(MOCK_USERS)
-  const [selectedId, setSelectedId] = useState<string | null>('1')
-  const [showAdd, setShowAdd] = useState(false)
+  const [users, setUsers] = useState<AppUser[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  // The user list is whoever has registered in the panel, read live from the
+  // database — there is no hardcoded team.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const profiles = await getProfiles()
+        const mapped: AppUser[] = profiles.map(p => ({
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          role: p.role,
+          permissions: {
+            ...(p.role === 'admin' ? FULL_PERMISSIONS : DEFAULT_STAFF_PERMISSIONS),
+            ...(p.permissions as Partial<ModulePermission>),
+          },
+          joinedAt: new Date(p.created_at).toLocaleDateString('he-IL'),
+          isTechnicalSupport: p.is_technical_support,
+        }))
+        setUsers(mapped)
+        setSelectedId(prev => prev ?? mapped[0]?.id ?? null)
+      } catch (err) {
+        console.error('Failed to load users:', err)
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [])
 
   const selectedUser = users.find(u => u.id === selectedId) ?? null
 
-  const handleSave = (id: string, role: Role, perms: ModulePermission) =>
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, role, permissions: perms } : u))
+  const handleSave = (id: string, role: Role, perms: ModulePermission, isSupport: boolean) => {
+    setUsers(prev => prev.map(u =>
+      u.id === id ? { ...u, role, permissions: perms, isTechnicalSupport: isSupport } : u,
+    ))
+    void updateProfile(id, { role, permissions: perms, is_technical_support: isSupport })
+      .catch(err => console.error('Failed to save user:', err))
+  }
 
   const handleRemove = (id: string) => {
     setUsers(prev => prev.filter(u => u.id !== id))
     setSelectedId(null)
-  }
-
-  const handleAdd = (data: Omit<AppUser, 'id' | 'joinedAt'>) => {
-    const newUser: AppUser = {
-      ...data,
-      id: String(Date.now()),
-      joinedAt: new Date().toLocaleDateString('he-IL'),
-    }
-    setUsers(prev => [...prev, newUser])
-    setShowAdd(false)
-    setSelectedId(newUser.id)
   }
 
   return (
@@ -507,33 +402,38 @@ export function Permissions() {
       <div className="flex gap-5 items-start">
         {/* Left: user list */}
         <div className="w-64 shrink-0 space-y-2">
-          <button
-            onClick={() => { setShowAdd(true); setSelectedId(null) }}
-            className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl border-2 border-dashed text-sm font-medium transition-all ${
-              showAdd
-                ? 'border-primary bg-primary/5 text-primary'
-                : 'border-gray-200 text-gray-400 hover:border-primary/40 hover:text-primary hover:bg-primary/3'
-            }`}
-          >
-            <UserPlus size={15} />הוסף משתמש
-          </button>
+          {/* Accounts are created by registering, not from here. */}
+          <div className="w-full flex items-start gap-2 py-3 px-3 rounded-2xl border-2 border-dashed border-gray-200 text-gray-400">
+            <UserPlus size={15} className="shrink-0 mt-0.5" />
+            <p className="text-xs leading-relaxed text-right">
+              משתמשים נוספים מופיעים כאן לאחר שנרשמו למערכת. כאן קובעים להם תפקיד והרשאות.
+            </p>
+          </div>
+
+          {loading && (
+            <div className="flex items-center justify-center gap-2 py-6 text-sm text-gray-400">
+              <Loader2 size={14} className="animate-spin" />טוען משתמשים...
+            </div>
+          )}
+          {!loading && users.length === 0 && (
+            <p className="text-xs text-gray-400 text-center py-6 leading-relaxed">
+              אין עדיין משתמשים רשומים.<br />משתמשים יופיעו כאן לאחר ההרשמה למערכת.
+            </p>
+          )}
 
           {users.map(u => (
             <UserCard
               key={u.id}
               user={u}
-              selected={!showAdd && selectedId === u.id}
+              selected={selectedId === u.id}
               onClick={() => { setSelectedId(u.id); setShowAdd(false) }}
             />
           ))}
         </div>
 
-        {/* Right: detail / add panel */}
+        {/* Right: detail panel */}
         <div className="flex-1 min-w-0">
-          {showAdd && (
-            <AddUserPanel onAdd={handleAdd} onCancel={() => setShowAdd(false)} />
-          )}
-          {!showAdd && selectedUser && (
+          {selectedUser && (
             <UserDetailPanel
               key={selectedUser.id}
               user={selectedUser}
@@ -542,7 +442,7 @@ export function Permissions() {
               onRemove={handleRemove}
             />
           )}
-          {!showAdd && !selectedUser && (
+          {!selectedUser && (
             <div className="flex flex-col items-center justify-center h-52 text-gray-300 gap-3 bg-white rounded-2xl border border-gray-100 shadow-sm">
               <Shield size={36} />
               <p className="text-sm">בחר משתמש לעריכה</p>

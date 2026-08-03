@@ -122,6 +122,7 @@ function MyStatusSection({
 
 export function MyBoard({
   tasks, boards, currentUser, priorityCfg, onOpenTask, onStatusChange,
+  isTechnicalSupport = false,
 }: {
   tasks: Task[]
   boards: Board[]
@@ -129,6 +130,7 @@ export function MyBoard({
   priorityCfg: Record<string, PriorityDef>
   onOpenTask: (id: string) => void
   onStatusChange: (id: string, status: string) => void
+  isTechnicalSupport?: boolean
 }) {
   // Tasks directly assigned to me
   const myTasks = useMemo(
@@ -181,7 +183,11 @@ export function MyBoard({
   const inProgress   = myTasks.filter(t => t.status === 'in_progress')
   const overdueTasks = myTasks.filter(t => isOverdue(t.dueDate) && t.status !== 'done' && t.status !== 'archived')
   const pendingClose = myTasks.filter(t => t.status === 'done')
-  const unclaimed    = tasks.filter(t => t.board === 'support' && t.claimed === false)
+  // Unclaimed support tickets only reach people marked as Technical Support,
+  // so everyone else's board stays free of them.
+  const unclaimed    = isTechnicalSupport
+    ? tasks.filter(t => t.board === 'support' && t.claimed === false)
+    : []
   const thisMonth = new Date().toISOString().slice(0, 7)
   const hoursThisMonth = myTasks
     .flatMap(t => t.timeEntries)

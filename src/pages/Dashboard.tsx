@@ -17,11 +17,10 @@ import {
   X,
   BarChart2,
 } from 'lucide-react'
-import { getDashboardStats, getLatestAgentStatus } from '../lib/database'
+import { getDashboardStats, getLatestAgentStatus, getTasks } from '../lib/database'
 import type { DashboardStats, DbAgentLog } from '../lib/database'
 import { supabase } from '../lib/supabase'
 import { TeamOverview } from '../components/TeamOverview'
-import { MOCK_TASKS } from '../data/workMockData'
 import { useAuth } from '../hooks/useAuth'
 import { useLang } from '../contexts/LanguageContext'
 import type { Task } from '../types/work'
@@ -154,7 +153,7 @@ export function Dashboard() {
   const { t, lang }                   = useLang()
   const [stats, setStats]             = useState<DashboardStats | null>(null)
   const [loading, setLoading]         = useState(true)
-  const [tasks,   setTasks]           = useState<Task[]>(MOCK_TASKS)
+  const [tasks,   setTasks]           = useState<Task[]>([])
   const [showTeam, setShowTeam]       = useState(false)
   const [agentErrors, setAgentErrors] = useState<AgentLog[]>([])
   const [liveAgents, setLiveAgents]   = useState<Record<string, DbAgentLog>>({})
@@ -166,6 +165,13 @@ export function Dashboard() {
       .then(setStats)
       .catch(() => setStats(null))
       .finally(() => setLoading(false))
+  }, [])
+
+  // Team overview reads the real task list, not sample data.
+  useEffect(() => {
+    getTasks()
+      .then(setTasks)
+      .catch(err => console.error('Failed to load tasks:', err))
   }, [])
 
   useEffect(() => {

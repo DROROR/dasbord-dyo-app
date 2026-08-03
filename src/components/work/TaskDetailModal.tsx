@@ -417,6 +417,7 @@ export function TaskDetailModal({
               <div className="flex items-center gap-2">
                 <Avatar name={assignee} />
                 <select value={assignee} onChange={e => { setAssignee(e.target.value); save({ assignee: e.target.value }) }} className="flex-1 text-sm text-gray-700 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white">
+                  <option value="">Unassigned</option>
                   {assignees.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
               </div>

@@ -5,7 +5,7 @@ import {
   Settings, X, Check, Pencil, ChevronDown, Trash2, Loader2,
 } from 'lucide-react'
 import type { Task, Board, PriorityDef, WorkDoc, BoardStatus } from '../types/work'
-import { ASSIGNEES, MOCK_CLIENTS, MOCK_DOCS } from '../data/workMockData'
+import { MOCK_DOCS } from '../data/workMockData'
 import {
   getTasks,
   createTask as dbCreateTask,
@@ -14,6 +14,8 @@ import {
   createBoard as dbCreateBoard,
   updateBoard as dbUpdateBoard,
   deleteBoard as dbDeleteBoard,
+  getClients,
+  getProfiles,
 } from '../lib/database'
 import { PENDING_KEY } from '../contexts/TimerContext'
 import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES } from '../data/workConstants'
@@ -419,6 +421,11 @@ export function Work() {
   const [openId,       setOpenId]       = useState<string | null>(null)
   const [showAddBoard, setShowAddBoard] = useState(false)
   const [settingsBoard, setSettingsBoard] = useState<Board | null>(null)
+  // Real clients and real team members — both come from the database so they
+  // stay in step with the Clients board and whoever has registered in the panel.
+  const [clients,   setClients]   = useState<{ id: string; name: string }[]>([])
+  const [assignees, setAssignees] = useState<string[]>([])
+  const [isTechnicalSupport, setIsTechnicalSupport] = useState(false)
 
   const alertsRunRef = useRef(false)
   const tasksRef     = useRef<Task[]>([])
@@ -492,6 +499,23 @@ export function Work() {
       }
     })()
   }, [])
+
+  // Clients and team members come straight from the database, so adding or
+  // removing either is picked up here with no code change.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [dbClients, dbProfiles] = await Promise.all([getClients(), getProfiles()])
+        setClients(dbClients.map(c => ({ id: c.id, name: c.business_name || c.name })))
+        setAssignees(dbProfiles.map(p => p.name).filter(Boolean))
+        setIsTechnicalSupport(
+          dbProfiles.find(p => p.id === profile?.id)?.is_technical_support ?? false,
+        )
+      } catch (err) {
+        console.error('Failed to load clients or team members:', err)
+      }
+    })()
+  }, [profile?.id])
 
   // Keep tasksRef current so event/effect handlers always see latest tasks
   useEffect(() => { tasksRef.current = tasks }, [tasks])
@@ -665,6 +689,7 @@ export function Work() {
             priorityCfg={priorityCfg}
             onOpenTask={setOpenId}
             onStatusChange={changeStatus}
+            isTechnicalSupport={isTechnicalSupport}
           />
         )}
 
@@ -714,7 +739,7 @@ export function Work() {
               onOpenTask={setOpenId}
               onStatusChange={changeStatus}
               onAddTask={addTaskWithStatus}
-              assignees={ASSIGNEES}
+              assignees={assignees}
               boardStatuses={activeBoardObj?.statuses}
               readonly={!canEdit}
             />
@@ -725,7 +750,7 @@ export function Work() {
           <GanttTab
             tasks={tasks}
             boards={visibleBoards}
-            assignees={ASSIGNEES}
+            assignees={assignees}
             priorityCfg={priorityCfg}
             onOpenTask={setOpenId}
             onUpdateTask={updateTask}
@@ -738,7 +763,7 @@ export function Work() {
             setDocs={setDocs}
             currentUser={currentUser}
             isAdmin={isAdmin}
-            assignees={ASSIGNEES}
+            assignees={assignees}
           />
         )}
 
@@ -746,8 +771,8 @@ export function Work() {
           <AiTaskCreator
             boards={visibleBoards}
             priorityDefs={priorityDefs}
-            assignees={ASSIGNEES}
-            clients={MOCK_CLIENTS}
+            assignees={assignees}
+            clients={clients}
             onCreateTask={createTask}
           />
         )}
@@ -761,8 +786,8 @@ export function Work() {
           onUpdate={updateTask}
           currentUser={currentUser}
           priorityCfg={priorityCfg}
-          clients={MOCK_CLIENTS}
-          assignees={ASSIGNEES}
+          clients={clients}
+          assignees={assignees}
           boardLabel={activeBoardObj?.name ?? openTask.board}
           boardStatuses={activeBoardObj?.statuses}
         />
@@ -770,7 +795,7 @@ export function Work() {
 
       {showAddBoard && isAdmin && (
         <AddBoardModal
-          assignees={ASSIGNEES}
+          assignees={assignees}
           onSave={b => { setBoards(prev => [...prev, b]); void dbCreateBoard(b).catch(err => console.error('Board create failed:', err)) }}
           onClose={() => setShowAddBoard(false)}
         />
@@ -779,7 +804,7 @@ export function Work() {
       {settingsBoard && isAdmin && (
         <BoardSettingsModal
           board={settingsBoard}
-          assignees={ASSIGNEES}
+          assignees={assignees}
           priorityDefs={priorityDefs}
           tasks={tasks}
           onSave={saveBoardSettings}

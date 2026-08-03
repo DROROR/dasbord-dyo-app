@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Shield, MessageSquare, Send } from 'lucide-react'
 import { Avatar } from './Avatar'
-import { DEVELOPERS } from '../data/workMockData'
+import { getProfiles } from '../lib/database'
 import type { Task, StatusHistoryEntry } from '../types/work'
 import { STATUS_PILL, STATUS_LABEL } from '../data/workConstants'
 
@@ -68,6 +68,14 @@ export function TeamOverview({
   const [period, setPeriod]   = useState<Period>('month')
   const [fromDate, setFrom]   = useState('')
   const [toDate,   setTo]     = useState('')
+  // The team list is the registered users, not a fixed list in the code.
+  const [team, setTeam]       = useState<{ id: string; name: string; role: string }[]>([])
+
+  useEffect(() => {
+    getProfiles()
+      .then(ps => setTeam(ps.map(p => ({ id: p.id, name: p.name, role: p.role }))))
+      .catch(err => console.error('Failed to load team:', err))
+  }, [])
 
   if (!isAdmin) {
     return (
@@ -108,7 +116,7 @@ export function TeamOverview({
   }))
   periodActivity.sort((a, b) => new Date(b.entry.timestamp).getTime() - new Date(a.entry.timestamp).getTime())
 
-  const devStats = DEVELOPERS.map(dev => {
+  const devStats = team.map(dev => {
     const devTasks   = tasks.filter(t => t.assignee === dev.name)
     const doneP      = devTasks.filter(t => t.status === 'done' && inP(t.doneAt))
     const toCodeRev  = devTasks.filter(t => t.statusHistory.some(e => e.status === 'pending_code_review' && inP(e.timestamp)))
