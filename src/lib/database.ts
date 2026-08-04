@@ -943,6 +943,91 @@ export async function markMessageSent(msg: DbPendingMessage, sentBy: string): Pr
   }
 }
 
+// ─── Merging duplicate customers ──────────────────────────────────────────────
+// The shop can send the same customer more than once. Nothing here is
+// automatic: a person reviews the records and chooses which one to keep.
+
+export interface DuplicateClient {
+  id: string
+  name: string
+  business_name: string
+  email: string | null
+  phone: string | null
+  status: string
+  package: string
+  joined_at: string | null
+  created_at: string
+  woo_customer_id: string | null
+  dup_key: string
+  billing_count: number
+  task_count: number
+  contact_count: number
+}
+
+export interface DuplicateGroup {
+  key: string
+  clients: DuplicateClient[]
+  billing: DbBillingRecord[]
+  /** Months covered by more than one of these records — needs a decision. */
+  clashingPeriods: { month: number; year: number; records: DbBillingRecord[] }[]
+}
+
+export async function findDuplicateClients(): Promise<DuplicateGroup[]> {
+  const { data, error } = await supabase.from('duplicate_clients').select('*')
+  if (error) throw error
+  const rows = data as DuplicateClient[]
+  if (rows.length === 0) return []
+
+  const { data: billingRows, error: bErr } = await supabase
+    .from('billing_records')
+    .select('*')
+    .in('client_id', rows.map(r => r.id))
+  if (bErr) throw bErr
+  const billing = (billingRows ?? []) as DbBillingRecord[]
+
+  const byKey = new Map<string, DuplicateClient[]>()
+  rows.forEach(r => {
+    const list = byKey.get(r.dup_key) ?? []
+    list.push(r)
+    byKey.set(r.dup_key, list)
+  })
+
+  return Array.from(byKey.entries()).map(([key, clients]) => {
+    const ids = new Set(clients.map(c => c.id))
+    const groupBilling = billing.filter(b => ids.has(b.client_id))
+
+    // Two records billing the same month is the one thing a person must
+    // resolve, because keeping both would charge the customer twice.
+    const periods = new Map<string, DbBillingRecord[]>()
+    groupBilling.forEach(b => {
+      const k = `${b.year}-${b.month}`
+      periods.set(k, [...(periods.get(k) ?? []), b])
+    })
+    const clashingPeriods = Array.from(periods.values())
+      .filter(list => list.length > 1)
+      .map(list => ({ month: list[0].month, year: list[0].year, records: list }))
+
+    return { key, clients, billing: groupBilling, clashingPeriods }
+  })
+}
+
+/**
+ * Joins the chosen records into one. `dropBillingIds` are the billing rows the
+ * person decided to discard where two records covered the same month.
+ */
+export async function mergeClients(
+  keepId: string,
+  removeIds: string[],
+  dropBillingIds: string[] = [],
+): Promise<void> {
+  const { error } = await supabase.rpc('merge_clients', {
+    keep_id: keepId,
+    remove_ids: removeIds,
+    drop_billing_ids: dropBillingIds,
+  })
+  if (error) throw error
+}
+
 // ─── Who owns a conversation ──────────────────────────────────────────────────
 // While a team member is handling a chat the bot stays quiet, so the two never
 // reply at the same time. Ownership returns to the bot when someone hands it

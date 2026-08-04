@@ -14,6 +14,7 @@ import {
 } from '../lib/database'
 import type { DbClient, DbContact, DbBillingRecord } from '../lib/database'
 import { takeClientFocus } from '../lib/focusTarget'
+import { MergeDuplicateClients } from '../components/MergeDuplicateClients'
 import { useLang } from '../contexts/LanguageContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1150,5 +1151,11 @@ export function Clients() {
 
   if (loading) return <LoadingScreen />
 
-  return <ClientsList clients={clients} onSelect={setSelected} />
+  return (
+    <div className="space-y-5">
+      {/* Only appears when the same customer is in the system twice. */}
+      <MergeDuplicateClients onMerged={load} />
+      <ClientsList clients={clients} onSelect={setSelected} />
+    </div>
+  )
 }
