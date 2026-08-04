@@ -28,8 +28,16 @@ function fmtTimer(s: number) {
 function isOverdue(due?: string) { return !!due && new Date(due) < new Date() }
 function newId() { return Math.random().toString(36).slice(2, 10) }
 
+/** What the developer answered when closing a support ticket. */
+export interface TicketDoneAnswers {
+  requiresAppUpdate: boolean
+  /** now = write the customer message, wait = write it but hold, none = skip */
+  messageChoice: 'now' | 'wait' | 'none'
+}
+
 export function TaskDetailModal({
   task, onClose, onUpdate, currentUser, priorityCfg, clients, assignees, boardLabel, boardStatuses,
+  openTicketsForClient = 0, onTicketDone,
 }: {
   task: Task
   onClose: () => void
@@ -40,6 +48,9 @@ export function TaskDetailModal({
   assignees: string[]
   boardLabel: string
   boardStatuses?: BoardStatus[]
+  /** Other tickets still open for this task's client, excluding this one. */
+  openTicketsForClient?: number
+  onTicketDone?: (task: Task, answers: TicketDoneAnswers) => void
 }) {
   const { addNotification } = useNotifications()
 
@@ -115,27 +126,23 @@ export function TaskDetailModal({
   function saveDesc()  { if (desc !== taskRef.current.description) save({ description: desc }) }
 
   function handleStatusChange(newStatus: string) {
+    // Closing a support ticket has to be answered first, so it goes through
+    // the dialog rather than changing straight away.
+    if (newStatus === 'done' && task.board === 'support') {
+      setDoneFlow({ step: 'appUpdate', requiresAppUpdate: null })
+      return
+    }
+    applyStatusChange(newStatus)
+  }
+
+  function applyStatusChange(newStatus: string, extra: Partial<Task> = {}) {
     const now = new Date().toISOString()
     const entry: StatusHistoryEntry = { status: newStatus, timestamp: now, changedBy: currentUser }
     const newHistory = [...history, entry]
     setHistory(newHistory); setStatus(newStatus)
-    const patch: Partial<Task> = { status: newStatus, statusHistory: newHistory }
+    const patch: Partial<Task> = { status: newStatus, statusHistory: newHistory, ...extra }
 
-    if (newStatus === 'done' && clientId) {
-      patch.doneAt = now
-      const linkedClient = clients.find(c => c.id === clientId)
-      addNotification({
-        type: 'wa_pending',
-        message: `משימה הושלמה — ${taskRef.current.title} ללקוח ${linkedClient?.name ?? clientId} — ממתין לאישור שליחת WhatsApp`,
-        taskId: task.id,
-        taskTitle: task.title,
-        severity: 'high',
-        waDetails: {
-          clientName: linkedClient?.name ?? clientId,
-          message: `היי ${linkedClient?.name ?? clientId}, רצינו לעדכן אותך שהטיפול ב${taskRef.current.title} הושלם בהצלחה. אנחנו כאן לכל שאלה 🙏`,
-        },
-      })
-    }
+    if (newStatus === 'done') patch.doneAt = now
     if (newStatus === 'pending_code_review') {
       const reviewer = codeRev || taskRef.current.codeReviewer || ''
       patch.codeReviewer = reviewer
@@ -235,6 +242,28 @@ export function TaskDetailModal({
     const updated = attachments.filter(a => a.id !== id); setAttachments(updated); save({ attachments: updated })
   }
 
+  // Closing a support ticket: ask whether a release is needed, then whether to
+  // write the customer update now.
+  const [doneFlow, setDoneFlow] = useState<
+    { step: 'appUpdate' | 'message'; requiresAppUpdate: boolean | null } | null
+  >(null)
+
+  function finishTicket(requiresAppUpdate: boolean, messageChoice: TicketDoneAnswers['messageChoice']) {
+    setDoneFlow(null)
+    applyStatusChange('done', { requiresAppUpdate })
+    onTicketDone?.(taskRef.current, { requiresAppUpdate, messageChoice })
+  }
+
+  function answerAppUpdate(requiresAppUpdate: boolean) {
+    // Only ask the second question when the customer has other tickets still
+    // open — that is the case where the team may want to hold the update.
+    if (openTicketsForClient > 0) {
+      setDoneFlow({ step: 'message', requiresAppUpdate })
+      return
+    }
+    finishTicket(requiresAppUpdate, 'now')
+  }
+
   // Support tickets and urgent work sit on everyone's board until claimed.
   const isUrgentPriority =
     priority === 'critical' || /urgent|דחוף/i.test(priorityCfg[priority]?.label ?? '')
@@ -263,7 +292,7 @@ export function TaskDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col overflow-hidden" style={{ maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col overflow-hidden" style={{ maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex items-center gap-2.5 px-6 py-4 border-b border-gray-100 shrink-0">
@@ -279,11 +308,83 @@ export function TaskDetailModal({
               <button onClick={() => setEditTitle(true)} className="text-sm font-semibold text-gray-900 hover:text-primary transition-colors text-left leading-snug line-clamp-1 w-full" title="Click to edit">{title}</button>
             )}
           </div>
+          {openTicketsForClient > 0 && (
+            <span
+              className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-1 rounded-lg whitespace-nowrap shrink-0"
+              title="Other support tickets still open for this client"
+            >
+              ללקוח הזה {openTicketsForClient} קריאות תמיכה פתוחות נוספות
+            </span>
+          )}
           <button onClick={copyLink} title="Copy task link" className={`p-1.5 rounded-lg transition-colors shrink-0 ${copied ? 'bg-green-100 text-green-600' : 'text-gray-400 hover:bg-gray-100 hover:text-primary'}`}>
             {copied ? <Check size={15} /> : <Copy size={15} />}
           </button>
           <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors shrink-0"><X size={15} /></button>
         </div>
+
+        {/* Closing a support ticket — cannot be skipped */}
+        {doneFlow && (
+          <div className="absolute inset-0 z-20 bg-black/40 flex items-center justify-center p-6" dir="rtl">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-4">
+              {doneFlow.step === 'appUpdate' ? (
+                <>
+                  <p className="text-sm font-bold text-gray-800">
+                    האם התיקון דורש עדכון גרסה כדי שהלקוח יקבל אותו?
+                  </p>
+                  <p className="text-xs text-gray-400 leading-relaxed">
+                    חובה לבחור כדי לסגור את הקריאה. אם נדרש עדכון, תיפתח אוטומטית משימה בלוח "Apps to update".
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => answerAppUpdate(true)}
+                      className="w-full px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-sm font-semibold hover:bg-amber-100 transition-colors text-right"
+                    >
+                      כן, נדרש עדכון גרסה
+                    </button>
+                    <button
+                      onClick={() => answerAppUpdate(false)}
+                      className="w-full px-4 py-3 rounded-xl border border-green-200 bg-green-50 text-green-800 text-sm font-semibold hover:bg-green-100 transition-colors text-right"
+                    >
+                      לא, התיקון כבר פעיל
+                    </button>
+                  </div>
+                  <button onClick={() => setDoneFlow(null)} className="text-xs text-gray-400 hover:text-gray-600 self-start">
+                    ביטול
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-bold text-gray-800">
+                    ללקוח הזה יש עוד {openTicketsForClient} קריאות תמיכה פתוחות.
+                  </p>
+                  <p className="text-xs text-gray-400 leading-relaxed">
+                    אפשר להכין את ההודעה ללקוח עכשיו, או להמתין עד שהקריאות האחרות יסתיימו ולשלוח עדכון אחד.
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => finishTicket(doneFlow.requiresAppUpdate === true, 'now')}
+                      className="w-full px-4 py-3 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-colors text-right"
+                    >
+                      הכן את ההודעה עכשיו
+                    </button>
+                    <button
+                      onClick={() => finishTicket(doneFlow.requiresAppUpdate === true, 'wait')}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-50 transition-colors text-right"
+                    >
+                      הכן אבל סמן כממתין לקריאות הנוספות
+                    </button>
+                    <button
+                      onClick={() => finishTicket(doneFlow.requiresAppUpdate === true, 'none')}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-500 text-sm hover:bg-gray-50 transition-colors text-right"
+                    >
+                      אל תכין הודעה עכשיו
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Unclaimed banner — support tickets, and urgent work on any board */}
         {isUnclaimed && (

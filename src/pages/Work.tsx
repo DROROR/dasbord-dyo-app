@@ -16,7 +16,10 @@ import {
   deleteBoard as dbDeleteBoard,
   getClients,
   getProfiles,
+  generateCustomerMessage,
+  createPendingMessage,
 } from '../lib/database'
+import type { TicketDoneAnswers } from '../components/work/TaskDetailModal'
 import { PENDING_KEY } from '../contexts/TimerContext'
 import { takeTaskFocus } from '../lib/focusTarget'
 import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES } from '../data/workConstants'
@@ -424,7 +427,7 @@ export function Work() {
   const [settingsBoard, setSettingsBoard] = useState<Board | null>(null)
   // Real clients and real team members — both come from the database so they
   // stay in step with the Clients board and whoever has registered in the panel.
-  const [clients,   setClients]   = useState<{ id: string; name: string }[]>([])
+  const [clients,   setClients]   = useState<{ id: string; name: string; phone: string | null }[]>([])
   const [assignees, setAssignees] = useState<string[]>([])
   const [isTechnicalSupport, setIsTechnicalSupport] = useState(false)
 
@@ -525,7 +528,7 @@ export function Work() {
     void (async () => {
       try {
         const [dbClients, dbProfiles] = await Promise.all([getClients(), getProfiles()])
-        setClients(dbClients.map(c => ({ id: c.id, name: c.business_name || c.name })))
+        setClients(dbClients.map(c => ({ id: c.id, name: c.business_name || c.name, phone: c.phone })))
         setAssignees(dbProfiles.map(p => p.name).filter(Boolean))
         setIsTechnicalSupport(
           dbProfiles.find(p => p.id === profile?.id)?.is_technical_support ?? false,
@@ -646,6 +649,76 @@ export function Work() {
       setOpenId(created.id)
     } catch (err) {
       console.error('Failed to create task:', err)
+    }
+  }
+
+  /**
+   * A support ticket was closed. Opens the app-update task when the fix needs
+   * a release, and prepares the customer message for someone to review.
+   */
+  async function handleTicketDone(ticket: Task, answers: TicketDoneAnswers) {
+    const client   = clients.find(c => c.id === ticket.clientId)
+    const appName  = client?.name ?? ticket.clientName ?? ''
+    const now      = new Date().toISOString()
+
+    if (answers.requiresAppUpdate) {
+      const updateBoard = boards.find(b => b.id.startsWith('apps_to_update')) ?? boards.find(b => /apps to update/i.test(b.name))
+      if (updateBoard) {
+        try {
+          const created = await dbCreateTask({
+            title: `App update: ${ticket.title}`,
+            description:
+              `App: ${appName}\n` +
+              `Customer: ${ticket.clientName ?? ''}\n` +
+              `From support ticket: ${ticket.id}\n` +
+              `Completed by: ${currentUser}\n\n` +
+              `Fix to include in the next release:\n${ticket.description || ticket.title}`,
+            assignee: '',
+            board: updateBoard.id,
+            priority: ticket.priority,
+            status: 'not_started',
+            clientId: ticket.clientId,
+            clientName: ticket.clientName,
+            timeEntries: [],
+            createdAt: now,
+            statusHistory: [{ status: 'not_started', timestamp: now, changedBy: currentUser }],
+            comments: [],
+            attachments: [],
+            sourceTaskId: ticket.id,
+          })
+          setTasks(prev => [created, ...prev])
+        } catch (err) {
+          console.error('Could not create the app update task:', err)
+        }
+      } else {
+        console.warn('No "Apps to update" board found, skipping the update task.')
+      }
+    }
+
+    if (answers.messageChoice === 'none') return
+
+    try {
+      const { summary, message } = await generateCustomerMessage({
+        clientName: ticket.clientName ?? '',
+        appName,
+        taskTitle: ticket.title,
+        requiresAppUpdate: answers.requiresAppUpdate,
+      })
+      await createPendingMessage({
+        task_id: ticket.id,
+        task_title: ticket.title,
+        client_id: ticket.clientId ?? null,
+        client_name: ticket.clientName ?? null,
+        app_name: appName,
+        phone: client?.phone ?? null,
+        summary,
+        message,
+        requires_app_update: answers.requiresAppUpdate,
+        status: answers.messageChoice === 'wait' ? 'waiting' : 'pending',
+        created_by: currentUser,
+      })
+    } catch (err) {
+      console.error('Could not prepare the customer message:', err)
     }
   }
 
@@ -810,6 +883,17 @@ export function Work() {
           assignees={assignees}
           boardLabel={activeBoardObj?.name ?? openTask.board}
           boardStatuses={activeBoardObj?.statuses}
+          openTicketsForClient={
+            openTask.clientId
+              ? tasks.filter(t =>
+                  t.id !== openTask.id &&
+                  t.board === 'support' &&
+                  t.clientId === openTask.clientId &&
+                  t.status !== 'done' && t.status !== 'archived',
+                ).length
+              : 0
+          }
+          onTicketDone={handleTicketDone}
         />
       )}
 

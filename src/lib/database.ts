@@ -651,6 +651,8 @@ interface DbTask {
   claimed_by: string | null
   code_reviewer: string | null
   ux_reviewer: string | null
+  requires_app_update: boolean | null
+  source_task_id: string | null
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -680,6 +682,8 @@ function dbToTask(db: DbTask): Task {
     claimedBy:       db.claimed_by ?? undefined,
     codeReviewer:    db.code_reviewer ?? undefined,
     uxReviewer:      db.ux_reviewer ?? undefined,
+    requiresAppUpdate: db.requires_app_update ?? undefined,
+    sourceTaskId:    db.source_task_id ?? undefined,
   }
 }
 
@@ -706,6 +710,8 @@ function taskToRow(t: Partial<Task>): Record<string, unknown> {
   if (t.claimedBy      !== undefined) r.claimed_by       = t.claimedBy || null
   if (t.codeReviewer   !== undefined) r.code_reviewer    = t.codeReviewer || null
   if (t.uxReviewer     !== undefined) r.ux_reviewer      = t.uxReviewer || null
+  if (t.requiresAppUpdate !== undefined) r.requires_app_update = t.requiresAppUpdate
+  if (t.sourceTaskId   !== undefined) r.source_task_id   = t.sourceTaskId || null
   return r
 }
 
@@ -826,6 +832,115 @@ export async function updateBoard(board: Board): Promise<Board> {
 export async function deleteBoard(id: string): Promise<void> {
   const { error } = await supabase.from('boards').delete().eq('id', id)
   if (error) throw error
+}
+
+// ─── Customer messages waiting to be sent ─────────────────────────────────────
+// Written when a support ticket is finished. Never sent automatically — someone
+// reviews, edits if needed, and sends.
+
+export interface DbPendingMessage {
+  id: string
+  task_id: string | null
+  task_title: string | null
+  client_id: string | null
+  client_name: string | null
+  app_name: string | null
+  phone: string | null
+  summary: string | null
+  message: string
+  requires_app_update: boolean
+  status: 'pending' | 'waiting' | 'sent'
+  created_by: string | null
+  created_at: string
+  sent_at: string | null
+  sent_by: string | null
+}
+
+const TICKET_DONE_WEBHOOK =
+  'https://primary-production-2bdeb.up.railway.app/webhook/dyo-ticket-done-message'
+
+/**
+ * Asks the message writer for a customer-safe update. Falls back to the
+ * approved wording if it cannot be reached, so a ticket can always be closed.
+ */
+export async function generateCustomerMessage(input: {
+  clientName: string
+  appName: string
+  taskTitle: string
+  requiresAppUpdate: boolean
+}): Promise<{ summary: string; message: string }> {
+  const fallback = input.requiresAppUpdate
+    ? `שלום ${input.clientName},\n\nרצינו לעדכן שהתקלה בנושא ${input.taskTitle} טופלה.\n\nכדי שהתיקון יופיע אצלך באפליקציה נדרש עדכון גרסה. העדכון בהכנה ונעדכן אותך ברגע שהגרסה החדשה תהיה זמינה.`
+    : `שלום ${input.clientName},\n\nרצינו לעדכן שהתקלה בנושא ${input.taskTitle} טופלה.\n\nהתיקון כבר הוחל ואין צורך בעדכון אפליקציה. נשמח שתבדקו שהכל עובד כשורה.`
+
+  try {
+    const res = await fetch(TICKET_DONE_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_name: input.clientName,
+        app_name: input.appName,
+        task_title: input.taskTitle,
+        requires_app_update: input.requiresAppUpdate,
+      }),
+    })
+    if (!res.ok) throw new Error(`writer returned ${res.status}`)
+    const data = await res.json() as { summary?: string; message?: string }
+    return { summary: data.summary ?? input.taskTitle, message: data.message ?? fallback }
+  } catch (err) {
+    console.warn('Message writer unavailable, using standard wording:', err)
+    return { summary: input.taskTitle, message: fallback }
+  }
+}
+
+export async function getPendingMessages(): Promise<DbPendingMessage[]> {
+  const { data, error } = await supabase
+    .from('pending_whatsapp_messages')
+    .select('*')
+    .neq('status', 'sent')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data as DbPendingMessage[]
+}
+
+export async function createPendingMessage(
+  row: Omit<DbPendingMessage, 'id' | 'created_at' | 'sent_at' | 'sent_by'>,
+): Promise<DbPendingMessage> {
+  const { data, error } = await supabase
+    .from('pending_whatsapp_messages')
+    .insert(row)
+    .select()
+    .single()
+  if (error) throw error
+  return data as DbPendingMessage
+}
+
+export async function updatePendingMessage(
+  id: string,
+  updates: Partial<Pick<DbPendingMessage, 'message' | 'status'>>,
+): Promise<void> {
+  const { error } = await supabase.from('pending_whatsapp_messages').update(updates).eq('id', id)
+  if (error) throw error
+}
+
+/** Marks it sent and files a copy in the customer's conversation history. */
+export async function markMessageSent(msg: DbPendingMessage, sentBy: string): Promise<void> {
+  const { error } = await supabase
+    .from('pending_whatsapp_messages')
+    .update({ status: 'sent', sent_at: new Date().toISOString(), sent_by: sentBy })
+    .eq('id', msg.id)
+  if (error) throw error
+
+  if (msg.phone) {
+    const { error: convErr } = await supabase.from('bot_conversations').insert({
+      phone: msg.phone,
+      client_id: msg.client_id,
+      role: 'bot',
+      message: msg.message,
+      action: 'ticket_resolved',
+    })
+    if (convErr) console.warn('Could not file message in conversation history:', convErr.message)
+  }
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────

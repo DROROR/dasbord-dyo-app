@@ -19,8 +19,8 @@ import { TimerProvider } from './contexts/TimerContext'
 import { LanguageProvider } from './contexts/LanguageContext'
 import { FloatingTimerWidget } from './components/work/FloatingTimerWidget'
 
-const PAGES: Record<string, React.ReactNode> = {
-  dashboard:   <Dashboard />,
+const buildPages = (navigate: (page: string) => void): Record<string, React.ReactNode> => ({
+  dashboard:   <Dashboard onNavigate={navigate} />,
   clients:     <Clients />,
   billing:     <Billing />,
   whatsapp:    <WhatsApp />,
@@ -30,7 +30,7 @@ const PAGES: Record<string, React.ReactNode> = {
   permissions: <Permissions />,
   work:        <Work />,
   settings:    <Settings />,
-}
+})
 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard')
@@ -65,7 +65,7 @@ export default function App() {
             onSignOut={signOut}
           >
             <ErrorBoundary key={activePage}>
-              {PAGES[activePage]}
+              {buildPages(setActivePage)[activePage]}
             </ErrorBoundary>
           </Layout>
           <FloatingTimerWidget onNavigate={setActivePage} />

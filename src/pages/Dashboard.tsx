@@ -21,6 +21,7 @@ import { getDashboardStats, getLatestAgentStatus, getTasks } from '../lib/databa
 import type { DashboardStats, DbAgentLog } from '../lib/database'
 import { supabase } from '../lib/supabase'
 import { TeamOverview } from '../components/TeamOverview'
+import { PendingWhatsAppMessages } from '../components/PendingWhatsAppMessages'
 import { useAuth } from '../hooks/useAuth'
 import { useLang } from '../contexts/LanguageContext'
 import type { Task } from '../types/work'
@@ -148,8 +149,8 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
-export function Dashboard() {
-  const { isAdmin }                   = useAuth()
+export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void } = {}) {
+  const { isAdmin, profile }          = useAuth()
   const { t, lang }                   = useLang()
   const [stats, setStats]             = useState<DashboardStats | null>(null)
   const [loading, setLoading]         = useState(true)
@@ -265,6 +266,9 @@ export function Dashboard() {
           </Card>
         ))}
       </div>
+
+      {/* ── Customer updates waiting for someone to send ── */}
+      <PendingWhatsAppMessages currentUser={profile?.name ?? ''} onNavigate={onNavigate} />
 
       {/* ── Middle row: Alerts + Activity ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

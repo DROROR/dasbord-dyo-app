@@ -90,6 +90,10 @@ export interface Task {
   claimedBy?: string
   codeReviewer?: string
   uxReviewer?: string
+  /** Answered when a support ticket is closed: does the fix need a release? */
+  requiresAppUpdate?: boolean
+  /** On an app-update task, the support ticket that caused it. */
+  sourceTaskId?: string
 }
 
 export interface WorkDoc {
