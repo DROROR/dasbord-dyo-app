@@ -943,6 +943,96 @@ export async function markMessageSent(msg: DbPendingMessage, sentBy: string): Pr
   }
 }
 
+// ─── Who owns a conversation ──────────────────────────────────────────────────
+// While a team member is handling a chat the bot stays quiet, so the two never
+// reply at the same time. Ownership returns to the bot when someone hands it
+// back, or after the idle time set in Bot Training.
+
+export interface DbConversationState {
+  phone: string
+  client_id: string | null
+  state: 'agent' | 'human'
+  taken_over_by: string | null
+  taken_over_at: string | null
+  last_human_at: string | null
+  returned_by: string | null
+  returned_at: string | null
+  updated_at: string
+}
+
+export interface HumanHeldConversation extends DbConversationState {
+  client_name: string | null
+  /** Minutes since the person last did anything on this conversation. */
+  quiet_minutes: number
+  idle_limit: number
+}
+
+export async function getHumanHeldConversations(): Promise<HumanHeldConversation[]> {
+  const [{ data, error }, cfg] = await Promise.all([
+    supabase.from('conversation_state').select('*').eq('state', 'human'),
+    getBotConfig('support'),
+  ])
+  if (error) throw error
+
+  const rows = data as DbConversationState[]
+  if (rows.length === 0) return []
+
+  const idleLimit = (cfg as { human_idle_minutes?: number } | null)?.human_idle_minutes ?? 20
+
+  // Attach the customer name so the list is readable.
+  const ids = rows.map(r => r.client_id).filter(Boolean) as string[]
+  const names: Record<string, string> = {}
+  if (ids.length > 0) {
+    const { data: clientRows } = await supabase.from('clients').select('id, name').in('id', ids)
+    ;(clientRows ?? []).forEach((c: { id: string; name: string }) => { names[c.id] = c.name })
+  }
+
+  return rows.map(r => {
+    const since = r.last_human_at ?? r.taken_over_at
+    return {
+      ...r,
+      client_name: r.client_id ? (names[r.client_id] ?? null) : null,
+      quiet_minutes: since ? Math.floor((Date.now() - new Date(since).getTime()) / 60000) : 0,
+      idle_limit: idleLimit,
+    }
+  })
+}
+
+/** Hands the conversation to a person; the bot goes quiet. */
+export async function takeOverConversation(phone: string, by: string, clientId?: string | null): Promise<void> {
+  const now = new Date().toISOString()
+  const { error } = await supabase.from('conversation_state').upsert({
+    phone,
+    client_id: clientId ?? null,
+    state: 'human',
+    taken_over_by: by,
+    taken_over_at: now,
+    last_human_at: now,
+    updated_at: now,
+  }, { onConflict: 'phone' })
+  if (error) throw error
+  await recordHandover(phone, clientId ?? null, `${by} took over the conversation`)
+}
+
+/** Gives the conversation back to the bot. */
+export async function returnConversationToBot(phone: string, by: string, clientId?: string | null): Promise<void> {
+  const now = new Date().toISOString()
+  const { error } = await supabase
+    .from('conversation_state')
+    .update({ state: 'agent', returned_by: by, returned_at: now, updated_at: now })
+    .eq('phone', phone)
+  if (error) throw error
+  await recordHandover(phone, clientId ?? null, `${by} handed the conversation back to the bot`)
+}
+
+/** Handovers are written into the conversation so the history explains itself. */
+async function recordHandover(phone: string, clientId: string | null, message: string) {
+  const { error } = await supabase.from('bot_conversations').insert({
+    phone, client_id: clientId, role: 'system', message, action: 'handover',
+  })
+  if (error) console.warn('Could not record the handover:', error.message)
+}
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 // Persisted so that alerts raised outside the browser (n8n support-bot
 // escalations, auto-created tickets) reach the management interface.

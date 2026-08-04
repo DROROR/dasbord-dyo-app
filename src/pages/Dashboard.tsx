@@ -22,6 +22,7 @@ import type { DashboardStats, DbAgentLog } from '../lib/database'
 import { supabase } from '../lib/supabase'
 import { TeamOverview } from '../components/TeamOverview'
 import { PendingWhatsAppMessages } from '../components/PendingWhatsAppMessages'
+import { HumanHeldConversations } from '../components/HumanHeldConversations'
 import { useAuth } from '../hooks/useAuth'
 import { useLang } from '../contexts/LanguageContext'
 import type { Task } from '../types/work'
@@ -266,6 +267,9 @@ export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void 
           </Card>
         ))}
       </div>
+
+      {/* ── Conversations a person has taken over from the bot ── */}
+      <HumanHeldConversations currentUser={profile?.name ?? ''} />
 
       {/* ── Customer updates waiting for someone to send ── */}
       <PendingWhatsAppMessages currentUser={profile?.name ?? ''} onNavigate={onNavigate} />
