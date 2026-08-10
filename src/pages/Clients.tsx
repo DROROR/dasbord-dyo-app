@@ -16,6 +16,7 @@ import type { DbClient, DbContact, DbBillingRecord } from '../lib/database'
 import { takeClientFocus } from '../lib/focusTarget'
 import { MergeDuplicateClients } from '../components/MergeDuplicateClients'
 import { useLang } from '../contexts/LanguageContext'
+import { useCan } from '../hooks/useCan'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -524,7 +525,7 @@ function ContactsSection({
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
-function DetailsTab({ client, onSave }: { client: Client; onSave: (c: Client) => void }) {
+function DetailsTab({ client, onSave, canEdit }: { client: Client; onSave: (c: Client) => void; canEdit: boolean }) {
   const { t } = useLang()
   const { settings } = useSettings()
   const [editing, setEditing] = useState(false)
@@ -532,7 +533,7 @@ function DetailsTab({ client, onSave }: { client: Client; onSave: (c: Client) =>
 
   const set = <K extends keyof Client>(k: K, v: Client[K]) => setDraft(d => ({ ...d, [k]: v }))
 
-  const handleSave   = () => { onSave(draft); setEditing(false) }
+  const handleSave   = () => { if (!canEdit) return; onSave(draft); setEditing(false) }
   const handleCancel = () => { setDraft(client); setEditing(false) }
 
   return (
@@ -541,7 +542,7 @@ function DetailsTab({ client, onSave }: { client: Client; onSave: (c: Client) =>
       <section>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-primary">{t('פרטי קשר', 'Contact details')}</h3>
-          {!editing
+          {!canEdit ? null : !editing
             ? <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-primary transition-colors"><Pencil size={13} />{t('עריכה', 'Edit')}</button>
             : <div className="flex gap-2">
                 <button onClick={handleSave}   className="flex items-center gap-1 text-xs bg-primary text-white px-3 py-1.5 rounded-lg hover:bg-primary-dark transition-colors"><Save size={12} />{t('שמור', 'Save')}</button>
@@ -865,7 +866,7 @@ const TABS: { id: TabId; he: string; en: string }[] = [
   { id: 'tickets',  he: 'תמיכה',   en: 'Support'  },
 ]
 
-function ClientDetail({ client, onBack, onSave }: { client: Client; onBack: () => void; onSave: (c: Client) => void }) {
+function ClientDetail({ client, onBack, onSave, canEdit }: { client: Client; onBack: () => void; onSave: (c: Client) => void; canEdit: boolean }) {
   const { t } = useLang()
   const [tab, setTab] = useState<TabId>('details')
 
@@ -908,7 +909,7 @@ function ClientDetail({ client, onBack, onSave }: { client: Client; onBack: () =
           ))}
         </div>
 
-        {tab === 'details'  && <DetailsTab  client={client} onSave={onSave} />}
+        {tab === 'details'  && <DetailsTab  client={client} onSave={onSave} canEdit={canEdit} />}
         {tab === 'billing'  && <BillingTab  client={client} />}
         {tab === 'whatsapp' && <WhatsAppTab clientId={client.id} contacts={client.contacts} />}
         {tab === 'tickets'  && <TicketsTab  clientId={client.id} />}
@@ -1088,6 +1089,8 @@ function ClientsList({ clients, onSelect }: { clients: Client[]; onSelect: (c: C
 
 export function Clients() {
   const { t } = useLang()
+  const canEdit  = useCan('clients', 'edit')
+  const canMerge = useCan('clients', 'full')
   const [clients,   setClients]   = useState<Client[]>([])
   const [selected,  setSelected]  = useState<Client | null>(null)
   const [loading,   setLoading]   = useState(true)
@@ -1121,6 +1124,7 @@ export function Clients() {
   }, [loading, clients])
 
   const handleSave = async (updated: Client) => {
+    if (!canEdit) return
     setSaveError(null)
     const snapshot = clients
     setClients(prev => prev.map(c => c.id === updated.id ? updated : c))
@@ -1144,7 +1148,7 @@ export function Clients() {
     return (
       <>
         {saveError && <SaveErrorBanner message={saveError} onDismiss={() => setSaveError(null)} />}
-        <ClientDetail client={selected} onBack={() => { setSelected(null); setSaveError(null) }} onSave={handleSave} />
+        <ClientDetail client={selected} onBack={() => { setSelected(null); setSaveError(null) }} onSave={handleSave} canEdit={canEdit} />
       </>
     )
   }
@@ -1154,7 +1158,7 @@ export function Clients() {
   return (
     <div className="space-y-5">
       {/* Only appears when the same customer is in the system twice. */}
-      <MergeDuplicateClients onMerged={load} />
+      {canMerge && <MergeDuplicateClients onMerged={load} />}
       <ClientsList clients={clients} onSelect={setSelected} />
     </div>
   )

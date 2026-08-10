@@ -9,6 +9,7 @@ import type { AppSettings } from '../config/defaults'
 import { getBillingWithClients, updateBillingStatus } from '../lib/database'
 import type { DbBillingWithClient } from '../lib/database'
 import { useLang } from '../contexts/LanguageContext'
+import { useCan } from '../hooks/useCan'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -248,8 +249,8 @@ function PaymentModal({ record, onClose, onConfirm }: {
 
 // ─── Open payments tab ────────────────────────────────────────────────────────
 
-function OpenPaymentsTab({ records, onOpenModal }: {
-  records: FullRecord[]; onOpenModal: (r: FullRecord) => void
+function OpenPaymentsTab({ records, onOpenModal, canSend }: {
+  records: FullRecord[]; onOpenModal: (r: FullRecord) => void; canSend: boolean
 }) {
   const { t } = useLang()
   if (!records.length) {
@@ -308,13 +309,15 @@ function OpenPaymentsTab({ records, onOpenModal }: {
                   </Badge>
                 </TD>
                 <TD>
-                  <button
-                    onClick={() => onOpenModal(r)}
-                    className="flex items-center gap-1.5 text-xs bg-primary/10 text-primary px-3 py-1.5 rounded-lg hover:bg-primary hover:text-white transition-colors font-medium whitespace-nowrap"
-                  >
-                    <Send size={12} />
-                    {t('שלח בקשה', 'Send request')}
-                  </button>
+                  {canSend && (
+                    <button
+                      onClick={() => onOpenModal(r)}
+                      className="flex items-center gap-1.5 text-xs bg-primary/10 text-primary px-3 py-1.5 rounded-lg hover:bg-primary hover:text-white transition-colors font-medium whitespace-nowrap"
+                    >
+                      <Send size={12} />
+                      {t('שלח בקשה', 'Send request')}
+                    </button>
+                  )}
                 </TD>
               </tr>
             ))}
@@ -412,6 +415,7 @@ function NumInput({
 
 function PricingTab() {
   const { t } = useLang()
+  const canEdit = useCan('pricing', 'full')
   const { settings, updateSettings } = useSettings()
   const [draft, setDraft] = useState<AppSettings>(settings)
   const [saved, setSaved] = useState(false)
@@ -420,6 +424,7 @@ function PricingTab() {
     setDraft(d => ({ ...d, [k]: v }))
 
   const handleSave = () => {
+    if (!canEdit) return
     updateSettings(draft)
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
@@ -485,9 +490,12 @@ function PricingTab() {
       </div>
 
       <div className="flex items-center gap-3">
+        {!canEdit && (
+          <p className="text-xs text-gray-400">אין לך הרשאה לערוך הגדרות תמחור</p>
+        )}
         <button
           onClick={handleSave}
-          disabled={!isDirty && !saved}
+          disabled={(!isDirty && !saved) || !canEdit}
           className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
             saved
               ? 'bg-green-500 text-white'
@@ -541,6 +549,7 @@ function BillingError({ message, onRetry }: { message: string; onRetry: () => vo
 
 export function Billing() {
   const { t } = useLang()
+  const canSend = useCan('billing', 'full')
   const { settings } = useSettings()
 
   const [allRecords,     setAllRecords]     = useState<FullRecord[]>([])
@@ -579,7 +588,7 @@ export function Billing() {
   const failedRecords = openRecords.filter(r => r.status === 'failed')
 
   const handleConfirmSend = async () => {
-    if (!selectedRecord) return
+    if (!selectedRecord || !canSend) return
     // Optimistic update
     setAllRecords(prev => prev.map(r => r.id === selectedRecord.id ? { ...r, status: 'pending' as PaymentStatus } : r))
     setSelectedRecord(null)
@@ -657,7 +666,7 @@ export function Billing() {
         </div>
 
         {activeTab === 'open' && (
-          <OpenPaymentsTab records={openRecords} onOpenModal={setSelectedRecord} />
+          <OpenPaymentsTab records={openRecords} onOpenModal={setSelectedRecord} canSend={canSend} />
         )}
         {activeTab === 'history' && (
           <HistoryTab records={historyFull} />

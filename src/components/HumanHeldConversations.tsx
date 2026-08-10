@@ -4,12 +4,15 @@ import {
   getHumanHeldConversations, returnConversationToBot,
   type HumanHeldConversation,
 } from '../lib/database'
+import { useCan } from '../hooks/useCan'
 
 /**
  * Conversations a team member has taken over. The bot stays quiet on these
  * until someone hands it back, or the person goes quiet for long enough.
  */
 export function HumanHeldConversations({ currentUser }: { currentUser: string }) {
+  const canView = useCan('whatsapp', 'view')
+  const canSend = useCan('whatsapp', 'send')
   const [rows, setRows]       = useState<HumanHeldConversation[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy]       = useState<string | null>(null)
@@ -27,6 +30,7 @@ export function HumanHeldConversations({ currentUser }: { currentUser: string })
   }, [])
 
   async function handBack(row: HumanHeldConversation) {
+    if (!canSend) return
     setBusy(row.phone)
     try {
       await returnConversationToBot(row.phone, currentUser, row.client_id)
@@ -39,7 +43,7 @@ export function HumanHeldConversations({ currentUser }: { currentUser: string })
   }
 
   if (loading) return null
-  if (rows.length === 0) return null
+  if (!canView || rows.length === 0) return null
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden" dir="rtl">
@@ -77,14 +81,16 @@ export function HumanHeldConversations({ currentUser }: { currentUser: string })
                   : `הבוט שקט עוד ${r.idle_limit - r.quiet_minutes} דקות`}
               </span>
 
-              <button
-                onClick={() => void handBack(r)}
-                disabled={busy === r.phone}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-primary/90 disabled:opacity-50"
-              >
-                {busy === r.phone ? <Loader2 size={11} className="animate-spin" /> : <Bot size={11} />}
-                החזר לבוט
-              </button>
+              {canSend && (
+                <button
+                  onClick={() => void handBack(r)}
+                  disabled={busy === r.phone}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {busy === r.phone ? <Loader2 size={11} className="animate-spin" /> : <Bot size={11} />}
+                  החזר לבוט
+                </button>
+              )}
             </div>
           )
         })}

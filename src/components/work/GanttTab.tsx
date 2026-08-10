@@ -104,7 +104,7 @@ function BoardFilterDropdown({
 // ─── GanttTab ─────────────────────────────────────────────────────────────────
 
 export function GanttTab({
-  tasks, boards, assignees, priorityCfg, onOpenTask, onUpdateTask,
+  tasks, boards, assignees, priorityCfg, onOpenTask, onUpdateTask, readonly = false,
 }: {
   tasks: Task[]
   boards: Board[]
@@ -112,6 +112,7 @@ export function GanttTab({
   priorityCfg: Record<string, PriorityDef>
   onOpenTask: (id: string) => void
   onUpdateTask: (t: Task) => void
+  readonly?: boolean
 }) {
   const [viewMode,       setViewMode]       = useState<'week' | 'month'>('week')
   const [hiddenBoards,   setHiddenBoards]   = useState<Set<string>>(new Set())
@@ -189,10 +190,11 @@ export function GanttTab({
   }
 
   const onBarPointerDown = useCallback((e: React.PointerEvent, task: Task) => {
+    if (readonly) return
     e.preventDefault()
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     setDrag({ taskId: task.id, startX: e.clientX, origStart: task.startDate, origDue: task.dueDate, deltaDays: 0 })
-  }, [])
+  }, [readonly])
 
   const onBarPointerMove = useCallback((e: React.PointerEvent) => {
     if (!drag) return
@@ -201,13 +203,13 @@ export function GanttTab({
   }, [drag, dayWidth])
 
   const onBarPointerUp = useCallback((e: React.PointerEvent, task: Task) => {
-    if (!drag || drag.deltaDays === 0) { setDrag(null); return }
+    if (readonly || !drag || drag.deltaDays === 0) { setDrag(null); return }
     const updated = { ...task }
     if (drag.origDue)   updated.dueDate   = toIso(addDays(new Date(drag.origDue),   drag.deltaDays))
     if (drag.origStart) updated.startDate = toIso(addDays(new Date(drag.origStart), drag.deltaDays))
     onUpdateTask(updated)
     setDrag(null)
-  }, [drag, onUpdateTask])
+  }, [readonly, drag, onUpdateTask])
 
   const ROW_H = 44
 
@@ -335,7 +337,7 @@ export function GanttTab({
                       </div>
                     ) : (
                       <div
-                        className="absolute top-2.5 rounded-md cursor-grab active:cursor-grabbing select-none transition-opacity"
+                        className={`absolute top-2.5 rounded-md select-none transition-opacity ${readonly ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}
                         style={{
                           left: Math.max(0, bl),
                           width: Math.min(bw, totalWidth - Math.max(0, bl)),
@@ -345,7 +347,7 @@ export function GanttTab({
                           boxShadow: isDrag ? '0 4px 12px rgba(0,0,0,0.2)' : undefined,
                           outline: isDue ? '2px solid #ef4444' : undefined,
                         }}
-                        onPointerDown={e => onBarPointerDown(e, task)}
+                        onPointerDown={readonly ? undefined : e => onBarPointerDown(e, task)}
                         onClick={() => !drag && onOpenTask(task.id)}
                       >
                         <span className="px-2 text-[9px] font-semibold truncate block leading-[24px]" style={{ color: '#fff' }}>{task.title}</span>

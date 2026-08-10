@@ -1,36 +1,15 @@
-import {
-  LayoutDashboard,
-  Users,
-  CreditCard,
-  MessageCircle,
-  Target,
-  Bot,
-  GraduationCap,
-  Shield,
-  Settings,
-  LogOut,
-  Briefcase,
-} from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import logoFull from '../../assets/logo.png'
 import logoSymbol from '../../assets/logo-symbol.png'
 import type { UserProfile } from '../../hooks/useAuth'
+import { useAuth } from '../../hooks/useAuth'
 import { useLang } from '../../contexts/LanguageContext'
+import { PAGES } from '../../lib/permissions'
 
-const NAV_ITEMS = [
-  { id: 'dashboard',   he: 'לוח בקרה',    en: 'Dashboard',    icon: LayoutDashboard },
-  { id: 'clients',     he: 'לקוחות',      en: 'Clients',      icon: Users           },
-  { id: 'billing',     he: 'חיוב',        en: 'Billing',      icon: CreditCard      },
-  { id: 'whatsapp',    he: 'וואטסאפ',     en: 'WhatsApp',     icon: MessageCircle   },
-  { id: 'leads',       he: 'לידים',       en: 'Leads',        icon: Target          },
-  { id: 'agents',      he: 'סוכנים',      en: 'Agents',       icon: Bot             },
-  { id: 'bots',        he: 'אימון בוטים', en: 'Bot Training', icon: GraduationCap   },
-  { id: 'work',        he: 'Work',        en: 'Work',         icon: Briefcase       },
-  { id: 'permissions', he: 'הרשאות',      en: 'Permissions',  icon: Shield          },
-]
-
-const BOTTOM_NAV = [
-  { id: 'settings', he: 'הגדרות', en: 'Settings', icon: Settings },
-]
+// Nav items come from the central PAGES registry (src/lib/permissions.ts)
+// — add/remove/rename a page there, not here.
+const NAV_ITEMS = PAGES.filter(p => p.nav === 'main')
+const BOTTOM_NAV = PAGES.filter(p => p.nav === 'bottom')
 
 interface Props {
   active: string
@@ -42,6 +21,7 @@ interface Props {
 
 export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: Props) {
   const { t } = useLang()
+  const { hasPermission, canManagePermissions } = useAuth()
   const initial = profile?.name?.charAt(0).toUpperCase() ?? '?'
 
   return (
@@ -61,11 +41,10 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
 
       {/* Navigation */}
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.filter(({ id }) => {
-          if (id === 'work' && profile?.role !== 'admin' && profile?.permissions?.['work'] === 'none') return false
-          return true
-        }).map(({ id, he, en, icon: Icon }) => {
-          const label = t(he, en)
+        {NAV_ITEMS.filter(item =>
+          item.managePermissionsOnly ? canManagePermissions : !!item.module && hasPermission(item.module, 'view'),
+        ).map(({ id, labelHe, labelEn, icon: Icon }) => {
+          const label = t(labelHe, labelEn)
           const isActive = active === id
           return (
             <button
@@ -90,8 +69,8 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
 
       {/* Bottom nav (settings) */}
       <div className="px-2 pb-1">
-        {BOTTOM_NAV.map(({ id, he, en, icon: Icon }) => {
-          const label = t(he, en)
+        {BOTTOM_NAV.map(({ id, labelHe, labelEn, icon: Icon }) => {
+          const label = t(labelHe, labelEn)
           const isActive = active === id
           return (
             <button

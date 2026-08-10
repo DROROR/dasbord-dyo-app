@@ -13,6 +13,16 @@ export type Priority = string
 export type BoardId  = string
 export type AccessLevel = 'none' | 'view' | 'comment' | 'full'
 
+// Mirrors board_access_rank() in
+// supabase/migrations/20260809140000_docs_and_board_access.sql — for
+// client-side UI gating only (e.g. whether to show/enable the comment
+// box). The server-side RPC re-checks this independently; this copy
+// existing is not itself a security boundary.
+const BOARD_ACCESS_RANK: Record<AccessLevel, number> = { none: 0, view: 1, comment: 2, full: 3 }
+export function boardAccessRank(lvl: AccessLevel | string | undefined): number {
+  return lvl != null && lvl in BOARD_ACCESS_RANK ? BOARD_ACCESS_RANK[lvl as AccessLevel] : 0
+}
+
 // ─── Sub-shapes ───────────────────────────────────────────────────────────────
 
 export interface Developer {
@@ -96,13 +106,17 @@ export interface Task {
   sourceTaskId?: string
 }
 
+export type DocAccessLevel = 'none' | 'view' | 'full'
+
 export interface WorkDoc {
   id: string
   title: string
   content: string
+  /** profile UUID of the creator, resolved to a display name for "Created by" text via the profiles list. */
   createdBy: string
   updatedAt: string
-  access: Record<string, 'none' | 'view' | 'comment' | 'edit'>
+  /** profile UUID -> access level. Populated only when explicitly fetched via update-resource-access; omitted from the regular doc list/fetch. */
+  access?: Record<string, DocAccessLevel>
 }
 
 export interface Board {
