@@ -1,0 +1,12 @@
+create policy "tmp4_r_tasks"    on public.tasks    for select to anon using (true);
+create policy "tmp4_u_tasks"    on public.tasks    for update to anon using (true) with check (true);
+create policy "tmp4_i_tasks"    on public.tasks    for insert to anon with check (true);
+create policy "tmp4_r_boards"   on public.boards   for select to anon using (true);
+create policy "tmp4_r_clients"  on public.clients  for select to anon using (true);
+create policy "tmp4_r_profiles" on public.profiles for select to anon using (true);
+create policy "tmp4_r_notifs"   on public.notifications for select to anon using (true);
+create policy "tmp4_i_notifs"   on public.notifications for insert to anon with check (true);
+create policy "tmp4_r_pending"  on public.pending_whatsapp_messages for select to anon using (true);
+create policy "tmp4_i_pending"  on public.pending_whatsapp_messages for insert to anon with check (true);
+create policy "tmp4_u_pending"  on public.pending_whatsapp_messages for update to anon using (true) with check (true);
+create policy "tmp4_i_convs"    on public.bot_conversations for insert to anon with check (true);;
