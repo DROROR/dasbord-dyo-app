@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { getLeads, updateLead as dbUpdateLead, archiveLead as dbArchiveLead } from '../lib/database'
 import type { DbLead } from '../lib/database'
+import { useCan } from '../hooks/useCan'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -267,11 +268,12 @@ function KanbanColumn({ col, leads, onLeadClick }: {
 
 // ─── Lead modal ───────────────────────────────────────────────────────────────
 
-function LeadModal({ lead, onClose, onUpdate, onConvert }: {
+function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
   lead: Lead
   onClose: () => void
   onUpdate: (id: string, patch: Partial<Lead>) => void
   onConvert: (id: string) => void
+  canEdit: boolean
 }) {
   const [tab,          setTab]          = useState<ModalTab>('details')
   const [converted,    setConverted]    = useState(false)
@@ -280,18 +282,24 @@ function LeadModal({ lead, onClose, onUpdate, onConvert }: {
   const [tone,         setTone]         = useState<FollowUpTone>(lead.followUpTone ?? 'friendly')
   const [fupSaved,     setFupSaved]     = useState(false)
 
-  const changeStatus = (status: LeadStatus) =>
+  const changeStatus = (status: LeadStatus) => {
+    if (!canEdit) return
     onUpdate(lead.id, { status, lastUpdate: new Date().toISOString().slice(0, 10) })
+  }
 
-  const changeLeadType = (leadType: LeadType) =>
+  const changeLeadType = (leadType: LeadType) => {
+    if (!canEdit) return
     onUpdate(lead.id, { leadType })
+  }
 
   const handleConvert = () => {
+    if (!canEdit) return
     setConverted(true)
     setTimeout(() => { onConvert(lead.id); onClose() }, 2000)
   }
 
   const saveFollowUp = () => {
+    if (!canEdit) return
     onUpdate(lead.id, { followUpDate, followUpNote, followUpTone: tone })
     setFupSaved(true)
     setTimeout(() => setFupSaved(false), 2500)
@@ -310,7 +318,8 @@ function LeadModal({ lead, onClose, onUpdate, onConvert }: {
   }) => (
     <button
       onClick={() => changeStatus(status)}
-      className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-sm font-medium transition-all border ${
+      disabled={!canEdit}
+      className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-sm font-medium transition-all border disabled:opacity-50 disabled:cursor-default ${
         lead.status === status ? activeClass : `border-gray-200 text-gray-600 ${hoverClass}`
       }`}
     >
@@ -414,7 +423,8 @@ function LeadModal({ lead, onClose, onUpdate, onConvert }: {
                       <button
                         key={lt}
                         onClick={() => changeLeadType(lt)}
-                        className={`flex-1 py-2 px-3 rounded-xl text-sm font-medium transition-all border ${
+                        disabled={!canEdit}
+                        className={`flex-1 py-2 px-3 rounded-xl text-sm font-medium transition-all border disabled:opacity-50 disabled:cursor-default ${
                           lead.leadType === lt
                             ? lt === 'has_course'
                               ? 'bg-emerald-100 border-emerald-300 text-emerald-700'
@@ -456,7 +466,8 @@ function LeadModal({ lead, onClose, onUpdate, onConvert }: {
                     />
                     <button
                       onClick={() => { changeStatus('follow_up'); setTab('followup') }}
-                      className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-sm font-medium transition-all border ${
+                      disabled={!canEdit}
+                      className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-sm font-medium transition-all border disabled:opacity-50 disabled:cursor-default ${
                         lead.status === 'follow_up'
                           ? 'bg-amber-100 border-amber-300 text-amber-700'
                           : 'border-gray-200 text-gray-600 hover:border-amber-300 hover:bg-amber-50'
@@ -472,7 +483,8 @@ function LeadModal({ lead, onClose, onUpdate, onConvert }: {
                     />
                     <button
                       onClick={handleConvert}
-                      className="col-span-2 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-semibold bg-accent text-white hover:bg-accent-dark transition-all border border-accent"
+                      disabled={!canEdit}
+                      className="col-span-2 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-semibold bg-accent text-white hover:bg-accent-dark transition-all border border-accent disabled:opacity-50 disabled:cursor-default"
                     >
                       <UserCheck size={15} />הפוך ללקוח
                     </button>
@@ -553,7 +565,8 @@ function LeadModal({ lead, onClose, onUpdate, onConvert }: {
               </div>
               <button
                 onClick={saveFollowUp}
-                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                disabled={!canEdit}
+                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-default ${
                   fupSaved ? 'bg-green-500 text-white' : 'bg-primary text-white hover:bg-primary-dark'
                 }`}
               >
@@ -627,6 +640,7 @@ function ArchiveView({ leads, onLeadClick }: { leads: Lead[]; onLeadClick: (l: L
 const TODAY_ISO = new Date().toISOString().slice(0, 10)
 
 export function Leads() {
+  const canEdit = useCan('leads', 'edit')
   const [leads,        setLeads]        = useState<Lead[]>([])
   const [loading,      setLoading]      = useState(true)
   const [fetchError,   setFetchError]   = useState<string | null>(null)
@@ -660,6 +674,7 @@ export function Leads() {
   }
 
   const handleUpdate = async (id: string, patch: Partial<Lead>) => {
+    if (!canEdit) return
     // Optimistic update
     setLeads(prev => prev.map(l => l.id === id ? { ...l, ...patch } : l))
     setSelectedLead(prev => prev?.id === id ? { ...prev, ...patch } : prev)
@@ -680,6 +695,7 @@ export function Leads() {
   }
 
   const handleConvert = (id: string) => {
+    if (!canEdit) return
     const name = leads.find(l => l.id === id)?.name ?? ''
     setLeads(prev => prev.filter(l => l.id !== id))
     setConvertName(name)
@@ -762,6 +778,7 @@ export function Leads() {
           onClose={() => setSelectedLead(null)}
           onUpdate={handleUpdate}
           onConvert={handleConvert}
+          canEdit={canEdit}
         />
       )}
     </div>

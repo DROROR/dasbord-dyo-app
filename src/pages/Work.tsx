@@ -4,8 +4,8 @@ import {
   Plus, LayoutGrid, FileText, BarChart2, Bot, User, Briefcase,
   Settings, X, Check, Pencil, ChevronDown, Trash2, Loader2,
 } from 'lucide-react'
-import type { Task, Board, PriorityDef, WorkDoc, BoardStatus } from '../types/work'
-import { MOCK_DOCS } from '../data/workMockData'
+import type { Task, Board, PriorityDef, BoardStatus } from '../types/work'
+import { boardAccessRank } from '../types/work'
 import {
   getTasks,
   createTask as dbCreateTask,
@@ -16,6 +16,7 @@ import {
   deleteBoard as dbDeleteBoard,
   getClients,
   getProfiles,
+  setResourceAccess,
   generateCustomerMessage,
   createPendingMessage,
 } from '../lib/database'
@@ -31,6 +32,7 @@ import { TaskDetailModal }  from '../components/work/TaskDetailModal'
 import { GanttTab }         from '../components/work/GanttTab'
 import { useAuth }          from '../hooks/useAuth'
 import { useNotifications } from '../contexts/NotificationContext'
+import { AccessDenied }     from '../components/AccessDenied'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,13 +50,11 @@ function newId() { return Math.random().toString(36).slice(2, 10) }
 
 // ─── AddBoardModal ────────────────────────────────────────────────────────────
 
-function AddBoardModal({ assignees, onSave, onClose }: {
-  assignees: string[]
+function AddBoardModal({ onSave, onClose }: {
   onSave: (b: Board) => void
   onClose: () => void
 }) {
   const [name, setName] = useState('')
-  const defaultAccess = Object.fromEntries(assignees.map(a => [a, 'full' as const]))
 
   function submit() {
     if (!name.trim()) return
@@ -62,7 +62,12 @@ function AddBoardModal({ assignees, onSave, onClose }: {
       id: name.toLowerCase().replace(/\s+/g, '_') + '_' + newId(),
       name: name.trim(),
       isDefault: false,
-      access: defaultAccess,
+      // Starts empty, not populated by name — board.access is keyed by
+      // profile UUID and enforced by RLS (has_board_access()). Creating a
+      // board requires work:'full', which already bypasses per-board
+      // checks, so the creator sees it immediately without an explicit
+      // entry; specific people are granted afterwards via Access Control.
+      access: {},
       statuses: DEFAULT_BOARD_STATUSES,
       priorities: DEFAULT_PRIORITY_DEFS,
       createdAt: new Date().toISOString(),
@@ -111,17 +116,26 @@ const COLOR_OPTIONS = [
   { dot: 'bg-gray-400',   text: 'text-gray-600',   bg: 'bg-gray-50',   border: 'border-gray-200',   pill: 'bg-gray-100 text-gray-600',     left: 'border-l-gray-300',   label: 'Gray'   },
 ]
 
-function BoardSettingsModal({ board, assignees, priorityDefs, tasks, onSave, onDelete, onClose }: {
+function BoardSettingsModal({ board, assignees, profiles, canManagePermissions, priorityDefs, tasks, onSave, onAccessChange, onDelete, onClose }: {
   board: Board
   assignees: string[]
+  profiles: { id: string; name: string }[]
+  canManagePermissions: boolean
   priorityDefs: PriorityDef[]
   tasks: Task[]
   onSave: (b: Board, p: PriorityDef[]) => void
+  onAccessChange: (boardId: string, access: Record<string, string>) => void
   onDelete: () => void
   onClose: () => void
 }) {
   const [name,       setName]       = useState(board.name)
+  // Access is saved immediately per change (see changeAccess below) via
+  // update-resource-access, not batched into the Save button with
+  // name/statuses/priorities — board.access is no longer client-writable
+  // through the ordinary update path at all.
   const [access,     setAccess]     = useState(board.access)
+  const [savingAccessFor, setSavingAccessFor] = useState<string | null>(null)
+  const [accessError, setAccessError] = useState<string | null>(null)
   const [pDefs,      setPDefs]      = useState(priorityDefs)
   const [statuses,   setStatuses]   = useState<BoardStatus[]>(board.statuses ?? DEFAULT_BOARD_STATUSES)
   const [newPLabel,  setNewPLabel]  = useState('')
@@ -134,9 +148,25 @@ function BoardSettingsModal({ board, assignees, priorityDefs, tasks, onSave, onD
   const [editSLabel,  setEditSLabel]  = useState('')
   const [editSColorIdx, setEditSColorIdx] = useState(0)
   const [delConfirm, setDelConfirm] = useState<{ type: 'priority' | 'status'; idx: number } | null>(null)
-  const [tab, setTab]               = useState<'access' | 'priorities' | 'statuses'>('access')
+  const [tab, setTab]               = useState<'access' | 'priorities' | 'statuses'>(canManagePermissions ? 'access' : 'priorities')
 
   const boardTasks = tasks.filter(t => t.board === board.id)
+
+  // Saves immediately through update-resource-access — access is no
+  // longer part of the batched "Save" button (see onSave below).
+  async function changeAccess(profileId: string, level: AL) {
+    setSavingAccessFor(profileId)
+    setAccessError(null)
+    try {
+      const next = await setResourceAccess('boards', board.id, profileId, level)
+      setAccess(next as Record<string, AL>)
+      onAccessChange(board.id, next)
+    } catch (err) {
+      setAccessError(err instanceof Error ? err.message : 'השמירה נכשלה')
+    } finally {
+      setSavingAccessFor(null)
+    }
+  }
 
   function addPriority() {
     if (!newPLabel.trim()) return
@@ -240,7 +270,7 @@ function BoardSettingsModal({ board, assignees, priorityDefs, tasks, onSave, onD
 
         {/* Sub-tabs */}
         <div className="flex border-b border-gray-100 px-5">
-          {(['access', 'priorities', 'statuses'] as const).map(t => (
+          {(canManagePermissions ? (['access', 'priorities', 'statuses'] as const) : (['priorities', 'statuses'] as const)).map(t => (
             <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-colors ${tab === t ? 'border-primary text-primary' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
               {t === 'access' ? 'Access Control' : t === 'priorities' ? 'Priorities' : 'Statuses'}
             </button>
@@ -248,17 +278,26 @@ function BoardSettingsModal({ board, assignees, priorityDefs, tasks, onSave, onD
         </div>
 
         <div className="overflow-y-auto flex-1 px-5 py-4">
-          {/* Access tab */}
-          {tab === 'access' && (
+          {/* Access tab — only ever rendered/reachable when canManagePermissions,
+              but the real enforcement is update-resource-access's own
+              can_manage_permissions() check server-side, not this gate. */}
+          {tab === 'access' && canManagePermissions && (
             <div className="flex flex-col gap-2">
-              {assignees.map(n => (
-                <div key={n} className="flex items-center gap-3">
-                  <span className="text-sm text-gray-700 flex-1">{n}</span>
-                  <select value={(access[n] ?? 'full') as AL} onChange={e => setAccess(prev => ({ ...prev, [n]: e.target.value as AL }))} className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-primary">
+              {profiles.map(p => (
+                <div key={p.id} className="flex items-center gap-3">
+                  <span className="text-sm text-gray-700 flex-1">{p.name}</span>
+                  {savingAccessFor === p.id && <Loader2 size={12} className="text-gray-400 animate-spin" />}
+                  <select
+                    value={(access[p.id] ?? 'none') as AL}
+                    disabled={savingAccessFor === p.id}
+                    onChange={e => void changeAccess(p.id, e.target.value as AL)}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-primary disabled:opacity-50"
+                  >
                     {ACCESS_LEVELS.map(l => <option key={l} value={l}>{AL_LABELS[l]}</option>)}
                   </select>
                 </div>
               ))}
+              {accessError && <p className="text-xs text-red-500 mt-1">{accessError}</p>}
             </div>
           )}
 
@@ -410,18 +449,20 @@ function BoardSettingsModal({ board, assignees, priorityDefs, tasks, onSave, onD
 // ─── Work ─────────────────────────────────────────────────────────────────────
 
 export function Work() {
-  const { isAdmin, profile }  = useAuth()
+  const { profile, hasPermission, canManagePermissions, isOwner }  = useAuth()
   const { addNotification }   = useNotifications()
   const currentUser           = profile?.name ?? 'Dror'
-  const workAccess = isAdmin ? 'full' : ((profile?.permissions?.['work'] as string | undefined) ?? 'full')
-  const canEdit    = workAccess === 'edit' || workAccess === 'full'
+  const canViewWork  = hasPermission('work', 'view')
+  const canEdit      = hasPermission('work', 'edit')
+  const canManageWork = hasPermission('work', 'full')
+  const canViewDocs   = hasPermission('work_docs', 'view')
+  const canCreateDocs = hasPermission('work_docs', 'full')
 
   const [tab,          setTab]          = useState<WorkTab>('myboard')
   const [boards,       setBoards]       = useState<Board[]>(INITIAL_BOARDS)
   const [activeBoard,  setActiveBoard]  = useState(INITIAL_BOARDS[0].id)
   const [tasks,        setTasks]        = useState<Task[]>([])
   const [tasksLoading, setTasksLoading] = useState(true)
-  const [docs,         setDocs]         = useState<WorkDoc[]>(MOCK_DOCS)
   const [openId,       setOpenId]       = useState<string | null>(null)
   const [showAddBoard, setShowAddBoard] = useState(false)
   const [settingsBoard, setSettingsBoard] = useState<Board | null>(null)
@@ -429,6 +470,7 @@ export function Work() {
   // stay in step with the Clients board and whoever has registered in the panel.
   const [clients,   setClients]   = useState<{ id: string; name: string; phone: string | null }[]>([])
   const [assignees, setAssignees] = useState<string[]>([])
+  const [profiles,  setProfiles]  = useState<{ id: string; name: string }[]>([])
   const [isTechnicalSupport, setIsTechnicalSupport] = useState(false)
 
   const alertsRunRef = useRef(false)
@@ -444,10 +486,9 @@ export function Work() {
     return merged
   }, [boards])
 
-  const visibleBoards = useMemo(
-    () => boards.filter(b => isAdmin || (b.access[currentUser] ?? 'full') !== 'none'),
-    [boards, isAdmin, currentUser],
-  )
+  // RLS (has_board_access) already filters which boards come back from
+  // getBoards() — no client-side re-filtering by access needed or done here.
+  const visibleBoards = boards
 
   const boardTasks = useMemo(
     () => tasks.filter(t => t.board === activeBoard),
@@ -456,6 +497,18 @@ export function Work() {
 
   const activeBoardObj = visibleBoards.find(b => b.id === activeBoard) ?? visibleBoards[0]
   const openTask       = openId ? (tasks.find(t => t.id === openId) ?? null) : null
+
+  // Client-side mirror of has_board_access(board,'comment') — UX gating
+  // only, the add_task_comment RPC re-checks this server-side regardless.
+  // Only is_owner bypasses; work:'full' (canManageWork) deliberately does
+  // not, matching the server-side model.
+  function canCommentOnTask(task: Task): boolean {
+    if (isOwner) return true
+    if (!profile) return false
+    const board = boards.find(b => b.id === task.board)
+    if (!board) return false
+    return boardAccessRank(board.access[profile.id]) >= boardAccessRank('comment')
+  }
 
   // Load tasks from Supabase; run stale alerts once after load
   useEffect(() => {
@@ -530,6 +583,7 @@ export function Work() {
         const [dbClients, dbProfiles] = await Promise.all([getClients(), getProfiles()])
         setClients(dbClients.map(c => ({ id: c.id, name: c.business_name || c.name, phone: c.phone })))
         setAssignees(dbProfiles.map(p => p.name).filter(Boolean))
+        setProfiles(dbProfiles.map(p => ({ id: p.id, name: p.name })))
         setIsTechnicalSupport(
           dbProfiles.find(p => p.id === profile?.id)?.is_technical_support ?? false,
         )
@@ -578,11 +632,13 @@ export function Work() {
 
   // Optimistic update + background DB sync
   function updateTask(updated: Task) {
+    if (!canEdit) return
     setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
     void dbUpdateTask(updated.id, updated).catch(err => console.error('Task sync failed:', err))
   }
 
   function changeStatus(taskId: string, newStatus: string) {
+    if (!canEdit) return
     const now      = new Date().toISOString()
     const newEntry = { status: newStatus, timestamp: now, changedBy: currentUser }
     const task     = tasks.find(t => t.id === taskId)
@@ -615,6 +671,7 @@ export function Work() {
   }
 
   async function createTask(partial: Omit<Task, 'id' | 'createdAt' | 'statusHistory' | 'comments'>) {
+    if (!canEdit) return
     const now = new Date().toISOString()
     try {
       const created = await dbCreateTask({
@@ -636,6 +693,7 @@ export function Work() {
   }
 
   async function addTaskWithStatus(statusId: string) {
+    if (!canEdit) return
     const now = new Date().toISOString()
     try {
       const created = await dbCreateTask({
@@ -657,6 +715,7 @@ export function Work() {
    * a release, and prepares the customer message for someone to review.
    */
   async function handleTicketDone(ticket: Task, answers: TicketDoneAnswers) {
+    if (!canEdit) return
     const client   = clients.find(c => c.id === ticket.clientId)
     const appName  = client?.name ?? ticket.clientName ?? ''
     const now      = new Date().toISOString()
@@ -723,6 +782,7 @@ export function Work() {
   }
 
   function saveBoardSettings(updated: Board, newPDefs: PriorityDef[]) {
+    if (!canManageWork) return
     // Priorities are saved on the board itself, so edits survive a refresh.
     const withPriorities: Board = { ...updated, priorities: newPDefs }
     setBoards(prev => prev.map(b => b.id === withPriorities.id ? withPriorities : b))
@@ -730,12 +790,13 @@ export function Work() {
   }
 
   function deleteBoard(id: string) {
+    if (!canManageWork) return
     setBoards(prev => prev.filter(b => b.id !== id))
     if (activeBoard === id) setActiveBoard(INITIAL_BOARDS[0].id)
     void dbDeleteBoard(id).catch(err => console.error('Board delete failed:', err))
   }
 
-  if (workAccess === 'none') {
+  if (!canViewWork) {
     return (
       <div className="flex flex-col items-center justify-center h-96 gap-4 text-gray-400">
         <Briefcase size={48} className="opacity-20" />
@@ -750,7 +811,7 @@ export function Work() {
 
       {/* Tab bar */}
       <nav className="flex items-center gap-0 border-b border-gray-200 bg-white px-6 shrink-0 overflow-x-auto">
-        {WORK_TABS.filter(t => t.id !== 'ai' || canEdit).map(t => {
+        {WORK_TABS.filter(t => (t.id !== 'ai' || canEdit) && (t.id !== 'docs' || canViewDocs)).map(t => {
           const Icon   = t.icon
           const active = tab === t.id
           return (
@@ -802,7 +863,7 @@ export function Work() {
                       {b.name}
                       <span className={`text-xs px-1.5 py-px rounded-full font-bold leading-none ${active ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>{count}</span>
                     </button>
-                    {isAdmin && (
+                    {canManageWork && (
                       <button onClick={() => setSettingsBoard(b)} className={`p-1.5 rounded-lg transition-colors ${active ? 'text-primary hover:bg-primary/10' : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'}`} title="Board settings">
                         <Settings size={12} />
                       </button>
@@ -810,7 +871,7 @@ export function Work() {
                   </div>
                 )
               })}
-              {isAdmin && (
+              {canManageWork && (
                 <button onClick={() => setShowAddBoard(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-dashed border-gray-300 text-gray-400 hover:border-primary hover:text-primary transition-colors whitespace-nowrap">
                   <Plus size={13} /> Add Board
                 </button>
@@ -847,17 +908,22 @@ export function Work() {
             priorityCfg={priorityCfg}
             onOpenTask={setOpenId}
             onUpdateTask={updateTask}
+            readonly={!canEdit}
           />
         )}
 
         {tab === 'docs' && (
-          <DocsTab
-            docs={docs}
-            setDocs={setDocs}
-            currentUser={currentUser}
-            isAdmin={isAdmin}
-            assignees={assignees}
-          />
+          canViewDocs ? (
+            <DocsTab
+              profiles={profiles}
+              canManagePermissions={canManagePermissions}
+              canCreate={canCreateDocs}
+            />
+          ) : (
+            // Defense in depth: the tab bar already hides this tab when
+            // !canViewDocs, but `tab` state could otherwise be forced.
+            <AccessDenied />
+          )
         )}
 
         {tab === 'ai' && (
@@ -894,24 +960,28 @@ export function Work() {
               : 0
           }
           onTicketDone={handleTicketDone}
+          canComment={canCommentOnTask(openTask)}
+          readonly={!canEdit}
         />
       )}
 
-      {showAddBoard && isAdmin && (
+      {showAddBoard && canManageWork && (
         <AddBoardModal
-          assignees={assignees}
           onSave={b => { setBoards(prev => [...prev, b]); void dbCreateBoard(b).catch(err => console.error('Board create failed:', err)) }}
           onClose={() => setShowAddBoard(false)}
         />
       )}
 
-      {settingsBoard && isAdmin && (
+      {settingsBoard && canManageWork && (
         <BoardSettingsModal
           board={settingsBoard}
           assignees={assignees}
+          profiles={profiles}
+          canManagePermissions={canManagePermissions}
           priorityDefs={settingsBoard.priorities ?? DEFAULT_PRIORITY_DEFS}
           tasks={tasks}
           onSave={saveBoardSettings}
+          onAccessChange={(boardId, access) => setBoards(prev => prev.map(b => b.id === boardId ? { ...b, access: access as Board['access'] } : b))}
           onDelete={() => deleteBoard(settingsBoard.id)}
           onClose={() => setSettingsBoard(null)}
         />

@@ -9,6 +9,7 @@ import { useNotifications } from '../../contexts/NotificationContext'
 import { useTimer } from '../../contexts/TimerContext'
 import type { Task, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
+import { addTaskComment } from '../../lib/database'
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
@@ -37,7 +38,7 @@ export interface TicketDoneAnswers {
 
 export function TaskDetailModal({
   task, onClose, onUpdate, currentUser, priorityCfg, clients, assignees, boardLabel, boardStatuses,
-  openTicketsForClient = 0, onTicketDone,
+  openTicketsForClient = 0, onTicketDone, readonly = false, canComment = false,
 }: {
   task: Task
   onClose: () => void
@@ -51,6 +52,14 @@ export function TaskDetailModal({
   /** Other tickets still open for this task's client, excluding this one. */
   openTicketsForClient?: number
   onTicketDone?: (task: Task, answers: TicketDoneAnswers) => void
+  /** Gates every field except comments — title, status, assignee, dates, etc. */
+  readonly?: boolean
+  /** Independent of `readonly`: a board-level 'comment' user can add
+   *  comments (via the dedicated add_task_comment RPC) even though
+   *  they're readonly for everything else. Defaults to false so any
+   *  caller that hasn't been updated to compute it explicitly fails
+   *  closed, not open. */
+  canComment?: boolean
 }) {
   const { addNotification } = useNotifications()
 
@@ -75,6 +84,8 @@ export function TaskDetailModal({
   const [newComment,   setNewComment]   = useState('')
   const [mentionQuery, setMentionQuery] = useState('')
   const [showMention,  setShowMention]  = useState(false)
+  const [commentSaving, setCommentSaving] = useState(false)
+  const [commentError,  setCommentError]  = useState<string | null>(null)
   const commentRef = useRef<HTMLTextAreaElement>(null)
 
   const [attachUrl,  setAttachUrl]  = useState('')
@@ -120,12 +131,17 @@ export function TaskDetailModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id])
 
-  function save(patch: Partial<Task>) { onUpdate({ ...taskRef.current, ...patch }) }
+  // Every persistence path in this modal funnels through save() (title,
+  // description, status, assignee, client, priority, dates, time entries,
+  // comments, attachments, claiming a ticket) — gating it here is the real
+  // protection, not just hiding individual controls.
+  function save(patch: Partial<Task>) { if (!readonly) onUpdate({ ...taskRef.current, ...patch }) }
 
-  function saveTitle() { setEditTitle(false); if (title !== taskRef.current.title) save({ title }) }
-  function saveDesc()  { if (desc !== taskRef.current.description) save({ description: desc }) }
+  function saveTitle() { setEditTitle(false); if (!readonly && title !== taskRef.current.title) save({ title }) }
+  function saveDesc()  { if (!readonly && desc !== taskRef.current.description) save({ description: desc }) }
 
   function handleStatusChange(newStatus: string) {
+    if (readonly) return
     // Closing a support ticket has to be answered first, so it goes through
     // the dialog rather than changing straight away.
     if (newStatus === 'done' && task.board === 'support') {
@@ -163,6 +179,7 @@ export function TaskDetailModal({
   }
 
   function startTimer() {
+    if (readonly) return
     timerCtx.start(task.id, task.title, currentUser)
   }
   function stopTimer() {
@@ -221,11 +238,30 @@ export function TaskDetailModal({
     setNewComment(newComment.replace(/@\w*$/, `@${name} `))
     setShowMention(false); commentRef.current?.focus()
   }
-  function submitComment() {
-    if (!newComment.trim()) return
+  // Independent of save()/readonly — a board-level 'comment' user can
+  // reach this even though every other field stays locked. Goes
+  // through the add_task_comment RPC (atomic append, server-derived
+  // author/timestamp) rather than save(), not just re-sending the
+  // whole task: see database.ts's addTaskComment for why. Local
+  // `comments` state is only updated from the server's authoritative
+  // response — never optimistically — so a failure never shows a
+  // comment that wasn't actually saved.
+  async function submitComment() {
+    if (!canComment || commentSaving || !newComment.trim()) return
     const mentions = Array.from(newComment.matchAll(/@(\w+)/g)).map(m => m[1])
-    const c: TaskComment = { id: newId(), author: currentUser, text: newComment.trim(), timestamp: new Date().toISOString(), mentions }
-    const updated = [...comments, c]; setComments(updated); setNewComment(''); setShowMention(false); save({ comments: updated })
+    const text = newComment.trim()
+    setCommentSaving(true)
+    setCommentError(null)
+    try {
+      const updated = await addTaskComment(task.id, text, mentions)
+      setComments(updated)
+      setNewComment('')
+      setShowMention(false)
+    } catch (err) {
+      setCommentError(err instanceof Error ? err.message : 'הוספת התגובה נכשלה')
+    } finally {
+      setCommentSaving(false)
+    }
   }
 
   function addUrlAttachment() {
@@ -274,6 +310,7 @@ export function TaskDetailModal({
      (task.board !== 'support' && isUrgentPriority && !assignee))
 
   function claimTicket() {
+    if (readonly) return
     const newHistory: StatusHistoryEntry[] = [...history, { status: 'in_progress', timestamp: new Date().toISOString(), changedBy: currentUser }]
     setAssignee(currentUser); setStatus('in_progress'); setHistory(newHistory)
     save({ claimed: true, claimedBy: currentUser, assignee: currentUser, status: 'in_progress', statusHistory: newHistory })
@@ -305,7 +342,7 @@ export function TaskDetailModal({
                 className="w-full text-sm font-semibold text-gray-900 border-b-2 border-primary focus:outline-none bg-transparent py-0 leading-snug"
               />
             ) : (
-              <button onClick={() => setEditTitle(true)} className="text-sm font-semibold text-gray-900 hover:text-primary transition-colors text-left leading-snug line-clamp-1 w-full" title="Click to edit">{title}</button>
+              <button onClick={() => !readonly && setEditTitle(true)} disabled={readonly} className="text-sm font-semibold text-gray-900 hover:text-primary transition-colors text-left leading-snug line-clamp-1 w-full disabled:hover:text-gray-900 disabled:cursor-default" title={readonly ? undefined : 'Click to edit'}>{title}</button>
             )}
           </div>
           {openTicketsForClient > 0 && (
@@ -395,9 +432,11 @@ export function TaskDetailModal({
                 ? 'This support ticket is unclaimed — be the first to take it.'
                 : `This ${(priorityCfg[priority]?.label ?? 'urgent').toLowerCase()} task is unclaimed — be the first to take it.`}
             </p>
-            <button onClick={claimTicket} className="shrink-0 px-4 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-colors">
-              {task.board === 'support' ? 'Take this ticket' : 'Take this task'}
-            </button>
+            {!readonly && (
+              <button onClick={claimTicket} className="shrink-0 px-4 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-colors">
+                {task.board === 'support' ? 'Take this ticket' : 'Take this task'}
+              </button>
+            )}
           </div>
         )}
 
@@ -410,8 +449,8 @@ export function TaskDetailModal({
             <section>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Description</p>
               <textarea value={desc} onChange={e => setDesc(e.target.value)} onBlur={saveDesc} rows={6}
-                placeholder="Add a description..."
-                className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-4 py-3 resize-none focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-300 leading-relaxed"
+                placeholder="Add a description..." disabled={readonly}
+                className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-4 py-3 resize-none focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-300 leading-relaxed disabled:bg-gray-50 disabled:text-gray-500"
               />
             </section>
 
@@ -442,9 +481,10 @@ export function TaskDetailModal({
                 <Avatar name={currentUser} />
                 <div className="flex-1 relative">
                   <textarea ref={commentRef} value={newComment} onChange={e => handleCommentInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submitComment(); if (e.key === 'Escape') { setNewComment(''); setShowMention(false) } }}
-                    rows={2} placeholder="Add a comment... (type @ to mention)"
-                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-300"
+                    onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void submitComment(); if (e.key === 'Escape') { setNewComment(''); setShowMention(false) } }}
+                    rows={2} placeholder={canComment ? 'Add a comment... (type @ to mention)' : 'You do not have permission to comment on this board'}
+                    disabled={!canComment}
+                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-300 disabled:bg-gray-50 disabled:text-gray-400"
                   />
                   {showMention && mentionNames.length > 0 && (
                     <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 overflow-hidden min-w-[140px]">
@@ -457,10 +497,15 @@ export function TaskDetailModal({
                   )}
                   <div className="flex items-center justify-between mt-1.5">
                     <span className="text-[10px] text-gray-300">⌘+Enter to submit</span>
-                    <button onClick={submitComment} disabled={!newComment.trim()} className="flex items-center gap-1.5 px-3 py-1 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                      <Send size={10} /> Comment
+                    <button onClick={() => void submitComment()} disabled={!newComment.trim() || !canComment || commentSaving} className="flex items-center gap-1.5 px-3 py-1 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                      <Send size={10} /> {commentSaving ? 'Sending...' : 'Comment'}
                     </button>
                   </div>
+                  {commentError && (
+                    <p className="flex items-center gap-1.5 text-xs text-red-500 mt-1.5">
+                      <AlertCircle size={11} /> {commentError}
+                    </p>
+                  )}
                 </div>
               </div>
             </section>
@@ -520,7 +565,7 @@ export function TaskDetailModal({
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Status</p>
               <div className={`relative rounded-lg ${STATUS_PILL[status] ?? 'bg-gray-100 text-gray-600'}`}>
-                <select value={status} onChange={e => handleStatusChange(e.target.value)} className="w-full text-xs font-semibold px-3 py-2 bg-transparent border-0 focus:outline-none appearance-none cursor-pointer pr-7">
+                <select value={status} onChange={e => handleStatusChange(e.target.value)} disabled={readonly} className="w-full text-xs font-semibold px-3 py-2 bg-transparent border-0 focus:outline-none appearance-none cursor-pointer pr-7 disabled:cursor-default">
                   {statuses.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </select>
                 <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
@@ -615,7 +660,8 @@ export function TaskDetailModal({
               )}
               <button
                 onClick={isThisTaskRunning ? stopTimer : startTimer}
-                className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all ${isThisTaskRunning ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-primary text-white hover:bg-primary/90'}`}
+                disabled={readonly && !isThisTaskRunning}
+                className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-40 ${isThisTaskRunning ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-primary text-white hover:bg-primary/90'}`}
               >
                 {isThisTaskRunning ? <><Square size={12} /> Stop</> : <><Play size={12} /> Start</>}
               </button>

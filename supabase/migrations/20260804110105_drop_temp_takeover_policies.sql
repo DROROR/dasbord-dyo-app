@@ -1,0 +1,9 @@
+drop policy if exists "tmp6_r_state"    on public.conversation_state;
+drop policy if exists "tmp6_u_state"    on public.conversation_state;
+drop policy if exists "tmp6_i_convs"    on public.bot_conversations;
+drop policy if exists "tmp6_r_cfg"      on public.bot_config;
+drop policy if exists "tmp6_r_clients"  on public.clients;
+drop policy if exists "tmp6_r_tasks"    on public.tasks;
+drop policy if exists "tmp6_r_profiles" on public.profiles;
+drop policy if exists "tmp6_r_notifs"   on public.notifications;
+drop policy if exists "tmp6_r_pending"  on public.pending_whatsapp_messages;;

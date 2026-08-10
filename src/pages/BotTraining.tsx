@@ -19,6 +19,7 @@ import {
 } from '../lib/database'
 import type { DbBotConfig, DbBotTraining } from '../lib/database'
 import { useLang } from '../contexts/LanguageContext'
+import { useCan } from '../hooks/useCan'
 
 type BotId = 'support' | 'sales'
 
@@ -45,6 +46,7 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
 
 export function BotTraining() {
   const { t } = useLang()
+  const canEdit = useCan('bot_training', 'full')
   const [bot, setBot] = useState<BotId>('support')
   const [config, setConfig] = useState<DbBotConfig | null>(null)
   const [prompt, setPrompt] = useState('')
@@ -77,6 +79,7 @@ export function BotTraining() {
   }, [bot])
 
   async function savePrompt() {
+    if (!canEdit) return
     setSavingPrompt(true)
     const { error } = await updateBotConfig(bot, { base_prompt: prompt })
     setSavingPrompt(false)
@@ -87,6 +90,7 @@ export function BotTraining() {
   }
 
   async function saveBehavior() {
+    if (!canEdit) return
     setSavingBehavior(true)
     const { error } = await updateBotConfig(bot, { behavior_prompt: behavior })
     setSavingBehavior(false)
@@ -97,7 +101,7 @@ export function BotTraining() {
   }
 
   async function addItem() {
-    if (!newContent.trim()) return
+    if (!canEdit || !newContent.trim()) return
     setAdding(true)
     const { error } = await addBotTraining({
       bot,
@@ -116,11 +120,13 @@ export function BotTraining() {
   }
 
   async function toggle(item: DbBotTraining) {
+    if (!canEdit) return
     setItems(prev => prev.map(i => (i.id === item.id ? { ...i, active: !i.active } : i)))
     await updateBotTraining(item.id, { active: !item.active })
   }
 
   async function remove(id: string) {
+    if (!canEdit) return
     setItems(prev => prev.filter(i => i.id !== id))
     await deleteBotTraining(id)
   }
@@ -182,7 +188,7 @@ export function BotTraining() {
               </span>
               <button
                 onClick={savePrompt}
-                disabled={savingPrompt}
+                disabled={savingPrompt || !canEdit}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
               >
                 {savingPrompt ? <Loader2 size={14} className="animate-spin" /> : promptSaved ? <Check size={14} /> : <Save size={14} />}
@@ -211,7 +217,7 @@ export function BotTraining() {
             <div className="flex items-center justify-end mt-3">
               <button
                 onClick={saveBehavior}
-                disabled={savingBehavior}
+                disabled={savingBehavior || !canEdit}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
               >
                 {savingBehavior ? <Loader2 size={14} className="animate-spin" /> : behaviorSaved ? <Check size={14} /> : <Save size={14} />}
@@ -254,7 +260,7 @@ export function BotTraining() {
               />
               <button
                 onClick={addItem}
-                disabled={adding || !newContent.trim()}
+                disabled={adding || !newContent.trim() || !canEdit}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary text-white text-sm font-medium hover:bg-secondary/90 disabled:opacity-50"
               >
                 {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
@@ -289,20 +295,23 @@ export function BotTraining() {
                         <div className="flex items-center gap-1 shrink-0">
                           <button
                             onClick={() => toggle(item)}
+                            disabled={!canEdit}
                             title={item.active ? t('פעיל', 'Active') : t('כבוי', 'Off')}
-                            className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+                            className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
                               item.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
                             }`}
                           >
                             {item.active ? t('פעיל', 'Active') : t('כבוי', 'Off')}
                           </button>
-                          <button
-                            onClick={() => remove(item.id)}
-                            title={t('מחק', 'Delete')}
-                            className="p-1.5 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50 transition-colors"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {canEdit && (
+                            <button
+                              onClick={() => remove(item.id)}
+                              title={t('מחק', 'Delete')}
+                              className="p-1.5 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </Card>

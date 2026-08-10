@@ -12,6 +12,7 @@ import { getAllMessages, getClientNameMap,
 import type { DbMessage, DbMessageTemplate, DbSequenceWithSteps, DbSequenceStep, DbClient } from '../lib/database'
 import { getRecipientChannel, getChannelLabel } from '../lib/whatsapp'
 import type { Channel } from '../lib/whatsapp'
+import { useCan } from '../hooks/useCan'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,6 +93,7 @@ function ChannelBadge({ channel }: { channel: Channel | null | undefined }) {
 // ─── Compose tab ──────────────────────────────────────────────────────────────
 
 function ComposeTab() {
+  const hasSendPermission = useCan('whatsapp', 'send')
   const [templates,      setTemplates]      = useState<DbMessageTemplate[]>([])
   const [dbClients,      setDbClients]      = useState<DbClient[]>([])
   const [clientsLoading, setClientsLoading] = useState(true)
@@ -185,7 +187,7 @@ function ComposeTab() {
   }
 
   const handleSend = async () => {
-    if (!message.trim() || selectedPkgs.size === 0) return
+    if (!hasSendPermission || !message.trim() || selectedPkgs.size === 0) return
     if (scheduled && scheduledAt) {
       setSendState('scheduled')
       setTimeout(() => setSendState('idle'), 3000)
@@ -391,14 +393,17 @@ function ComposeTab() {
         </Card>
 
         {/* Send button */}
+        {!hasSendPermission && (
+          <p className="text-xs text-gray-400 text-center">אין לך הרשאה לשלוח הודעות וואטסאפ</p>
+        )}
         <button
           onClick={handleSend}
-          disabled={!canSend || sendState === 'sending'}
+          disabled={!canSend || !hasSendPermission || sendState === 'sending'}
           className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all ${
             sendState === 'sent'      ? 'bg-green-500 text-white' :
             sendState === 'scheduled' ? 'bg-secondary text-white' :
             sendState === 'sending'   ? 'bg-primary/70 text-white cursor-wait' :
-            canSend                   ? 'bg-primary text-white hover:bg-primary-dark' :
+            canSend && hasSendPermission ? 'bg-primary text-white hover:bg-primary-dark' :
                                         'bg-gray-100 text-gray-400 cursor-not-allowed'
           }`}
         >
@@ -418,6 +423,7 @@ function ComposeTab() {
 // ─── Templates tab ────────────────────────────────────────────────────────────
 
 function TemplatesTab() {
+  const canEdit = useCan('whatsapp', 'full')
   // ── Loading ───────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
@@ -480,6 +486,7 @@ function TemplatesTab() {
   const startEditWelcome = () => { setWelcomeDraft(welcomeBody); setEditingWelcome(true) }
   const cancelWelcome    = () => setEditingWelcome(false)
   const saveWelcome = async () => {
+    if (!canEdit) return
     setWelcomeSaving(true)
     setTemplateError(null)
     try {
@@ -501,6 +508,7 @@ function TemplatesTab() {
   const startEdit  = (t: DbMessageTemplate) => { setEditingId(t.id); setEditDraft(t.body); setPreviewId(null) }
   const cancelEdit = () => setEditingId(null)
   const saveEdit = async (id: string) => {
+    if (!canEdit) return
     setSavingId(id)
     setTemplateError(null)
     try {
@@ -520,7 +528,7 @@ function TemplatesTab() {
 
   // ── Step handlers ─────────────────────────────────────────────────────────
   const addStep = async () => {
-    if (!currentSeq) return
+    if (!canEdit || !currentSeq) return
     const lastDay = currentSeq.steps.at(-1)?.day ?? 0
     const newStep = await createSequenceStep({
       sequence_id: currentSeq.id,
@@ -535,6 +543,7 @@ function TemplatesTab() {
   }
 
   const removeStep = async (id: string) => {
+    if (!canEdit) return
     await deleteSequenceStep(id)
     setSeqs(prev => prev.map(s =>
       s.seq_key === activeSeq ? { ...s, steps: s.steps.filter(st => st.id !== id) } : s
@@ -572,7 +581,7 @@ function TemplatesTab() {
   }
 
   const saveSequence = async () => {
-    if (!currentSeq) return
+    if (!canEdit || !currentSeq) return
     setSeqSaving(true)
     try {
       await Promise.all(
@@ -665,7 +674,8 @@ function TemplatesTab() {
             </pre>
             <button
               onClick={startEditWelcome}
-              className="mt-3 flex items-center gap-1.5 text-xs text-primary hover:text-primary-dark font-medium transition-colors"
+              disabled={!canEdit}
+              className="mt-3 flex items-center gap-1.5 text-xs text-primary hover:text-primary-dark font-medium transition-colors disabled:opacity-0 disabled:pointer-events-none"
             >
               <Pencil size={12} />ערוך
             </button>
@@ -764,7 +774,8 @@ function TemplatesTab() {
                     </button>
                     <button
                       onClick={() => startEdit(t)}
-                      className="flex items-center gap-1 text-xs text-gray-400 hover:text-primary transition-colors font-medium"
+                      disabled={!canEdit}
+                      className="flex items-center gap-1 text-xs text-gray-400 hover:text-primary transition-colors font-medium disabled:opacity-0 disabled:pointer-events-none"
                     >
                       <Pencil size={11} />ערוך
                     </button>
@@ -820,7 +831,8 @@ function TemplatesTab() {
           </div>
           <button
             onClick={addStep}
-            className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg font-medium transition-colors"
+            disabled={!canEdit}
+            className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-0 disabled:pointer-events-none"
           >
             <Plus size={13} />הוסף שלב
           </button>
@@ -954,7 +966,7 @@ function TemplatesTab() {
           <div className="mt-5 pt-4 border-t border-gray-100 flex items-center gap-3">
             <button
               onClick={saveSequence}
-              disabled={seqSaving}
+              disabled={seqSaving || !canEdit}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-60 ${
                 savedSeq === activeSeq ? 'bg-green-500 text-white' : 'bg-primary text-white hover:bg-primary-dark'
               }`}

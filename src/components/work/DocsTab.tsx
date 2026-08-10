@@ -1,19 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
-  FileText, Plus, ArrowLeft, Save, Lock, Edit3,
+  FileText, Plus, ArrowLeft, Save, Lock, Edit3, Loader2, AlertCircle, Check,
   Bold, Italic, Underline, List, ListOrdered, Table, Heading1, Heading2, Heading3,
 } from 'lucide-react'
 import { Avatar } from '../Avatar'
-import type { WorkDoc } from '../../types/work'
+import type { WorkDoc, DocAccessLevel } from '../../types/work'
+import { getWorkDocs, createWorkDoc, updateWorkDoc, getResourceAccess, setResourceAccess } from '../../lib/database'
 
-const ACCESS_LEVELS = ['none', 'view', 'comment', 'edit'] as const
-type DocAccess = 'none' | 'view' | 'comment' | 'edit'
+const ACCESS_LEVELS: DocAccessLevel[] = ['none', 'view', 'full']
+const ACCESS_LABEL: Record<DocAccessLevel, string> = { none: 'No Access', view: 'View', full: 'Edit' }
 
-const ACCESS_LABEL: Record<DocAccess, string> = {
-  none: 'No Access', view: 'View', comment: 'Comment', edit: 'Edit',
-}
-
-function newId() { return Math.random().toString(36).slice(2, 10) }
+type DocRow = WorkDoc & { myLevel: DocAccessLevel }
 
 // ─── Rich Text Toolbar ────────────────────────────────────────────────────────
 
@@ -185,36 +182,136 @@ function RichEditor({ content, onChange, readOnly }: { content: string; onChange
   )
 }
 
-// ─── DocEditor ────────────────────────────────────────────────────────────────
+// ─── Access panel ─────────────────────────────────────────────────────────────
+// Reads/writes strictly through the update-resource-access Edge Function
+// (never a direct table select/update of `access`) — its own
+// can_manage_permissions() check is the actual enforcement, this button
+// only being shown to canManagePermissions users is UX, not security.
 
-function DocEditor({
-  doc, assignees, currentUser, isAdmin, onSave, onBack,
+function AccessPanel({
+  docId, profiles,
 }: {
-  doc: WorkDoc
-  assignees: string[]
-  currentUser: string
-  isAdmin: boolean
-  onSave: (d: WorkDoc) => void
-  onBack: () => void
+  docId: string
+  profiles: { id: string; name: string }[]
 }) {
-  const [title,   setTitle]   = useState(doc.title)
-  const [content, setContent] = useState(doc.content)
-  const [access,  setAccess]  = useState(doc.access)
-  const [showAcl, setShowAcl] = useState(false)
+  const [access, setAccess]   = useState<Record<string, string> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [savedId, setSavedId]   = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
-  // Reset local state when doc changes (e.g. external save)
+  // AccessPanel is only ever mounted fresh (the parent conditionally
+  // renders it on toggle) — initial state above already covers "loading
+  // on mount", so this effect only needs the fetch itself.
   useEffect(() => {
-    setTitle(doc.title)
-    setContent(doc.content)
-    setAccess(doc.access)
-  }, [doc.id]) // eslint-disable-line react-hooks/exhaustive-deps
+    let cancelled = false
+    getResourceAccess('work_docs', docId)
+      .then(a => { if (!cancelled) setAccess(a) })
+      .catch((err: Error) => { if (!cancelled) setLoadError(err.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [docId])
 
-  function save() {
-    onSave({ ...doc, title, content, access, updatedAt: new Date().toISOString() })
+  async function changeLevel(profileId: string, level: string) {
+    setSavingId(profileId)
+    setSavedId(null)
+    setSaveError(null)
+    try {
+      const next = await setResourceAccess('work_docs', docId, profileId, level)
+      setAccess(next)
+      setSavedId(profileId)
+      setTimeout(() => setSavedId(cur => cur === profileId ? null : cur), 1500)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'השמירה נכשלה')
+    } finally {
+      setSavingId(null)
+    }
   }
 
-  const myLevel = access[currentUser] ?? 'none'
-  const canEdit = isAdmin || myLevel === 'edit'
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 shrink-0">
+      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Access Control</p>
+      {loading && (
+        <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
+          <Loader2 size={13} className="animate-spin" /> טוען הרשאות...
+        </div>
+      )}
+      {loadError && (
+        <div className="flex items-center gap-2 text-xs text-red-500 py-2">
+          <AlertCircle size={13} /> {loadError}
+        </div>
+      )}
+      {access && (
+        <>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {profiles.map(p => (
+              <div key={p.id} className="flex items-center gap-2">
+                <Avatar name={p.name} size="xs" />
+                <span className="text-xs text-gray-700 flex-1 truncate">{p.name}</span>
+                {savingId === p.id && <Loader2 size={11} className="text-gray-400 animate-spin shrink-0" />}
+                {savedId === p.id && <Check size={11} className="text-green-500 shrink-0" />}
+                <select
+                  value={(access[p.id] ?? 'none') as DocAccessLevel}
+                  disabled={savingId === p.id}
+                  onChange={e => void changeLevel(p.id, e.target.value)}
+                  className="text-xs border border-gray-200 rounded-lg px-1.5 py-1 bg-white focus:outline-none focus:border-primary disabled:opacity-50"
+                >
+                  {ACCESS_LEVELS.map(l => <option key={l} value={l}>{ACCESS_LABEL[l]}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+          {saveError && (
+            <div className="flex items-center gap-2 text-xs text-red-500 mt-3">
+              <AlertCircle size={13} /> {saveError}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── DocEditor ────────────────────────────────────────────────────────────────
+
+type SaveState = 'idle' | 'saving' | 'saved' | 'error'
+
+function DocEditor({
+  doc, profiles, canManagePermissions, onSaved, onBack,
+}: {
+  doc: DocRow
+  profiles: { id: string; name: string }[]
+  canManagePermissions: boolean
+  onSaved: (d: DocRow) => void
+  onBack: () => void
+}) {
+  // Switching to a different doc always remounts this component (the
+  // caller keys it by doc.id), so initial state below is all the reset
+  // a doc switch needs — no effect required. A save (same doc.id)
+  // deliberately does NOT remount, so in-progress edits/save state
+  // survive it.
+  const [title,   setTitle]   = useState(doc.title)
+  const [content, setContent] = useState(doc.content)
+  const [showAcl, setShowAcl] = useState(false)
+  const [saveState, setSaveState] = useState<SaveState>('idle')
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  const canEdit = doc.myLevel === 'full'
+
+  async function save() {
+    setSaveState('saving')
+    setSaveError(null)
+    try {
+      const updated = await updateWorkDoc(doc.id, title, content, Object.fromEntries(profiles.map(p => [p.id, p.name])))
+      onSaved(updated)
+      setSaveState('saved')
+      setTimeout(() => setSaveState(cur => cur === 'saved' ? 'idle' : cur), 1500)
+    } catch (err) {
+      setSaveState('error')
+      setSaveError(err instanceof Error ? err.message : 'השמירה נכשלה')
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4 flex-1 min-h-0">
@@ -229,7 +326,7 @@ function DocEditor({
           className="flex-1 text-lg font-semibold text-gray-900 bg-transparent border-0 focus:outline-none focus:border-b-2 focus:border-primary disabled:cursor-not-allowed"
           placeholder="Document title..."
         />
-        {isAdmin && (
+        {canManagePermissions && (
           <button
             onClick={() => setShowAcl(s => !s)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${showAcl ? 'bg-primary text-white border-primary' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}
@@ -238,31 +335,28 @@ function DocEditor({
           </button>
         )}
         {canEdit && (
-          <button onClick={save} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-primary/90 transition-colors">
-            <Save size={11} /> Save
+          <button
+            onClick={() => void save()}
+            disabled={saveState === 'saving'}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60"
+          >
+            {saveState === 'saving'
+              ? <><Loader2 size={11} className="animate-spin" /> שומר...</>
+              : saveState === 'saved'
+              ? <><Check size={11} /> נשמר</>
+              : <><Save size={11} /> Save</>}
           </button>
         )}
       </div>
 
-      {showAcl && isAdmin && (
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 shrink-0">
-          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Access Control</p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {assignees.map(name => (
-              <div key={name} className="flex items-center gap-2">
-                <Avatar name={name} size="xs" />
-                <span className="text-xs text-gray-700 flex-1">{name}</span>
-                <select
-                  value={access[name] ?? 'none'}
-                  onChange={e => setAccess(prev => ({ ...prev, [name]: e.target.value as DocAccess }))}
-                  className="text-xs border border-gray-200 rounded-lg px-1.5 py-1 bg-white focus:outline-none focus:border-primary"
-                >
-                  {ACCESS_LEVELS.map(l => <option key={l} value={l}>{ACCESS_LABEL[l]}</option>)}
-                </select>
-              </div>
-            ))}
-          </div>
+      {saveState === 'error' && saveError && (
+        <div className="flex items-center gap-2 text-xs text-red-500 shrink-0">
+          <AlertCircle size={13} /> {saveError}
         </div>
+      )}
+
+      {showAcl && canManagePermissions && (
+        <AccessPanel docId={doc.id} profiles={profiles} />
       )}
 
       <RichEditor content={content} onChange={setContent} readOnly={!canEdit} />
@@ -277,85 +371,109 @@ function DocEditor({
 // ─── DocsTab ──────────────────────────────────────────────────────────────────
 
 export function DocsTab({
-  docs, setDocs, currentUser, isAdmin, assignees,
+  profiles, canManagePermissions, canCreate,
 }: {
-  docs: WorkDoc[]
-  setDocs: (docs: WorkDoc[]) => void
-  currentUser: string
-  isAdmin: boolean
-  assignees: string[]
+  profiles: { id: string; name: string }[]
+  canManagePermissions: boolean
+  canCreate: boolean
 }) {
-  const [selected, setSelected] = useState<WorkDoc | null>(null)
+  const [docs, setDocs]         = useState<DocRow[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
-  function createDoc() {
-    const newDoc: WorkDoc = {
-      id: newId(),
-      title: 'Untitled Document',
-      content: '',
-      createdBy: currentUser,
-      updatedAt: new Date().toISOString(),
-      access: Object.fromEntries(assignees.map(a => [a, isAdmin || a === currentUser ? 'edit' : 'view'])) as Record<string, DocAccess>,
+  const profileNames = Object.fromEntries(profiles.map(p => [p.id, p.name]))
+
+  // Runs once on mount — initial state above (loading: true, loadError:
+  // null) already covers the reset, so the effect only needs the fetch.
+  useEffect(() => {
+    getWorkDocs(profileNames)
+      .then(setDocs)
+      .catch((err: Error) => setLoadError(err.message))
+      .finally(() => setLoading(false))
+    // profileNames is derived fresh each render from `profiles`; this must
+    // still only run once (mount) — refetching on every profiles reference
+    // change would be wasteful and isn't needed for this screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function createDoc() {
+    if (!canCreate || creating) return
+    setCreating(true)
+    try {
+      const created = await createWorkDoc('Untitled Document', '', profileNames)
+      setDocs(prev => [created, ...prev])
+      setSelectedId(created.id)
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'יצירת המסמך נכשלה')
+    } finally {
+      setCreating(false)
     }
-    const updated = [newDoc, ...docs]
-    setDocs(updated)
-    setSelected(newDoc)
   }
 
-  function saveDoc(updated: WorkDoc) {
-    setDocs(docs.map(d => d.id === updated.id ? updated : d))
-    setSelected(updated)
-  }
+  const selected = selectedId ? docs.find(d => d.id === selectedId) ?? null : null
 
   if (selected) {
-    const fresh = docs.find(d => d.id === selected.id) ?? selected
     return (
       <DocEditor
-        doc={fresh}
-        assignees={assignees}
-        currentUser={currentUser}
-        isAdmin={isAdmin}
-        onSave={saveDoc}
-        onBack={() => setSelected(null)}
+        key={selected.id}
+        doc={selected}
+        profiles={profiles}
+        canManagePermissions={canManagePermissions}
+        onSaved={updated => setDocs(prev => prev.map(d => d.id === updated.id ? updated : d))}
+        onBack={() => setSelectedId(null)}
       />
     )
   }
-
-  const visible = docs.filter(d => {
-    if (isAdmin) return true
-    const level = d.access[currentUser] ?? 'none'
-    return level !== 'none'
-  })
 
   return (
     <div className="flex flex-col gap-4 flex-1 min-h-0">
       <div className="flex items-center justify-between shrink-0">
         <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Documents</p>
-        <button
-          onClick={createDoc}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90 transition-colors shadow-sm"
-        >
-          <Plus size={14} /> New Doc
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => void createDoc()}
+            disabled={creating}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-60"
+          >
+            {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} New Doc
+          </button>
+        )}
       </div>
 
-      {visible.length === 0 ? (
+      {loading && (
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 size={28} className="animate-spin text-primary opacity-50" />
+        </div>
+      )}
+
+      {loadError && !loading && (
+        <div className="flex items-center gap-2 text-sm text-red-500">
+          <AlertCircle size={14} /> {loadError}
+        </div>
+      )}
+
+      {!loading && !loadError && docs.length === 0 && (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center">
           <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
             <FileText size={26} className="text-gray-300" />
           </div>
           <p className="text-sm font-semibold text-gray-500">No documents yet</p>
-          <p className="text-xs text-gray-400">Click "New Doc" to create the first one</p>
+          <p className="text-xs text-gray-400">
+            {canCreate ? 'Click "New Doc" to create the first one' : 'אין לך גישה לאף מסמך עדיין'}
+          </p>
         </div>
-      ) : (
+      )}
+
+      {!loading && !loadError && docs.length > 0 && (
         <div className="flex flex-col gap-2 overflow-y-auto flex-1 min-h-0 pb-4">
-          {visible.map(doc => {
-            const myLevel = (doc.access[currentUser] ?? 'none') as DocAccess
-            const canEdit = isAdmin || myLevel === 'edit'
-            const editors = assignees.filter(a => (doc.access[a] ?? 'none') !== 'none')
+          {docs.map(doc => {
+            const canEdit = doc.myLevel === 'full'
             return (
               <button
                 key={doc.id}
-                onClick={() => setSelected(doc)}
+                onClick={() => setSelectedId(doc.id)}
                 className="flex items-center gap-4 bg-white border border-gray-100 rounded-xl px-5 py-3.5 hover:border-gray-200 hover:shadow-sm transition-all text-left w-full"
               >
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -367,12 +485,8 @@ export function DocsTab({
                     Updated {new Date(doc.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} · by {doc.createdBy}
                   </p>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  {editors.slice(0, 4).map(name => <Avatar key={name} name={name} size="xs" />)}
-                  {editors.length > 4 && <span className="text-[9px] text-gray-400">+{editors.length - 4}</span>}
-                </div>
-                <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 ${canEdit ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'}`}>
-                  {canEdit ? <Edit3 size={9} /> : ACCESS_LABEL[myLevel]}
+                <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 flex items-center gap-1 ${canEdit ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'}`}>
+                  {canEdit ? <><Edit3 size={9} /> Edit</> : ACCESS_LABEL[doc.myLevel]}
                 </span>
               </button>
             )

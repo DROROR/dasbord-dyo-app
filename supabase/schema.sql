@@ -1,5 +1,34 @@
 -- ============================================================
 -- Admin Platform — Supabase Schema
+--
+-- IMPORTANT: this file is the ORIGINAL baseline only. It was
+-- already confirmed drifted from production before migrations
+-- existed (e.g. profiles.is_technical_support was live but never
+-- added here). Ongoing changes are now tracked as proper
+-- migrations in supabase/migrations/ — treat those, not this file,
+-- as authoritative for anything they touch:
+--   - 001_owner_tier_and_profile_lockdown.sql — profiles.is_owner,
+--     the profiles column-privilege lockdown, permission_rank(),
+--     has_permission(), can_manage_permissions(), the owner
+--     immutability trigger.
+--   - 002_has_permission_and_rls.sql — replaces every policy below
+--     for clients/client_contacts/billing_records/leads/messages/
+--     agent_logs/tasks with has_permission()-based ones, and adds
+--     RLS for tables that exist in production but were never
+--     captured in this file at all: boards, bot_config,
+--     bot_conversations, bot_training, conversation_state,
+--     lead_sequence_progress, message_templates, notifications,
+--     pending_whatsapp_messages, sequence_steps, sequences.
+--     Their column definitions are not reproduced here — this file
+--     was not extended with fabricated CREATE TABLE statements for
+--     tables whose exact live structure wasn't fully queried.
+--
+-- A live-DB audit (Step 0 of the permissions remediation, see
+-- supabase/migrations/) also found that the `time_entries` table
+-- defined below (section 7b) does NOT exist in production — it was
+-- apparently planned but never migrated. Time tracking lives
+-- entirely in the tasks.time_entries jsonb column (section 7).
+-- Do not rely on the section-7b table existing.
 -- ============================================================
 
 -- ── Extensions ───────────────────────────────────────────────
@@ -196,6 +225,10 @@ CREATE POLICY "authenticated users can manage tasks" ON public.tasks FOR ALL TO 
 
 -- ============================================================
 -- 7b. TIME ENTRIES  (normalized table for date-range queries)
+-- NOT LIVE IN PRODUCTION — confirmed absent via live-DB audit.
+-- Kept here only as a historical record of the original plan.
+-- Do not assume this table exists; do not write migrations that
+-- assume it exists either.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.time_entries (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -227,6 +260,10 @@ create table public.profiles (
   role             user_role   not null default 'staff',
   permissions      jsonb       not null default '{}'::jsonb,
   created_at       timestamptz not null default now()
+  -- is_technical_support boolean and is_owner boolean also exist live —
+  -- see supabase/migrations/001_owner_tier_and_profile_lockdown.sql,
+  -- which is the authoritative definition for both, including the
+  -- real (non-empty) default for `permissions` it applies.
 );
 
 create index idx_profiles_role on public.profiles (role);
@@ -395,9 +432,12 @@ create policy "admin can delete profiles"
   using (public.is_admin());
 
 -- ============================================================
--- SEED: main admin profile
--- (run manually after creating the auth user for droryosef1@gmail.com)
+-- SEED: main admin / owner profile
+-- SUPERSEDED — the owner promotion is now a real, executed step in
+-- supabase/migrations/001_owner_tier_and_profile_lockdown.sql
+-- (profiles.is_owner = true for a specific, explicitly-confirmed
+-- UUID), not a manual/commented-out snippet. Kept here only as a
+-- historical record of how the main admin used to be identified
+-- (a hardcoded email in src/pages/Permissions.tsx, MAIN_ADMIN_EMAIL
+-- — removed from the frontend as part of the same remediation).
 -- ============================================================
--- insert into public.profiles (id, name, email, role, permissions)
--- values ('<auth-user-uuid>', 'דרור יוסף', 'droryosef1@gmail.com', 'admin', '{}')
--- on conflict (id) do update set role = 'admin';

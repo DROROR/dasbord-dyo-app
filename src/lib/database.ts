@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Task, TimeEntry, StatusHistoryEntry, TaskComment, Attachment, Board, BoardStatus, PriorityDef, AccessLevel, AppNotification, NotificationType } from '../types/work'
+import type { Task, TimeEntry, StatusHistoryEntry, TaskComment, Attachment, Board, BoardStatus, PriorityDef, AccessLevel, AppNotification, NotificationType, WorkDoc, DocAccessLevel } from '../types/work'
 import { INITIAL_BOARDS, DEFAULT_PRIORITY_DEFS } from '../data/workConstants'
 
 // ── DB Row Types (mirror schema exactly) ────────────────────────────────────────
@@ -101,6 +101,7 @@ export interface DbProfile {
   role: 'admin' | 'staff'
   permissions: Record<string, unknown>
   is_technical_support: boolean
+  is_owner: boolean
   created_at: string
 }
 
@@ -113,19 +114,10 @@ export async function getProfiles(): Promise<DbProfile[]> {
   return data as DbProfile[]
 }
 
-export async function updateProfile(
-  id: string,
-  updates: Partial<Pick<DbProfile, 'name' | 'role' | 'permissions' | 'is_technical_support'>>,
-): Promise<DbProfile> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single()
-  if (error) throw error
-  return data as DbProfile
-}
+// Role/permissions/is_technical_support are no longer writable from the
+// client at all (see migration 001's column-privilege lockdown) — that
+// write path is now exclusively the update-member-permissions Edge
+// Function, called directly from src/pages/Permissions.tsx.
 
 export async function getClients(): Promise<DbClient[]> {
   const { data, error } = await supabase
@@ -749,6 +741,23 @@ export async function deleteTask(id: string): Promise<void> {
   if (error) throw error
 }
 
+// Comment-adding goes through add_task_comment() (an atomic,
+// SECURITY DEFINER RPC — see 20260809140000_docs_and_board_access.sql)
+// instead of updateTask(): it's the only write path a board-level
+// 'comment' user has (the ordinary "tasks: update" RLS policy is
+// 'full'-only), it derives author/timestamp server-side rather than
+// trusting the caller, and its single atomic UPDATE (comments = comments
+// || new_comment, row-locked) means two people commenting at the same
+// moment can't silently clobber one another the way a client-side
+// read-merge-write against the full task row could.
+export async function addTaskComment(taskId: string, text: string, mentions: string[]): Promise<TaskComment[]> {
+  const { data, error } = await supabase.rpc('add_task_comment', {
+    task_id: taskId, comment_text: text, mentions,
+  })
+  if (error) throw error
+  return data as TaskComment[]
+}
+
 // ── BOARDS ──────────────────────────────────────────────────────────────────
 interface DbBoard {
   id: string
@@ -818,10 +827,19 @@ export async function createBoard(board: Board): Promise<Board> {
   return dbToBoard(data as DbBoard)
 }
 
+// access is no longer client-writable (column privileges revoked in
+// 20260809140000_docs_and_board_access.sql) — only name/statuses/priorities
+// go through this ordinary update. Per-board access changes go through
+// setResourceAccess() below, which calls the update-resource-access
+// Edge Function instead. The payload here must name ONLY those three
+// granted columns: Postgres checks UPDATE privilege for every column
+// that appears in the SET list, even ones whose value isn't changing,
+// so including id/is_default/created_at (not granted) would fail the
+// whole statement, not just silently ignore them.
 export async function updateBoard(board: Board): Promise<Board> {
   const { data, error } = await supabase
     .from('boards')
-    .update(boardToRow(board))
+    .update({ name: board.name, statuses: board.statuses, priorities: board.priorities })
     .eq('id', board.id)
     .select()
     .single()
@@ -831,6 +849,102 @@ export async function updateBoard(board: Board): Promise<Board> {
 
 export async function deleteBoard(id: string): Promise<void> {
   const { error } = await supabase.from('boards').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ── RESOURCE ACCESS (work_docs / boards) ─────────────────────────────────────
+// The only read/write path for the `access` column on either table —
+// both are locked against direct client UPDATE, and reading the full
+// ACL (not just "do I have access") is also routed through this
+// Edge Function so viewing access settings requires the same
+// can_manage_permissions() check as changing them.
+
+async function invokeResourceAccess(body: Record<string, unknown>): Promise<{ access: Record<string, string> }> {
+  const { data, error } = await supabase.functions.invoke('update-resource-access', { body })
+  if (error || !data?.access) {
+    let msg = 'הפעולה נכשלה'
+    const ctx = (error as { context?: Response } | null)?.context
+    if (ctx) {
+      try { msg = (await ctx.json())?.error ?? msg } catch { /* ignore */ }
+    }
+    throw new Error(data?.error ?? msg)
+  }
+  return data as { access: Record<string, string> }
+}
+
+export async function getResourceAccess(table: 'work_docs' | 'boards', resourceId: string): Promise<Record<string, string>> {
+  const { access } = await invokeResourceAccess({ table, resourceId, action: 'read' })
+  return access
+}
+
+export async function setResourceAccess(
+  table: 'work_docs' | 'boards', resourceId: string, profileId: string, level: string,
+): Promise<Record<string, string>> {
+  const { access } = await invokeResourceAccess({ table, resourceId, profileId, level })
+  return access
+}
+
+// ── WORK DOCS ─────────────────────────────────────────────────────────────────
+// access is deliberately excluded from the row shape here — RLS already
+// filters which docs a user gets back, and the raw ACL map is only ever
+// fetched on demand (via getResourceAccess) for the Access panel, gated
+// separately by can_manage_permissions() inside the Edge Function.
+interface DbWorkDoc {
+  id: string
+  title: string
+  content: string
+  created_by: string | null
+  updated_at: string
+  my_doc_access_level: DocAccessLevel
+}
+
+const WORK_DOC_COLUMNS = 'id, title, content, created_by, updated_at, my_doc_access_level'
+
+function dbToWorkDoc(d: DbWorkDoc, profileNames: Record<string, string>): WorkDoc & { myLevel: DocAccessLevel } {
+  return {
+    id: d.id,
+    title: d.title,
+    content: d.content,
+    createdBy: (d.created_by && profileNames[d.created_by]) || 'Unknown',
+    updatedAt: d.updated_at,
+    myLevel: d.my_doc_access_level,
+  }
+}
+
+export async function getWorkDocs(profileNames: Record<string, string>): Promise<(WorkDoc & { myLevel: DocAccessLevel })[]> {
+  const { data, error } = await supabase
+    .from('work_docs')
+    .select(WORK_DOC_COLUMNS)
+    .order('updated_at', { ascending: false })
+  if (error) throw error
+  return (data as unknown as DbWorkDoc[]).map(d => dbToWorkDoc(d, profileNames))
+}
+
+// created_by/access are set server-side by the set_work_doc_creator_access
+// trigger — the client's job is only title/content.
+export async function createWorkDoc(title: string, content: string, profileNames: Record<string, string>): Promise<WorkDoc & { myLevel: DocAccessLevel }> {
+  const { data, error } = await supabase
+    .from('work_docs')
+    .insert({ title, content })
+    .select(WORK_DOC_COLUMNS)
+    .single()
+  if (error) throw error
+  return dbToWorkDoc(data as unknown as DbWorkDoc, profileNames)
+}
+
+export async function updateWorkDoc(id: string, title: string, content: string, profileNames: Record<string, string>): Promise<WorkDoc & { myLevel: DocAccessLevel }> {
+  const { data, error } = await supabase
+    .from('work_docs')
+    .update({ title, content, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select(WORK_DOC_COLUMNS)
+    .single()
+  if (error) throw error
+  return dbToWorkDoc(data as unknown as DbWorkDoc, profileNames)
+}
+
+export async function deleteWorkDoc(id: string): Promise<void> {
+  const { error } = await supabase.from('work_docs').delete().eq('id', id)
   if (error) throw error
 }
 

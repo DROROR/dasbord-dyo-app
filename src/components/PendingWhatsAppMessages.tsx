@@ -5,6 +5,7 @@ import {
   type DbPendingMessage,
 } from '../lib/database'
 import { requestTaskFocus } from '../lib/focusTarget'
+import { useCan } from '../hooks/useCan'
 
 /**
  * Customer updates written when a support ticket was finished. Nothing goes out
@@ -16,6 +17,8 @@ export function PendingWhatsAppMessages({
   currentUser: string
   onNavigate?: (page: string) => void
 }) {
+  const canView = useCan('whatsapp', 'view')
+  const canSend = useCan('whatsapp', 'send')
   const [messages, setMessages] = useState<DbPendingMessage[]>([])
   const [loading,  setLoading]  = useState(true)
   const [editing,  setEditing]  = useState<string | null>(null)
@@ -36,6 +39,7 @@ export function PendingWhatsAppMessages({
   }, [])
 
   async function saveEdit(m: DbPendingMessage) {
+    if (!canSend) return
     setBusy(m.id)
     try {
       await updatePendingMessage(m.id, { message: draft })
@@ -49,6 +53,7 @@ export function PendingWhatsAppMessages({
   }
 
   async function send(m: DbPendingMessage) {
+    if (!canSend) return
     setBusy(m.id)
     try {
       await markMessageSent(m, currentUser)
@@ -75,7 +80,7 @@ export function PendingWhatsAppMessages({
     )
   }
 
-  if (messages.length === 0) return null
+  if (!canView || messages.length === 0) return null
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden" dir="rtl">
@@ -146,7 +151,7 @@ export function PendingWhatsAppMessages({
               </p>
             )}
 
-            {editing !== m.id && (
+            {editing !== m.id && canSend && (
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => { setEditing(m.id); setDraft(m.message) }}

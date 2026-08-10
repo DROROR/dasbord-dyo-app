@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Layout } from './components/layout/Layout'
 import { Dashboard } from './pages/Dashboard'
@@ -13,28 +13,38 @@ import { Permissions } from './pages/Permissions'
 import { Work } from './pages/Work'
 import { Login } from './pages/Login'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { AccessDenied } from './components/AccessDenied'
 import { useAuth } from './hooks/useAuth'
 import { NotificationProvider } from './contexts/NotificationContext'
 import { TimerProvider } from './contexts/TimerContext'
 import { LanguageProvider } from './contexts/LanguageContext'
 import { FloatingTimerWidget } from './components/work/FloatingTimerWidget'
+import { PAGE_MODULE } from './lib/permissions'
 
-const buildPages = (navigate: (page: string) => void): Record<string, React.ReactNode> => ({
-  dashboard:   <Dashboard onNavigate={navigate} />,
-  clients:     <Clients />,
-  billing:     <Billing />,
-  whatsapp:    <WhatsApp />,
-  leads:       <Leads />,
-  agents:      <Agents />,
-  bots:        <BotTraining />,
-  permissions: <Permissions />,
-  work:        <Work />,
-  settings:    <Settings />,
+// Lazy — a denied page's element must never even be constructed,
+// not just left unrendered, so a denied module's data-fetching
+// effects can never fire either.
+const buildPages = (navigate: (page: string) => void): Record<string, () => React.ReactNode> => ({
+  dashboard:   () => <Dashboard onNavigate={navigate} />,
+  clients:     () => <Clients />,
+  billing:     () => <Billing />,
+  whatsapp:    () => <WhatsApp />,
+  leads:       () => <Leads />,
+  agents:      () => <Agents />,
+  bots:        () => <BotTraining />,
+  permissions: () => <Permissions />,
+  work:        () => <Work />,
+  settings:    () => <Settings />,
 })
 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard')
-  const { user, profile, loading, signOut } = useAuth()
+  const { user, profile, loading, canViewPage, signOut } = useAuth()
+
+  // Setting activePage even when denied is intentional: the render
+  // guard below checks canViewPage(activePage) and shows AccessDenied
+  // for that specific page id, rather than silently doing nothing.
+  const navigate = useCallback((page: string) => setActivePage(page), [])
 
   if (loading) {
     return (
@@ -54,21 +64,26 @@ export default function App() {
     )
   }
 
+  const allowed = canViewPage(activePage)
+  const landing = Object.keys(PAGE_MODULE).find(canViewPage)
+
   return (
     <LanguageProvider>
       <NotificationProvider>
         <TimerProvider>
           <Layout
             activePage={activePage}
-            onNavigate={setActivePage}
+            onNavigate={navigate}
             profile={profile}
             onSignOut={signOut}
           >
             <ErrorBoundary key={activePage}>
-              {buildPages(setActivePage)[activePage]}
+              {allowed
+                ? buildPages(navigate)[activePage]?.()
+                : <AccessDenied onBack={landing ? () => navigate(landing) : undefined} />}
             </ErrorBoundary>
           </Layout>
-          <FloatingTimerWidget onNavigate={setActivePage} />
+          <FloatingTimerWidget onNavigate={navigate} />
         </TimerProvider>
       </NotificationProvider>
     </LanguageProvider>
