@@ -1,5 +1,89 @@
 import { useState } from 'react'
-import { Settings2, MessageSquare, CheckCircle, XCircle, Pencil, Save, X } from 'lucide-react'
+import { Settings2, MessageSquare, CheckCircle, XCircle, Pencil, Save, X, User, Loader2, Check, AlertCircle } from 'lucide-react'
+import { useAuth } from '../hooks/useAuth'
+import { updateOwnName } from '../lib/database'
+
+function PersonalProfileCard() {
+  const { profile, refreshProfile } = useAuth()
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(profile?.name ?? '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  if (!profile) return null
+
+  async function save() {
+    const trimmed = draft.trim()
+    if (!trimmed || trimmed === profile!.name) { setEditing(false); return }
+    setSaving(true)
+    setError(null)
+    try {
+      await updateOwnName(profile!.id, trimmed)
+      await refreshProfile()
+      setSaving(false)
+      setSaved(true)
+      setEditing(false)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      setSaving(false)
+      setError(err instanceof Error ? err.message : 'השמירה נכשלה')
+    }
+  }
+
+  return (
+    <div className="bg-surface rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="flex items-center gap-2.5 mb-5">
+        <User size={16} className="text-primary shrink-0" />
+        <div>
+          <h2 className="text-base font-semibold text-primary">הפרופיל שלי</h2>
+          <p className="text-xs text-gray-400 mt-0.5">שינוי שם התצוגה שלך במערכת</p>
+        </div>
+      </div>
+
+      <label className="block text-xs font-semibold text-gray-400 mb-1.5">שם תצוגה</label>
+      {editing ? (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            autoFocus
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') void save(); if (e.key === 'Escape') { setDraft(profile.name); setEditing(false) } }}
+            maxLength={80}
+            className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-white"
+          />
+          <button
+            onClick={() => void save()}
+            disabled={saving || !draft.trim()}
+            className="p-2 bg-primary text-white rounded-xl hover:bg-primary-dark transition-colors disabled:opacity-50"
+          >
+            {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+          </button>
+          <button onClick={() => { setDraft(profile.name); setEditing(false); setError(null) }} disabled={saving} className="p-2 text-gray-400 hover:text-gray-600 transition-colors">
+            <X size={13} />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-700 font-medium">{profile.name}</span>
+          {saved && <Check size={13} className="text-green-500" />}
+          <button
+            onClick={() => { setDraft(profile.name); setEditing(true) }}
+            className="text-gray-400 hover:text-primary transition-colors"
+          >
+            <Pencil size={12} />
+          </button>
+        </div>
+      )}
+      {error && (
+        <p className="flex items-center gap-1.5 text-xs text-red-500 mt-2">
+          <AlertCircle size={12} /> {error}
+        </p>
+      )}
+    </div>
+  )
+}
 
 function WAChannelCard({
   title, channel, accent, configured,
@@ -81,6 +165,40 @@ function WAChannelCard({
 }
 
 export function Settings() {
+  const { isOwner } = useAuth()
+
+  // WhatsApp instance/token configuration is a system-level setting, not
+  // a per-user WhatsApp messaging capability — there's no existing
+  // permission module that fits it (the 'whatsapp' module governs
+  // sending/viewing customer messages, a different concern), so per the
+  // explicit decision here it stays Owner-only for now rather than
+  // repurposing an unrelated permission. Read env-derived values below
+  // only after this check — never compute or reference them for a
+  // non-owner render path, so nothing WhatsApp-related is even touched,
+  // not just hidden with CSS.
+  return (
+    <div className="max-w-3xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-xl font-bold text-primary">הגדרות מערכת</h1>
+        <p className="text-sm text-gray-400 mt-1">הגדרות כלליות ומתקדמות</p>
+      </div>
+
+      {/* Available to every active authenticated user, own profile only. */}
+      <PersonalProfileCard />
+
+      {isOwner && <WhatsAppSettingsCard />}
+
+      {/* Other settings placeholder */}
+      <div className="bg-surface rounded-2xl border border-gray-100 shadow-sm p-12 flex flex-col items-center justify-center text-center gap-3">
+        <Settings2 size={36} className="text-gray-200" />
+        <p className="text-sm font-medium text-gray-400">בקרוב — מפתחות API, התראות ומשתמשים</p>
+        <p className="text-xs text-gray-300">הגדרות תמחור הועברו למודול החיוב ← לשונית "הגדרות תמחור"</p>
+      </div>
+    </div>
+  )
+}
+
+function WhatsAppSettingsCard() {
   const serviceConfigured = !!(
     import.meta.env.VITE_GREEN_API_INSTANCE_SERVICE &&
     import.meta.env.VITE_GREEN_API_TOKEN_SERVICE
@@ -91,48 +209,33 @@ export function Settings() {
   )
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-primary">הגדרות מערכת</h1>
-        <p className="text-sm text-gray-400 mt-1">הגדרות כלליות ומתקדמות</p>
-      </div>
-
-      {/* WhatsApp Configuration */}
-      <div className="bg-surface rounded-2xl border border-gray-100 shadow-sm p-5">
-        <div className="flex items-center gap-2.5 mb-5">
-          <MessageSquare size={16} className="text-primary shrink-0" />
-          <div>
-            <h2 className="text-base font-semibold text-primary">הגדרות WhatsApp</h2>
-            <p className="text-xs text-gray-400 mt-0.5">שני מספרי WhatsApp — שירות לקוחות ומכירות</p>
-          </div>
+    <div className="bg-surface rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="flex items-center gap-2.5 mb-5">
+        <MessageSquare size={16} className="text-primary shrink-0" />
+        <div>
+          <h2 className="text-base font-semibold text-primary">הגדרות WhatsApp</h2>
+          <p className="text-xs text-gray-400 mt-0.5">שני מספרי WhatsApp — שירות לקוחות ומכירות</p>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <WAChannelCard
-            title="שירות לקוחות"
-            channel="service"
-            accent="border-blue-100 bg-blue-50/30"
-            configured={serviceConfigured}
-          />
-          <WAChannelCard
-            title="מכירות"
-            channel="sales"
-            accent="border-green-100 bg-green-50/30"
-            configured={salesConfigured}
-          />
-        </div>
-
-        <p className="text-xs text-gray-300 mt-4">
-          ערכי החיבור (Instance ID + Token) מוגדרים כמשתני סביבה בקובץ .env
-        </p>
       </div>
 
-      {/* Other settings placeholder */}
-      <div className="bg-surface rounded-2xl border border-gray-100 shadow-sm p-12 flex flex-col items-center justify-center text-center gap-3">
-        <Settings2 size={36} className="text-gray-200" />
-        <p className="text-sm font-medium text-gray-400">בקרוב — מפתחות API, התראות ומשתמשים</p>
-        <p className="text-xs text-gray-300">הגדרות תמחור הועברו למודול החיוב ← לשונית "הגדרות תמחור"</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <WAChannelCard
+          title="שירות לקוחות"
+          channel="service"
+          accent="border-blue-100 bg-blue-50/30"
+          configured={serviceConfigured}
+        />
+        <WAChannelCard
+          title="מכירות"
+          channel="sales"
+          accent="border-green-100 bg-green-50/30"
+          configured={salesConfigured}
+        />
       </div>
+
+      <p className="text-xs text-gray-300 mt-4">
+        ערכי החיבור (Instance ID + Token) מוגדרים כמשתני סביבה בקובץ .env
+      </p>
     </div>
   )
 }

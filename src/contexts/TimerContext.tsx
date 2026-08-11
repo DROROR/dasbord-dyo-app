@@ -9,6 +9,8 @@ interface TimerState {
   taskTitle: string
   startTime: number
   loggedBy: string
+  /** Authoritative profile UUID for the resulting TimeEntry — see loggedById on TimeEntry. */
+  loggedById?: string
 }
 
 export interface StopResult {
@@ -20,7 +22,7 @@ export interface StopResult {
 interface TimerContextValue {
   timerState: TimerState | null
   elapsed: number               // live seconds since start
-  start: (taskId: string, taskTitle: string, loggedBy: string) => void
+  start: (taskId: string, taskTitle: string, loggedBy: string, loggedById?: string) => void
   stop: () => StopResult        // caller decides what to do with the entry
 }
 
@@ -51,9 +53,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [timerState?.taskId, timerState?.startTime])
 
-  function start(taskId: string, taskTitle: string, loggedBy: string) {
+  function start(taskId: string, taskTitle: string, loggedBy: string, loggedById?: string) {
     const startTime = Date.now()
-    const state: TimerState = { taskId, taskTitle, startTime, loggedBy }
+    const state: TimerState = { taskId, taskTitle, startTime, loggedBy, loggedById }
     localStorage.setItem(TIMER_KEY, JSON.stringify(state))
     setTimerState(state)
   }
@@ -77,6 +79,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       date: new Date().toISOString().slice(0, 10),
       hours: h, minutes: m,
       loggedBy: snap.loggedBy,
+      loggedById: snap.loggedById,
       isLocked: true,
       createdAt: new Date().toISOString(),
     }

@@ -1,0 +1,72 @@
+-- ============================================================
+-- 007: Work Report — least-privilege table grant correction.
+--
+-- Follow-up to 20260810110000_work_report.sql (already applied,
+-- NOT edited here). Post-deployment verification found that this
+-- project's project-level default ACLs (pg_default_acl, owner role
+-- postgres) auto-grant ALL table privileges — SELECT, INSERT, UPDATE,
+-- DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN — to anon,
+-- authenticated, AND service_role on every newly created table in
+-- public. 20260810110000's own `revoke all ... from public, anon`
+-- correctly stripped anon on work_report_access, but never named
+-- authenticated, so authenticated's default-ACL grant survived
+-- untouched; task_status_events received no revoke at all (its
+-- protection was designed to rely entirely on RLS-with-zero-policies,
+-- which is still independently true and unaffected by this file).
+--
+-- Live privileges confirmed via aclexplode(relacl) immediately before
+-- writing this migration:
+--   task_status_events : anon=ALL(8), authenticated=ALL(8),
+--                         service_role=ALL(8), public=none
+--   work_report_access : authenticated=ALL(8), service_role=ALL(8),
+--                         anon=none, public=none
+-- (ALL(8) = SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES,
+-- TRIGGER, MAINTAIN — table owner `postgres` also holds these
+-- implicitly via ownership, untouched by any REVOKE below.)
+--
+-- Scope is deliberately narrow: these two tables only. service_role
+-- is intentionally left untouched on both (Supabase's elevated
+-- backend role — not part of this correction). Project-wide default
+-- ACLs are NOT altered here — that is a separate, broader change
+-- outside this task's scope; new tables created after this migration
+-- will still need their own explicit lockdown.
+--
+-- Why this is safe for the two SECURITY DEFINER functions that touch
+-- these tables (confirmed live before writing this):
+--   - task_status_events and work_report_access are both owned by
+--     `postgres`.
+--   - get_work_report() and log_task_status_event() are both owned
+--     by `postgres` too, so as SECURITY DEFINER functions they run
+--     WITH the privileges of their owner — table ownership grants
+--     full implicit access regardless of any GRANT/REVOKE to other
+--     roles, and neither table has FORCE ROW LEVEL SECURITY set, so
+--     the owner also bypasses RLS. Revoking authenticated/anon/public
+--     grants here cannot break either function.
+-- ============================================================
+
+-- ----------------------------------------------------------------
+-- work_report_access: Owner-only grant/revoke table.
+-- RLS and its three Owner-only SELECT/INSERT/DELETE policies are
+-- UNCHANGED by this file — only the table-grant layer is corrected
+-- to match what those policies already assume.
+-- ----------------------------------------------------------------
+revoke all on public.work_report_access from public, anon, authenticated;
+grant select, insert, delete on public.work_report_access to authenticated;
+-- Deliberately no update/truncate/references/trigger grant to
+-- authenticated — matches "a grant is present or absent, never
+-- edited" (no UPDATE policy exists either) and the requirement that
+-- authenticated hold only these three operations.
+
+-- ----------------------------------------------------------------
+-- task_status_events: internal report history. Never meant to be
+-- read or written directly from the browser — the only sanctioned
+-- read path is get_work_report(), the only sanctioned write path is
+-- the trg_log_task_status_event trigger. Both run as table owner
+-- `postgres` (see header note) and are therefore unaffected by this
+-- revoke.
+-- ----------------------------------------------------------------
+revoke all on public.task_status_events from public, anon, authenticated;
+-- No grant back to authenticated at all — RLS on this table already
+-- has zero policies (default-deny), and now the table-grant layer
+-- independently denies every ordinary role too. Defense in depth,
+-- not a change to the RLS design from 20260810110000.

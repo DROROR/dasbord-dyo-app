@@ -37,7 +37,10 @@ export interface TimeEntry {
   date: string       // YYYY-MM-DD
   hours: number
   minutes: number
+  /** Display-name snapshot — kept as a fallback/history value, no longer authoritative. */
   loggedBy: string
+  /** Authoritative: the profile UUID who logged this entry. Absent on entries created before this field existed and never resolved to a unique profile name. */
+  loggedById?: string
   note?: string
   isLocked: boolean  // true = created by timer stop, false = manual entry
   createdAt: string
@@ -71,7 +74,10 @@ export interface BoardStatus {
   leftBorderCls: string
   canDelete: boolean
   order: number
+  /** Display-name snapshot — kept as a fallback, no longer authoritative. */
   owner?: string
+  /** Authoritative: the profile UUID responsible for tasks in this status. */
+  ownerId?: string
 }
 
 // ─── Main entities ────────────────────────────────────────────────────────────
@@ -80,7 +86,10 @@ export interface Task {
   id: string
   title: string
   description: string
+  /** Display-name snapshot — kept as a fallback/history value, no longer authoritative. */
   assignee: string
+  /** Authoritative: the profile UUID a task is assigned to. */
+  assigneeId?: string
   board: BoardId
   priority: Priority
   status: string
@@ -97,7 +106,10 @@ export interface Task {
   doneAt?: string
   whatsappPending?: boolean
   claimed?: boolean
+  /** Display-name snapshot — kept as a fallback/history value, no longer authoritative. */
   claimedBy?: string
+  /** Authoritative: the profile UUID who claimed this task. */
+  claimedById?: string
   codeReviewer?: string
   uxReviewer?: string
   /** Answered when a support ticket is closed: does the fix need a release? */
@@ -127,6 +139,8 @@ export interface Board {
   statuses: BoardStatus[]
   priorities: PriorityDef[]
   createdAt: string
+  /** When true, every eligible unclaimed task on this board enters the shared support queue regardless of priority. */
+  allTasksToSupportQueue?: boolean
 }
 
 export interface PriorityDef {
@@ -136,6 +150,8 @@ export interface PriorityDef {
   bgCls: string
   dotCls: string
   borderCls: string
+  /** When true, an unclaimed task with this priority enters the shared support queue. */
+  showInSupportQueue?: boolean
 }
 
 export type NotificationType =
@@ -164,4 +180,72 @@ export interface AppNotification {
   read: boolean
   severity: 'normal' | 'high'
   waDetails?: { clientName: string; message: string }
+}
+
+// ─── Work Report ──────────────────────────────────────────────────────────────
+// Shapes returned by the get_work_report() RPC — see
+// supabase/migrations/20260810110000_work_report.sql. Never fetched via a
+// plain table select; always through that one narrow, access-checked RPC.
+// One event per real status transition (task_status_events) — a
+// completion is just an ordinary event whose toStatusId is 'done', not a
+// separate concept.
+
+export interface WorkReportEvent {
+  taskId: string
+  title: string
+  board: string
+  /** Null only for a task's very first status, recorded on creation. */
+  fromStatusId: string | null
+  fromStatusLabel: string | null
+  toStatusId: string
+  toStatusLabel: string
+  changedAt: string
+  /** The task's claimed_by_id AT THE MOMENT of this transition — display only, never used to reattribute who performed it. */
+  claimedById: string | null
+}
+
+export interface WorkReportTimeEntryRef {
+  taskId: string
+  title: string
+  board: string
+  hours: number
+}
+
+export interface WorkReportEmployee {
+  id: string
+  name: string
+  /** Distinct tasks with at least one transition this employee performed on the selected date. */
+  tasksProgressed: number
+  /** Distinct support-board (id 'support') tasks this employee progressed on the selected date. */
+  ticketsHandled: number
+  hoursWorked: number
+  /** Every transition this employee performed on the selected date, chronological. */
+  events: WorkReportEvent[]
+  timeEntries: WorkReportTimeEntryRef[]
+}
+
+export interface WorkReportStatusBreakdownEntry {
+  statusId: string
+  /** The actual configured label at the time of the most recent transition into this status today — never inferred/translated. */
+  statusLabel: string
+  /** Raw event count into this status today — NOT deduplicated by task, unlike the team/employee "progressed" counts. */
+  count: number
+}
+
+export interface WorkReport {
+  reportDate: string
+  timezone: string
+  team: {
+    /** Distinct tasks with at least one transition anywhere on the selected date. */
+    tasksProgressed: number
+    /** Distinct support-board tasks with at least one transition on the selected date. */
+    ticketsHandled: number
+    /** Secondary metric: distinct tasks that reached 'done' on the selected date. */
+    tasksCompleted: number
+    hoursWorked: number
+  }
+  statusBreakdown: WorkReportStatusBreakdownEntry[]
+  /** Transitions with no authenticated actor (service-role/automation) — never attributed to an employee. */
+  systemActivity: WorkReportEvent[]
+  employees: WorkReportEmployee[]
 }

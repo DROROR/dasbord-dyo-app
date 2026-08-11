@@ -30,6 +30,22 @@ export const STATUS_LABEL: Record<string, string> = {
   archived:            'Archive',
 }
 
+// Hebrew companion for STATUS_LABEL/COLUMNS — additive only, so existing
+// callers reading the plain English constants (TeamOverview, TaskDetailModal)
+// are unaffected. These are My Board's own fixed grouping headers (drawn
+// from COLUMNS, not any specific board's live, admin-editable
+// board.statuses[].label), so they're safe, built-in UI strings — not
+// user/administrator content.
+export const STATUS_LABEL_HE: Record<string, string> = {
+  not_started:         'טרם התחיל',
+  in_progress:         'בתהליך',
+  fixing:              'תיקונים / סבב',
+  pending_code_review: 'ממתין לבדיקת קוד',
+  pending_ux_review:   'ממתין לבדיקת UI/UX',
+  done:                'הושלם',
+  archived:            'ארכיון',
+}
+
 export const STATUS_LEFT: Record<string, string> = {
   not_started:         'border-l-gray-300',
   in_progress:         'border-l-blue-400',
@@ -50,11 +66,17 @@ export const DEFAULT_BOARD_STATUSES: BoardStatus[] = [
   { id: 'archived',            label: 'Archive',              pillCls: 'bg-gray-100 text-gray-400',     leftBorderCls: 'border-l-gray-200',   canDelete: false, order: 6 },
 ]
 
+// showInSupportQueue matches the live-audited backfill in
+// 20260810100500_support_queue_config.sql exactly: 'critical' was the
+// only id that ever drove the old hardcoded urgent check, so it's the
+// only one true here. Boards with their own stored priorities array
+// carry this flag in the DB instead — this constant only matters for
+// boards using the fallback (empty stored array).
 export const DEFAULT_PRIORITY_DEFS: PriorityDef[] = [
-  { id: 'critical', label: 'Critical', textCls: 'text-red-600',    bgCls: 'bg-red-50',    dotCls: 'bg-red-500',    borderCls: 'border-red-200'    },
-  { id: 'high',     label: 'High',     textCls: 'text-orange-600', bgCls: 'bg-orange-50', dotCls: 'bg-orange-500', borderCls: 'border-orange-200' },
-  { id: 'medium',   label: 'Medium',   textCls: 'text-amber-600',  bgCls: 'bg-amber-50',  dotCls: 'bg-amber-500',  borderCls: 'border-amber-200'  },
-  { id: 'low',      label: 'Low',      textCls: 'text-blue-600',   bgCls: 'bg-blue-50',   dotCls: 'bg-blue-400',   borderCls: 'border-blue-200'   },
+  { id: 'critical', label: 'Critical', textCls: 'text-red-600',    bgCls: 'bg-red-50',    dotCls: 'bg-red-500',    borderCls: 'border-red-200',    showInSupportQueue: true  },
+  { id: 'high',     label: 'High',     textCls: 'text-orange-600', bgCls: 'bg-orange-50', dotCls: 'bg-orange-500', borderCls: 'border-orange-200', showInSupportQueue: false },
+  { id: 'medium',   label: 'Medium',   textCls: 'text-amber-600',  bgCls: 'bg-amber-50',  dotCls: 'bg-amber-500',  borderCls: 'border-amber-200',  showInSupportQueue: false },
+  { id: 'low',      label: 'Low',      textCls: 'text-blue-600',   bgCls: 'bg-blue-50',   dotCls: 'bg-blue-400',   borderCls: 'border-blue-200',   showInSupportQueue: false },
 ]
 
 export const INITIAL_BOARDS: Board[] = [
@@ -84,6 +106,7 @@ export const INITIAL_BOARDS: Board[] = [
     statuses: DEFAULT_BOARD_STATUSES,
     priorities: DEFAULT_PRIORITY_DEFS,
     createdAt: '2026-01-01T00:00:00Z',
+    allTasksToSupportQueue: true,
   },
   {
     id: 'prosperity',
