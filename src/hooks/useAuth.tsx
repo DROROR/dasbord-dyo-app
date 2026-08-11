@@ -11,6 +11,7 @@ export interface UserProfile {
   permissions: Record<string, string>
   is_owner: boolean
   is_technical_support: boolean
+  is_active: boolean
 }
 
 interface AuthValue {
@@ -22,6 +23,9 @@ interface AuthValue {
   hasPermission: (module: PermissionModule, minLevel?: PermissionLevel) => boolean
   canViewPage: (page: string) => boolean
   canManagePermissions: boolean
+  /** True once a profile has loaded and is_active is explicitly false — deactivated, real server-side enforcement is independent of this (RLS/has_permission also check is_active), this only drives the UI's own "you're deactivated" state. */
+  isDeactivated: boolean
+  refreshProfile: () => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -36,6 +40,7 @@ const DEV_PROFILE: UserProfile = {
   permissions: FULL_PERMISSIONS,
   is_owner: true,
   is_technical_support: false,
+  is_active: true,
 }
 
 const AuthContext = createContext<AuthValue | null>(null)
@@ -51,8 +56,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .select('*')
       .eq('id', userId)
       .single()
-    setProfile((data as UserProfile) ?? null)
+    // Pre-migration compatibility: profiles.is_active doesn't exist on
+    // the live DB yet, so `data.is_active` comes back `undefined`
+    // (key absent from the row), not `false`. Treat anything other
+    // than an explicit `false` as active — once the column exists,
+    // real deactivations always write an explicit `false`, so this
+    // expression keeps working correctly after the migration too; it
+    // isn't code to remove later.
+    setProfile(data ? { ...(data as UserProfile), is_active: (data as { is_active?: boolean }).is_active !== false } : null)
   }
+
+  const refreshProfile = useCallback(async () => {
+    if (!user) return
+    await fetchProfile(user.id)
+  }, [user])
 
   useEffect(() => {
     if (DEV_BYPASS) return
@@ -88,10 +105,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Kept for existing call sites; no longer implies full access on
   // its own — see hasPermission/canManagePermissions below.
   const isAdmin = isOwner || profile?.role === 'admin'
+  const isDeactivated = profile != null && profile.is_active === false
 
+  // Client-side UX mirror only — the real gate is server-side (every
+  // RLS-facing function this app relies on now also checks is_active,
+  // see 20260810101000_rls_rpc_identity_and_queue.sql). Checked here
+  // too so the UI itself stops offering actions immediately, without
+  // waiting for a failed request to find out.
   const hasPermission = useCallback((module: PermissionModule, minLevel: PermissionLevel = 'view'): boolean => {
     if (!profile) return false
+    // Owner bypass is unconditional — checked before is_active so it can
+    // never be accidentally gated by that flag (the Owner can never
+    // actually be deactivated server-side anyway; this is belt-and-suspenders).
     if (profile.is_owner) return true
+    if (!profile.is_active) return false
     const held = rankOf(profile.permissions?.[module])
     const required = rankOf(minLevel)
     if (held === null || required === null) return false
@@ -99,7 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [profile])
 
   const canManagePermissions = useMemo(() =>
-    isOwner || (profile?.role === 'admin' && rankOf(profile.permissions?.permissions) === 3),
+    isOwner || (!!profile?.is_active && profile?.role === 'admin' && rankOf(profile.permissions?.permissions) === 3),
     [isOwner, profile],
   )
 
@@ -114,7 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthValue = {
     user, profile, loading, isOwner, isAdmin,
-    hasPermission, canViewPage, canManagePermissions, signOut,
+    hasPermission, canViewPage, canManagePermissions, isDeactivated, refreshProfile, signOut,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

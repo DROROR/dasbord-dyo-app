@@ -2,14 +2,15 @@ import { useState, useRef, useEffect } from 'react'
 import {
   X, Check, Copy, Clock, ChevronDown,
   Send, Paperclip, Link2, Play, Square, AlertCircle,
-  Lock, Pencil,
+  Lock, Pencil, Loader2, Trash2,
 } from 'lucide-react'
 import { Avatar } from '../Avatar'
 import { useNotifications } from '../../contexts/NotificationContext'
 import { useTimer } from '../../contexts/TimerContext'
+import { useLang } from '../../contexts/LanguageContext'
 import type { Task, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
-import { addTaskComment } from '../../lib/database'
+import { addTaskComment, claimTask, deleteTask } from '../../lib/database'
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
@@ -37,13 +38,18 @@ export interface TicketDoneAnswers {
 }
 
 export function TaskDetailModal({
-  task, onClose, onUpdate, currentUser, priorityCfg, clients, assignees, boardLabel, boardStatuses,
-  openTicketsForClient = 0, onTicketDone, readonly = false, canComment = false,
+  task, onClose, onUpdate, onDeleted, currentUser, currentUserId, priorityCfg, clients, assignees, boardLabel, boardStatuses,
+  openTicketsForClient = 0, onTicketDone, readonly = false, canComment = false, canDelete = false,
+  isTechnicalSupport = false, boardAllTasksToSupportQueue = false,
 }: {
   task: Task
   onClose: () => void
   onUpdate: (t: Task) => void
+  /** Called only after the DELETE has been confirmed by the server — never optimistic. Caller is responsible for removing the task from its own list and closing the modal. */
+  onDeleted?: (id: string) => void
   currentUser: string
+  /** The authenticated user's profile UUID — stamped onto any new time entry (timer or manual) as loggedById. */
+  currentUserId?: string
   priorityCfg: Record<string, PriorityDef>
   clients: { id: string; name: string }[]
   assignees: string[]
@@ -60,8 +66,19 @@ export function TaskDetailModal({
    *  caller that hasn't been updated to compute it explicitly fails
    *  closed, not open. */
   canComment?: boolean
+  /** Gates the Delete Task action — owner, or a non-owner with BOTH
+   *  work:'full' AND board:'full' on this task's current board (matches
+   *  the "tasks: delete" RLS policy exactly). Defaults to false so any
+   *  caller that hasn't been updated to compute it fails closed. The
+   *  server-side policy is authoritative; this is UX only. */
+  canDelete?: boolean
+  /** Gates the Claim button — only active technical-support staff may claim a shared-queue task. The server-side claim_task() RPC re-checks this independently. */
+  isTechnicalSupport?: boolean
+  /** Whether the task's board sends every task to the shared queue regardless of priority. */
+  boardAllTasksToSupportQueue?: boolean
 }) {
   const { addNotification } = useNotifications()
+  const { t: tr } = useLang()
 
   const [title,     setTitle]     = useState(task.title)
   const [editTitle, setEditTitle] = useState(false)
@@ -86,6 +103,11 @@ export function TaskDetailModal({
   const [showMention,  setShowMention]  = useState(false)
   const [commentSaving, setCommentSaving] = useState(false)
   const [commentError,  setCommentError]  = useState<string | null>(null)
+  const [claiming,      setClaiming]      = useState(false)
+  const [claimError,    setClaimError]    = useState<string | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting,          setDeleting]          = useState(false)
+  const [deleteError,       setDeleteError]       = useState<string | null>(null)
   const commentRef = useRef<HTMLTextAreaElement>(null)
 
   const [attachUrl,  setAttachUrl]  = useState('')
@@ -180,7 +202,7 @@ export function TaskDetailModal({
 
   function startTimer() {
     if (readonly) return
-    timerCtx.start(task.id, task.title, currentUser)
+    timerCtx.start(task.id, task.title, currentUser, currentUserId)
   }
   function stopTimer() {
     const result = timerCtx.stop()
@@ -203,6 +225,7 @@ export function TaskDetailModal({
       date: manualDate || new Date().toISOString().slice(0, 10),
       hours: h, minutes: m,
       loggedBy: currentUser,
+      loggedById: currentUserId,
       note: manualNote.trim() || undefined,
       isLocked: false,
       createdAt: new Date().toISOString(),
@@ -300,20 +323,50 @@ export function TaskDetailModal({
     finishTicket(requiresAppUpdate, 'now')
   }
 
-  // Support tickets and urgent work sit on everyone's board until claimed.
-  const isUrgentPriority =
-    priority === 'critical' || /urgent|דחוף/i.test(priorityCfg[priority]?.label ?? '')
+  // Shared-queue eligibility mirrors task_eligible_for_support_queue()
+  // server-side — configurable per board/priority, not a hardcoded
+  // board id or priority-label regex.
+  const isQueueEligible = boardAllTasksToSupportQueue || !!priorityCfg[priority]?.showInSupportQueue
   const isUnclaimed =
     !task.claimed &&
     status !== 'done' && status !== 'archived' &&
-    ((task.board === 'support' && status === 'not_started') ||
-     (task.board !== 'support' && isUrgentPriority && !assignee))
+    isQueueEligible && !assignee
 
-  function claimTicket() {
-    if (readonly) return
-    const newHistory: StatusHistoryEntry[] = [...history, { status: 'in_progress', timestamp: new Date().toISOString(), changedBy: currentUser }]
-    setAssignee(currentUser); setStatus('in_progress'); setHistory(newHistory)
-    save({ claimed: true, claimedBy: currentUser, assignee: currentUser, status: 'in_progress', statusHistory: newHistory })
+  // Atomic, server-side — see claim_task() in
+  // 20260810101000_rls_rpc_identity_and_queue.sql. No optimistic
+  // update: local state only changes after the RPC confirms, and a
+  // losing concurrent claim shows a visible error instead of silently
+  // overwriting the winner.
+  async function claimTicket() {
+    if (readonly || !isTechnicalSupport || claiming) return
+    setClaiming(true)
+    setClaimError(null)
+    try {
+      const updated = await claimTask(task.id)
+      onUpdate(updated)
+    } catch (err) {
+      setClaimError(err instanceof Error ? err.message : tr('התביעה נכשלה — ייתכן שמישהו אחר כבר לקח את המשימה', 'Claim failed — someone else may have already taken this task'))
+    } finally {
+      setClaiming(false)
+    }
+  }
+
+  // Non-optimistic by design, matching claimTicket() above: the task
+  // only disappears from the caller's list once the DELETE has actually
+  // been confirmed by the server (the "tasks: delete" RLS policy is the
+  // real, authoritative check — canDelete is UX only). A failure shows a
+  // visible error here rather than silently doing nothing.
+  async function confirmDelete() {
+    if (!canDelete || deleting) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteTask(task.id)
+      onDeleted?.(task.id)
+    } catch (err) {
+      setDeleting(false)
+      setDeleteError(err instanceof Error ? err.message : tr('מחיקת המשימה נכשלה', 'Failed to delete task'))
+    }
   }
 
   function copyLink() {
@@ -356,8 +409,44 @@ export function TaskDetailModal({
           <button onClick={copyLink} title="Copy task link" className={`p-1.5 rounded-lg transition-colors shrink-0 ${copied ? 'bg-green-100 text-green-600' : 'text-gray-400 hover:bg-gray-100 hover:text-primary'}`}>
             {copied ? <Check size={15} /> : <Copy size={15} />}
           </button>
+          {canDelete && (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              title={tr('מחק משימה', 'Delete task')}
+              className="p-1.5 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors shrink-0"
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
           <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors shrink-0"><X size={15} /></button>
         </div>
+
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={() => !deleting && setShowDeleteConfirm(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+              <div className="flex items-start gap-2 text-red-600">
+                <AlertCircle size={18} className="shrink-0 mt-0.5" />
+                <p className="text-sm font-semibold leading-relaxed">
+                  {tr('האם למחוק את המשימה? לא ניתן לבטל פעולה זו.', 'Delete this task? This action cannot be undone.')}
+                </p>
+              </div>
+              {deleteError && <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{deleteError}</p>}
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setShowDeleteConfirm(false)} disabled={deleting} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-40">
+                  {tr('ביטול', 'Cancel')}
+                </button>
+                <button
+                  onClick={() => void confirmDelete()}
+                  disabled={deleting}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:opacity-60"
+                >
+                  {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                  {deleting ? tr('מוחק...', 'Deleting...') : tr('מחק', 'Delete')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Closing a support ticket — cannot be skipped */}
         {doneFlow && (
@@ -423,19 +512,33 @@ export function TaskDetailModal({
           </div>
         )}
 
-        {/* Unclaimed banner — support tickets, and urgent work on any board */}
+        {/* Unclaimed banner — shared support queue, board/priority-configurable */}
         {isUnclaimed && (
-          <div className="flex items-center gap-3 px-6 py-3 bg-red-50 border-b border-red-100 shrink-0">
-            <AlertCircle size={15} className="text-red-500 shrink-0" />
-            <p className="text-sm text-red-800 flex-1">
-              {task.board === 'support'
-                ? 'This support ticket is unclaimed — be the first to take it.'
-                : `This ${(priorityCfg[priority]?.label ?? 'urgent').toLowerCase()} task is unclaimed — be the first to take it.`}
-            </p>
-            {!readonly && (
-              <button onClick={claimTicket} className="shrink-0 px-4 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-colors">
-                {task.board === 'support' ? 'Take this ticket' : 'Take this task'}
-              </button>
+          <div className="flex flex-col gap-2 px-6 py-3 bg-red-50 border-b border-red-100 shrink-0">
+            <div className="flex items-center gap-3">
+              <AlertCircle size={15} className="text-red-500 shrink-0" />
+              <p className="text-sm text-red-800 flex-1">
+                {boardAllTasksToSupportQueue
+                  ? tr('הכרטיס הזה לא נתבע — היה הראשון לקחת אותו.', 'This support ticket is unclaimed — be the first to take it.')
+                  : tr(`המשימה הזו (${priorityCfg[priority]?.label ?? 'דחוף'}) לא נתבעה — היה הראשון לקחת אותה.`, `This ${(priorityCfg[priority]?.label ?? 'urgent').toLowerCase()} task is unclaimed — be the first to take it.`)}
+              </p>
+              {!readonly && isTechnicalSupport && (
+                <button
+                  onClick={() => void claimTicket()}
+                  disabled={claiming}
+                  className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-colors disabled:opacity-60"
+                >
+                  {claiming && <Loader2 size={11} className="animate-spin" />}
+                  {claiming
+                    ? tr('לוקח...', 'Taking...')
+                    : boardAllTasksToSupportQueue ? tr('קח כרטיס זה', 'Take this ticket') : tr('קח משימה זו', 'Take this task')}
+                </button>
+              )}
+            </div>
+            {claimError && (
+              <p className="text-xs text-red-600 flex items-center gap-1.5">
+                <AlertCircle size={11} /> {claimError}
+              </p>
             )}
           </div>
         )}

@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Plus, LayoutGrid, FileText, BarChart2, Bot, User, Briefcase,
-  Settings, X, Check, Pencil, ChevronDown, Trash2, Loader2,
+  Settings, X, Check, Pencil, ChevronDown, Trash2, Loader2, TrendingUp,
 } from 'lucide-react'
 import type { Task, Board, PriorityDef, BoardStatus } from '../types/work'
 import { boardAccessRank } from '../types/work'
@@ -19,6 +19,7 @@ import {
   setResourceAccess,
   generateCustomerMessage,
   createPendingMessage,
+  hasWorkReportAccess,
 } from '../lib/database'
 import type { TicketDoneAnswers } from '../components/work/TaskDetailModal'
 import { PENDING_KEY } from '../contexts/TimerContext'
@@ -30,20 +31,23 @@ import { DocsTab }          from '../components/work/DocsTab'
 import { AiTaskCreator }    from '../components/work/AiTaskCreator'
 import { TaskDetailModal }  from '../components/work/TaskDetailModal'
 import { GanttTab }         from '../components/work/GanttTab'
+import { WorkReportTab }    from '../components/work/WorkReportTab'
 import { useAuth }          from '../hooks/useAuth'
 import { useNotifications } from '../contexts/NotificationContext'
+import { useLang }          from '../contexts/LanguageContext'
 import { AccessDenied }     from '../components/AccessDenied'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type WorkTab = 'myboard' | 'tasks' | 'gantt' | 'docs' | 'ai'
+type WorkTab = 'myboard' | 'tasks' | 'gantt' | 'docs' | 'ai' | 'report'
 
-const WORK_TABS: { id: WorkTab; label: string; icon: LucideIcon }[] = [
+const WORK_TABS: { id: WorkTab; label: string; labelHe?: string; labelEn?: string; icon: LucideIcon }[] = [
   { id: 'myboard', label: 'My Board',      icon: User       },
   { id: 'tasks',   label: 'Tasks',         icon: LayoutGrid },
   { id: 'gantt',   label: 'Gantt',         icon: BarChart2  },
   { id: 'docs',    label: 'Docs',          icon: FileText   },
   { id: 'ai',      label: 'New Task (AI)', icon: Bot        },
+  { id: 'report',  label: 'Work Report',   labelHe: 'דוח עבודה', labelEn: 'Work Report', icon: TrendingUp },
 ]
 
 function newId() { return Math.random().toString(36).slice(2, 10) }
@@ -101,6 +105,23 @@ function AddBoardModal({ onSave, onClose }: {
 
 // ─── BoardSettingsModal ───────────────────────────────────────────────────────
 
+function Toggle({ enabled, onChange }: { enabled: boolean; onChange: () => void }) {
+  return (
+    <button
+      type="button"
+      dir="ltr"
+      onClick={onChange}
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+        enabled ? 'bg-primary' : 'bg-gray-200'
+      }`}
+    >
+      <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
+        enabled ? 'translate-x-4.5' : 'translate-x-0.5'
+      }`} />
+    </button>
+  )
+}
+
 const ACCESS_LEVELS = ['none', 'view', 'comment', 'full'] as const
 type AL = typeof ACCESS_LEVELS[number]
 const AL_LABELS: Record<AL, string> = { none: 'No Access', view: 'View', comment: 'Comment', full: 'Full' }
@@ -116,9 +137,8 @@ const COLOR_OPTIONS = [
   { dot: 'bg-gray-400',   text: 'text-gray-600',   bg: 'bg-gray-50',   border: 'border-gray-200',   pill: 'bg-gray-100 text-gray-600',     left: 'border-l-gray-300',   label: 'Gray'   },
 ]
 
-function BoardSettingsModal({ board, assignees, profiles, canManagePermissions, priorityDefs, tasks, onSave, onAccessChange, onDelete, onClose }: {
+function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDefs, tasks, onSave, onAccessChange, onDelete, onClose }: {
   board: Board
-  assignees: string[]
   profiles: { id: string; name: string }[]
   canManagePermissions: boolean
   priorityDefs: PriorityDef[]
@@ -138,6 +158,7 @@ function BoardSettingsModal({ board, assignees, profiles, canManagePermissions, 
   const [accessError, setAccessError] = useState<string | null>(null)
   const [pDefs,      setPDefs]      = useState(priorityDefs)
   const [statuses,   setStatuses]   = useState<BoardStatus[]>(board.statuses ?? DEFAULT_BOARD_STATUSES)
+  const [allTasksToSupportQueue, setAllTasksToSupportQueue] = useState(board.allTasksToSupportQueue ?? false)
   const [newPLabel,  setNewPLabel]  = useState('')
   const [newSLabel,  setNewSLabel]  = useState('')
   const [newSColor,  setNewSColor]  = useState(0)
@@ -283,51 +304,93 @@ function BoardSettingsModal({ board, assignees, profiles, canManagePermissions, 
               can_manage_permissions() check server-side, not this gate. */}
           {tab === 'access' && canManagePermissions && (
             <div className="flex flex-col gap-2">
-              {profiles.map(p => (
+              {statuses.some(s => s.ownerId) && (
+                <p className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5">
+                  משתמשים שאחראים על סטטוס (ראו לשונית Statuses) לא ניתן להגביל מתחת ל-View — יש להסיר קודם את האחריות על הסטטוס.
+                </p>
+              )}
+              {profiles.map(p => {
+                const isStatusOwner = statuses.some(s => s.ownerId === p.id)
+                return (
                 <div key={p.id} className="flex items-center gap-3">
-                  <span className="text-sm text-gray-700 flex-1">{p.name}</span>
+                  <span className="text-sm text-gray-700 flex-1">
+                    {p.name}
+                    {isStatusOwner && (
+                      <span className="ml-1.5 text-[9px] text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5">אחראי סטטוס</span>
+                    )}
+                  </span>
                   {savingAccessFor === p.id && <Loader2 size={12} className="text-gray-400 animate-spin" />}
                   <select
                     value={(access[p.id] ?? 'none') as AL}
                     disabled={savingAccessFor === p.id}
-                    onChange={e => void changeAccess(p.id, e.target.value as AL)}
+                    onChange={e => {
+                      const next = e.target.value as AL
+                      // Belt-and-suspenders alongside the disabled <option>
+                      // below — a status owner can never be dropped below
+                      // 'view' from this picker. The real, authoritative
+                      // block is the enforce_board_access_rules DB trigger;
+                      // this just keeps the UI from even offering the
+                      // choice, per the same "explain first" requirement.
+                      if (isStatusOwner && next === 'none') return
+                      void changeAccess(p.id, next)
+                    }}
+                    title={isStatusOwner ? 'אחראי על סטטוס בבורד זה — יש להסיר קודם את האחריות על הסטטוס לפני הגבלת הגישה מתחת ל-View' : undefined}
                     className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-primary disabled:opacity-50"
                   >
-                    {ACCESS_LEVELS.map(l => <option key={l} value={l}>{AL_LABELS[l]}</option>)}
+                    {ACCESS_LEVELS.map(l => (
+                      <option key={l} value={l} disabled={isStatusOwner && l === 'none'}>
+                        {AL_LABELS[l]}{isStatusOwner && l === 'none' ? ' (חסום — אחראי סטטוס)' : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
-              ))}
+                )
+              })}
               {accessError && <p className="text-xs text-red-500 mt-1">{accessError}</p>}
             </div>
           )}
 
           {/* Priorities tab */}
           {tab === 'priorities' && (
-            <div className="flex flex-col gap-2">
-              {pDefs.map((p, idx) => (
-                <div key={p.id} className="flex items-center gap-2 py-1">
-                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${p.dotCls}`} />
-                  {editPIdx === idx ? (
-                    <input autoFocus value={editPLabel} onChange={e => setEditPLabel(e.target.value)}
-                      onBlur={() => savePriorityLabel(idx)}
-                      onKeyDown={e => { if (e.key === 'Enter') savePriorityLabel(idx); if (e.key === 'Escape') setEditPIdx(null) }}
-                      className="flex-1 text-sm border-b-2 border-primary focus:outline-none bg-transparent"
-                    />
-                  ) : (
-                    <span className="text-sm text-gray-700 flex-1">{p.label}</span>
-                  )}
-                  <div className="flex gap-0.5">
-                    {COLOR_OPTIONS.map(c => (
-                      <button key={c.label} title={c.label} onClick={() => changePriorityColor(idx, c)} className={`w-4 h-4 rounded-full border-2 ${c.dot} ${p.dotCls === c.dot ? 'border-gray-600' : 'border-transparent'}`} />
-                    ))}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-3 p-2.5 rounded-xl bg-primary/[0.04] border border-primary/10">
+                <Toggle enabled={allTasksToSupportQueue} onChange={() => setAllTasksToSupportQueue(v => !v)} />
+                <span className="text-xs text-gray-700 flex-1">כל המשימות בבורד הזה נכנסות לתור התמיכה</span>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                {pDefs.map((p, idx) => (
+                  <div key={p.id} className="flex items-center gap-2 py-1">
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${p.dotCls}`} />
+                    {editPIdx === idx ? (
+                      <input autoFocus value={editPLabel} onChange={e => setEditPLabel(e.target.value)}
+                        onBlur={() => savePriorityLabel(idx)}
+                        onKeyDown={e => { if (e.key === 'Enter') savePriorityLabel(idx); if (e.key === 'Escape') setEditPIdx(null) }}
+                        className="flex-1 text-sm border-b-2 border-primary focus:outline-none bg-transparent"
+                      />
+                    ) : (
+                      <span className="text-sm text-gray-700 flex-1">{p.label}</span>
+                    )}
+                    <div className="flex items-center gap-1.5 shrink-0" title="הצג בתור התמיכה המשותף">
+                      <Toggle
+                        enabled={!!p.showInSupportQueue}
+                        onChange={() => setPDefs(prev => prev.map((pr, i) => i !== idx ? pr : { ...pr, showInSupportQueue: !pr.showInSupportQueue }))}
+                      />
+                    </div>
+                    <div className="flex gap-0.5">
+                      {COLOR_OPTIONS.map(c => (
+                        <button key={c.label} title={c.label} onClick={() => changePriorityColor(idx, c)} className={`w-4 h-4 rounded-full border-2 ${c.dot} ${p.dotCls === c.dot ? 'border-gray-600' : 'border-transparent'}`} />
+                      ))}
+                    </div>
+                    <button onClick={() => startEditPriority(idx)} className="p-1 text-gray-300 hover:text-primary transition-colors"><Pencil size={11} /></button>
+                    <button onClick={() => deletePriority(idx)} className="p-1 text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={11} /></button>
                   </div>
-                  <button onClick={() => startEditPriority(idx)} className="p-1 text-gray-300 hover:text-primary transition-colors"><Pencil size={11} /></button>
-                  <button onClick={() => deletePriority(idx)} className="p-1 text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={11} /></button>
+                ))}
+                <p className="text-[10px] text-gray-400">המתג ליד כל עדיפות: הצג בתור התמיכה המשותף</p>
+                <div className="flex gap-2 mt-1 pt-2 border-t border-gray-100">
+                  <input value={newPLabel} onChange={e => setNewPLabel(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addPriority() }} placeholder="New priority..." className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-primary" />
+                  <button onClick={addPriority} disabled={!newPLabel.trim()} className="px-2.5 py-1.5 bg-primary text-white text-xs rounded-lg hover:bg-primary/90 disabled:opacity-40"><Plus size={11} /></button>
                 </div>
-              ))}
-              <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100">
-                <input value={newPLabel} onChange={e => setNewPLabel(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addPriority() }} placeholder="New priority..." className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-primary" />
-                <button onClick={addPriority} disabled={!newPLabel.trim()} className="px-2.5 py-1.5 bg-primary text-white text-xs rounded-lg hover:bg-primary/90 disabled:opacity-40"><Plus size={11} /></button>
               </div>
             </div>
           )}
@@ -372,13 +435,17 @@ function BoardSettingsModal({ board, assignees, profiles, canManagePermissions, 
                       <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap shrink-0 ${s.pillCls}`}>{s.label}</span>
                       <span className="text-xs text-gray-600 flex-1 truncate min-w-0">{s.label}</span>
                       <select
-                        value={s.owner ?? ''}
-                        onChange={e => setStatuses(prev => prev.map((st, i) => i !== idx ? st : { ...st, owner: e.target.value || undefined }))}
+                        value={s.ownerId ?? ''}
+                        onChange={e => {
+                          const ownerId = e.target.value || undefined
+                          const owner   = ownerId ? profiles.find(p => p.id === ownerId)?.name : undefined
+                          setStatuses(prev => prev.map((st, i) => i !== idx ? st : { ...st, ownerId, owner }))
+                        }}
                         className="text-[11px] border border-gray-200 rounded-lg px-1.5 py-1 bg-white focus:outline-none focus:border-primary text-gray-600 shrink-0 max-w-[110px]"
-                        title="Status owner"
+                        title="Status owner — responsible employee (only active users can be selected)"
                       >
                         <option value="">Unassigned</option>
-                        {assignees.map(a => <option key={a} value={a}>{a}</option>)}
+                        {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                       <button onClick={() => startEditStatus(idx)} className="p-1 text-gray-300 hover:text-primary transition-colors shrink-0" title="Edit"><Pencil size={11} /></button>
                       {s.canDelete ? (
@@ -437,7 +504,7 @@ function BoardSettingsModal({ board, assignees, profiles, canManagePermissions, 
             <button onClick={() => { onDelete(); onClose() }} className="text-xs text-red-500 hover:text-red-700 transition-colors mr-auto">Delete Board</button>
           )}
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
-          <button onClick={() => { onSave({ ...board, name, access, statuses }, pDefs); onClose() }} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors">
+          <button onClick={() => { onSave({ ...board, name, access, statuses, allTasksToSupportQueue }, pDefs); onClose() }} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors">
             <Check size={13} /> Save
           </button>
         </div>
@@ -451,6 +518,7 @@ function BoardSettingsModal({ board, assignees, profiles, canManagePermissions, 
 export function Work() {
   const { profile, hasPermission, canManagePermissions, isOwner }  = useAuth()
   const { addNotification }   = useNotifications()
+  const { t: tr }             = useLang()
   const currentUser           = profile?.name ?? 'Dror'
   const canViewWork  = hasPermission('work', 'view')
   const canEdit      = hasPermission('work', 'edit')
@@ -458,14 +526,51 @@ export function Work() {
   const canViewDocs   = hasPermission('work_docs', 'view')
   const canCreateDocs = hasPermission('work_docs', 'full')
 
+  // Owner is unconditional; anyone else needs an explicit grant in
+  // work_report_access, checked server-side by has_work_report_access()
+  // — fetched once so the tab can be hidden entirely for anyone without
+  // it, per "unauthorized users must not see the tab". This is UX only:
+  // the real gate is inside get_work_report() itself, re-checked on
+  // every call regardless of what this flag says client-side.
+  const [canViewReport, setCanViewReport] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      if (isOwner) { if (!cancelled) setCanViewReport(true); return }
+      try {
+        const v = await hasWorkReportAccess()
+        if (!cancelled) setCanViewReport(v)
+      } catch {
+        if (!cancelled) setCanViewReport(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [isOwner, profile?.id])
+
   const [tab,          setTab]          = useState<WorkTab>('myboard')
   const [boards,       setBoards]       = useState<Board[]>(INITIAL_BOARDS)
   const [activeBoard,  setActiveBoard]  = useState(INITIAL_BOARDS[0].id)
   const [tasks,        setTasks]        = useState<Task[]>([])
   const [tasksLoading, setTasksLoading] = useState(true)
+  // INITIAL_BOARDS (the seed constant `boards` starts as) never carries a
+  // live statusOwnerId/access map — it's a static fallback for a brand-new
+  // project. Status-owner routing and per-board access must never be
+  // computed against it. Previously only tasksLoading gated My
+  // Board/Tasks/Gantt rendering, so on a fresh page load where the tasks
+  // fetch happened to resolve before the boards fetch, routing/access
+  // logic ran against stale seed data for at least one render — a task
+  // that should have been routed away by status ownership would briefly
+  // (or, if the boards fetch failed silently, indefinitely) still show up
+  // for its original assignee. Gate on both.
+  const [boardsLoading, setBoardsLoading] = useState(true)
   const [openId,       setOpenId]       = useState<string | null>(null)
   const [showAddBoard, setShowAddBoard] = useState(false)
   const [settingsBoard, setSettingsBoard] = useState<Board | null>(null)
+  // Surfaced visibly next to the New Task buttons — a failed creation
+  // (most commonly: work:'edit' but no 'full' board-access entry, which
+  // canCreateInBoard now also catches client-side before the click even
+  // reaches the server) must never be a silent no-op.
+  const [createTaskError, setCreateTaskError] = useState<string | null>(null)
   // Real clients and real team members — both come from the database so they
   // stay in step with the Clients board and whoever has registered in the panel.
   const [clients,   setClients]   = useState<{ id: string; name: string; phone: string | null }[]>([])
@@ -486,6 +591,17 @@ export function Work() {
     return merged
   }, [boards])
 
+  // `profiles` is already filtered to is_active at the source (see the
+  // clients/team-members load effect below) — this Set lets MyBoard
+  // confirm a status owner is still active before treating a task as
+  // routed to them. The server-side clear_status_ownership_on_deactivation
+  // trigger already strips ownerId the moment a profile deactivates, but
+  // that's a fire-and-forget async cascade; this is a same-render
+  // defensive check so a task never appears "routed away" toward someone
+  // who can no longer act on it, even in the narrow window before that
+  // cascade's effect has been re-fetched into this session's boards state.
+  const activeProfileIds = useMemo(() => new Set(profiles.map(p => p.id)), [profiles])
+
   // RLS (has_board_access) already filters which boards come back from
   // getBoards() — no client-side re-filtering by access needed or done here.
   const visibleBoards = boards
@@ -497,6 +613,10 @@ export function Work() {
 
   const activeBoardObj = visibleBoards.find(b => b.id === activeBoard) ?? visibleBoards[0]
   const openTask       = openId ? (tasks.find(t => t.id === openId) ?? null) : null
+  // The task's OWN board, not necessarily activeBoardObj — My Board can
+  // open a task that lives on a different board than the one currently
+  // selected in the Tasks tab.
+  const openTaskBoardObj = openTask ? boards.find(b => b.id === openTask.board) : undefined
 
   // Client-side mirror of has_board_access(board,'comment') — UX gating
   // only, the add_task_comment RPC re-checks this server-side regardless.
@@ -508,6 +628,34 @@ export function Work() {
     const board = boards.find(b => b.id === task.board)
     if (!board) return false
     return boardAccessRank(board.access[profile.id]) >= boardAccessRank('comment')
+  }
+
+  // Client-side mirror of "tasks: insert"'s has_board_access(board,'full')
+  // half — Bug: the New Task buttons were previously gated on canEdit
+  // (has_permission('work','edit')) alone, which says nothing about the
+  // per-board access RLS also requires. A user with work:'edit' but no
+  // explicit 'full' entry on this specific board's access map saw a live,
+  // clickable button that the server silently rejected — canEdit is
+  // necessary but not sufficient. This is UX only; has_board_access on
+  // the server remains the real, authoritative check.
+  function canCreateInBoard(boardId: string): boolean {
+    if (isOwner) return true
+    if (!profile) return false
+    const board = boards.find(b => b.id === boardId)
+    if (!board) return false
+    return boardAccessRank(board.access[profile.id]) >= boardAccessRank('full')
+  }
+
+  // Client-side mirror of "tasks: delete"'s exact rule: owner, or a
+  // non-owner with BOTH work:'full' (canManageWork) AND board:'full' on
+  // the task's current board. canCreateInBoard already implements the
+  // is_owner-bypassed board:'full' half; ANDing it with canManageWork
+  // (which is also is_owner-bypassed) reproduces
+  // has_permission('work','full') AND has_board_access(board,'full')
+  // exactly — work:'edit', board:'view', and board:'comment' alone can
+  // never satisfy this. The RLS policy is authoritative; this is UX only.
+  function canDeleteTask(task: Task): boolean {
+    return canManageWork && canCreateInBoard(task.board)
   }
 
   // Load tasks from Supabase; run stale alerts once after load
@@ -558,6 +706,8 @@ export function Work() {
         }
       } catch (err) {
         console.error('Failed to load boards:', err)
+      } finally {
+        setBoardsLoading(false)
       }
     })()
   }, [])
@@ -582,8 +732,12 @@ export function Work() {
       try {
         const [dbClients, dbProfiles] = await Promise.all([getClients(), getProfiles()])
         setClients(dbClients.map(c => ({ id: c.id, name: c.business_name || c.name, phone: c.phone })))
-        setAssignees(dbProfiles.map(p => p.name).filter(Boolean))
-        setProfiles(dbProfiles.map(p => ({ id: p.id, name: p.name })))
+        // Deactivated profiles must disappear from every assignment/
+        // reviewer/status-owner/access selector — filtered once, here,
+        // at the source every one of those pickers reads from.
+        const activeProfiles = dbProfiles.filter(p => p.is_active)
+        setAssignees(activeProfiles.map(p => p.name).filter(Boolean))
+        setProfiles(activeProfiles.map(p => ({ id: p.id, name: p.name })))
         setIsTechnicalSupport(
           dbProfiles.find(p => p.id === profile?.id)?.is_technical_support ?? false,
         )
@@ -635,6 +789,13 @@ export function Work() {
     if (!canEdit) return
     setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
     void dbUpdateTask(updated.id, updated).catch(err => console.error('Task sync failed:', err))
+  }
+
+  // Called only after TaskDetailModal has already confirmed the DELETE
+  // succeeded server-side — not optimistic, no separate DB call here.
+  function handleTaskDeleted(id: string) {
+    setTasks(prev => prev.filter(t => t.id !== id))
+    setOpenId(null)
   }
 
   function changeStatus(taskId: string, newStatus: string) {
@@ -693,11 +854,12 @@ export function Work() {
   }
 
   async function addTaskWithStatus(statusId: string) {
-    if (!canEdit) return
+    if (!canEdit || !canCreateInBoard(activeBoard)) return
+    setCreateTaskError(null)
     const now = new Date().toISOString()
     try {
       const created = await dbCreateTask({
-        title: 'New Task', description: '', assignee: currentUser,
+        title: 'New Task', description: '', assignee: currentUser, assigneeId: profile?.id,
         board: activeBoard, priority: 'medium', status: statusId,
         timeEntries: [], createdAt: now,
         statusHistory: [{ status: statusId, timestamp: now, changedBy: currentUser }],
@@ -707,6 +869,7 @@ export function Work() {
       setOpenId(created.id)
     } catch (err) {
       console.error('Failed to create task:', err)
+      setCreateTaskError(err instanceof Error ? err.message : 'Failed to create task — please try again.')
     }
   }
 
@@ -811,15 +974,16 @@ export function Work() {
 
       {/* Tab bar */}
       <nav className="flex items-center gap-0 border-b border-gray-200 bg-white px-6 shrink-0 overflow-x-auto">
-        {WORK_TABS.filter(t => (t.id !== 'ai' || canEdit) && (t.id !== 'docs' || canViewDocs)).map(t => {
+        {WORK_TABS.filter(t => (t.id !== 'ai' || canEdit) && (t.id !== 'docs' || canViewDocs) && (t.id !== 'report' || canViewReport)).map(t => {
           const Icon   = t.icon
           const active = tab === t.id
+          const label  = t.labelHe && t.labelEn ? tr(t.labelHe, t.labelEn) : t.label
           return (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`flex items-center gap-1.5 px-4 py-3.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${active ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'}`}
             >
               <Icon size={14} />
-              {t.label}
+              {label}
               {t.id === 'ai' && <span className="ml-0.5 bg-accent text-white text-[8px] font-bold px-1.5 py-px rounded-full leading-none">AI</span>}
             </button>
           )
@@ -829,25 +993,27 @@ export function Work() {
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col px-6 pt-5 pb-0">
 
-        {tasksLoading && (tab === 'myboard' || tab === 'tasks' || tab === 'gantt') && (
+        {(tasksLoading || boardsLoading) && (tab === 'myboard' || tab === 'tasks' || tab === 'gantt') && (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 size={28} className="animate-spin text-primary opacity-50" />
           </div>
         )}
 
-        {!tasksLoading && tab === 'myboard' && (
+        {!tasksLoading && !boardsLoading && tab === 'myboard' && (
           <MyBoard
             tasks={tasks}
             boards={boards}
             currentUser={currentUser}
+            myProfileId={profile?.id}
             priorityCfg={priorityCfg}
             onOpenTask={setOpenId}
             onStatusChange={changeStatus}
             isTechnicalSupport={isTechnicalSupport}
+            activeProfileIds={activeProfileIds}
           />
         )}
 
-        {!tasksLoading && tab === 'tasks' && (
+        {!tasksLoading && !boardsLoading && tab === 'tasks' && (
           <div className="flex flex-col gap-4 flex-1 min-h-0">
             {/* Board selector */}
             <div className="flex items-center gap-2 flex-wrap shrink-0">
@@ -880,12 +1046,21 @@ export function Work() {
               {canEdit && (
                 <button
                   onClick={() => addTaskWithStatus('not_started')}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90 transition-colors shadow-sm shrink-0"
+                  disabled={!canCreateInBoard(activeBoard)}
+                  title={canCreateInBoard(activeBoard) ? undefined : 'אין לך גישה מלאה ללוח הזה — פנה למנהל כדי לקבל הרשאת Full לפני יצירת משימות כאן'}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90 transition-colors shadow-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-primary"
                 >
                   <Plus size={14} /> New Task
                 </button>
               )}
             </div>
+
+            {createTaskError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 shrink-0 flex items-center justify-between gap-3">
+                <span>{createTaskError}</span>
+                <button onClick={() => setCreateTaskError(null)} className="text-red-400 hover:text-red-600 shrink-0">✕</button>
+              </p>
+            )}
 
             <VerticalBoard
               tasks={boardTasks}
@@ -895,12 +1070,12 @@ export function Work() {
               onAddTask={addTaskWithStatus}
               assignees={assignees}
               boardStatuses={activeBoardObj?.statuses}
-              readonly={!canEdit}
+              readonly={!canEdit || !canCreateInBoard(activeBoard)}
             />
           </div>
         )}
 
-        {!tasksLoading && tab === 'gantt' && (
+        {!tasksLoading && !boardsLoading && tab === 'gantt' && (
           <GanttTab
             tasks={tasks}
             boards={visibleBoards}
@@ -935,6 +1110,24 @@ export function Work() {
             onCreateTask={createTask}
           />
         )}
+
+        {tab === 'report' && (
+          canViewReport ? (
+            <WorkReportTab
+              isOwner={isOwner}
+              myProfileId={profile?.id}
+              tasks={tasks}
+              onOpenTask={setOpenId}
+            />
+          ) : (
+            // Defense in depth: the tab bar already hides this tab without
+            // access, and get_work_report()/has_work_report_access() are
+            // the real, unconditional server-side gate regardless of
+            // whatever `tab` state the client is in — this just avoids
+            // rendering the report UI shell for a forced tab value.
+            <AccessDenied />
+          )
+        )}
       </div>
 
       {/* Modals */}
@@ -943,12 +1136,16 @@ export function Work() {
           task={openTask}
           onClose={() => setOpenId(null)}
           onUpdate={updateTask}
+          onDeleted={handleTaskDeleted}
           currentUser={currentUser}
+          currentUserId={profile?.id}
           priorityCfg={priorityCfg}
           clients={clients}
           assignees={assignees}
           boardLabel={activeBoardObj?.name ?? openTask.board}
           boardStatuses={activeBoardObj?.statuses}
+          isTechnicalSupport={isTechnicalSupport}
+          boardAllTasksToSupportQueue={openTaskBoardObj?.allTasksToSupportQueue}
           openTicketsForClient={
             openTask.clientId
               ? tasks.filter(t =>
@@ -961,6 +1158,7 @@ export function Work() {
           }
           onTicketDone={handleTicketDone}
           canComment={canCommentOnTask(openTask)}
+          canDelete={canDeleteTask(openTask)}
           readonly={!canEdit}
         />
       )}
@@ -975,7 +1173,6 @@ export function Work() {
       {settingsBoard && canManageWork && (
         <BoardSettingsModal
           board={settingsBoard}
-          assignees={assignees}
           profiles={profiles}
           canManagePermissions={canManagePermissions}
           priorityDefs={settingsBoard.priorities ?? DEFAULT_PRIORITY_DEFS}

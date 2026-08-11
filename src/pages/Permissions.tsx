@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { UserPlus, Shield, ShieldCheck, Check, Trash2, Lock, LifeBuoy, Loader2, X } from 'lucide-react'
+import { UserPlus, Shield, ShieldCheck, Check, Trash2, Lock, LifeBuoy, Loader2, X, KeyRound, AlertCircle } from 'lucide-react'
 import { getProfiles, type DbProfile } from '../lib/database'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
@@ -24,6 +24,7 @@ interface AppUser {
   joinedAt: string
   isTechnicalSupport: boolean
   isOwner: boolean
+  isActive: boolean
 }
 
 interface SaveResult {
@@ -78,6 +79,7 @@ function mapProfilesToUsers(profiles: DbProfile[]): AppUser[] {
     joinedAt: new Date(p.created_at).toLocaleDateString('he-IL'),
     isTechnicalSupport: p.is_technical_support,
     isOwner: p.is_owner,
+    isActive: p.is_active,
   }))
 }
 
@@ -179,13 +181,18 @@ function UserCard({
         selected
           ? 'border-primary/30 bg-primary/5 shadow-sm'
           : 'border-gray-100 bg-white hover:border-gray-200 hover:bg-gray-50/60 shadow-sm'
-      }`}
+      } ${!user.isActive ? 'opacity-60' : ''}`}
     >
       <Avatar name={user.name} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
           <span className="text-sm font-semibold text-gray-800 truncate">{user.name}</span>
           <RoleBadge role={user.role} />
+          {!user.isActive && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-500">
+              מושבת
+            </span>
+          )}
         </div>
         <p className="text-xs text-gray-400 truncate">{user.email}</p>
       </div>
@@ -195,15 +202,149 @@ function UserCard({
 
 // ─── User detail panel ────────────────────────────────────────────────────────
 
+function DeactivateConfirmModal({ userName, onConfirm, onClose }: {
+  userName: string
+  onConfirm: () => Promise<void>
+  onClose: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function confirm() {
+    setBusy(true)
+    setError(null)
+    try {
+      await onConfirm()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ההשבתה נכשלה')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={busy ? undefined : onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 text-amber-600">
+          <AlertCircle size={18} />
+          <p className="text-sm font-semibold">השבתת {userName}</p>
+        </div>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          המשתמש לא יוכל להתחבר או להשתמש במערכת יותר. כל ההיסטוריה העסקית — משימות, תגובות, מסמכים ורשומות שיוך — תישמר במלואה ותישאר גלויה למנהלים מורשים.
+        </p>
+        {error && <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+        <div className="flex gap-2 justify-end">
+          <button onClick={onClose} disabled={busy} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-40">
+            ביטול
+          </button>
+          <button
+            onClick={() => void confirm()}
+            disabled={busy}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:opacity-60"
+          >
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+            {busy ? 'משבית...' : 'השבת משתמש'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ResetPasswordModal({ userName, onGenerate, onClose }: {
+  userName: string
+  onGenerate: () => Promise<string>
+  onClose: () => void
+}) {
+  const [password, setPassword] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  async function generate() {
+    setBusy(true)
+    setError(null)
+    try {
+      const pw = await onGenerate()
+      setPassword(pw)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'איפוס הסיסמה נכשל')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function copy() {
+    if (!password) return
+    void navigator.clipboard.writeText(password)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  // Deliberately never kept in any longer-lived state — this component
+  // unmounts on close and the password goes with it, exactly once.
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={password || busy ? undefined : onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+        {!password ? (
+          <>
+            <p className="text-sm font-semibold text-gray-800">יצירת סיסמה חדשה ל{userName}</p>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              תיווצר סיסמה זמנית אקראית. יש להעביר אותה למשתמש בערוץ מאובטח — היא תוצג כאן פעם אחת בלבד.
+            </p>
+            {error && <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+            <div className="flex gap-2 justify-end">
+              <button onClick={onClose} disabled={busy} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-40">
+                ביטול
+              </button>
+              <button
+                onClick={() => void generate()}
+                disabled={busy}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60"
+              >
+                {busy ? <Loader2 size={13} className="animate-spin" /> : <KeyRound size={13} />}
+                {busy ? 'יוצר...' : 'צור סיסמה'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 text-green-600">
+              <Check size={16} />
+              <p className="text-sm font-semibold">הסיסמה נוצרה</p>
+            </div>
+            <p className="text-xs text-gray-500">מסור למשתמש בערוץ מאובטח — הסיסמה לא תוצג שוב:</p>
+            <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+              <code dir="ltr" className="text-sm font-mono flex-1 text-gray-800">{password}</code>
+              <button
+                onClick={copy}
+                className="text-xs px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors shrink-0"
+              >
+                {copied ? 'הועתק!' : 'העתק'}
+              </button>
+            </div>
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors self-end"
+            >
+              סיום
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function UserDetailPanel({
-  user, isSelf, actorIsOwner, actorPermissions, onSave, onRemove,
+  user, isSelf, actorIsOwner, actorPermissions, onSave, onDeactivate, onGeneratePassword,
 }: {
   user: AppUser
   isSelf: boolean
   actorIsOwner: boolean
   actorPermissions: ModulePermission
   onSave: (id: string, role: Role, perms: ModulePermission, isSupport: boolean) => Promise<SaveResult>
-  onRemove: () => void
+  onDeactivate: (id: string) => Promise<void>
+  onGeneratePassword: (id: string) => Promise<string>
 }) {
   const [draftRole, setDraftRole] = useState<Role>(user.role)
   const [draftPerms, setDraftPerms] = useState<ModulePermission>(user.permissions)
@@ -211,6 +352,8 @@ function UserDetailPanel({
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [showDeactivate, setShowDeactivate] = useState(false)
+  const [showResetPassword, setShowResetPassword] = useState(false)
 
   // No reset effect needed: the panel is keyed on the user id, so selecting a
   // different user remounts it with fresh drafts.
@@ -261,22 +404,50 @@ function UserDetailPanel({
                   <Lock size={10} />זה אתה
                 </span>
               )}
+              {!user.isActive && (
+                <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 font-medium">
+                  מושבת
+                </span>
+              )}
             </div>
             <p className="text-xs text-gray-400 mt-0.5">{user.email}</p>
             <p className="text-xs text-gray-300 mt-0.5">הצטרף: {user.joinedAt}</p>
           </div>
         </div>
-        {!user.isOwner && (
-          <button
-            onClick={onRemove}
-            disabled
-            title="הסרת משתמשים עדיין לא זמינה"
-            className="flex items-center gap-1.5 text-xs text-gray-300 border border-gray-100 bg-gray-50/50 px-3 py-1.5 rounded-xl cursor-not-allowed"
-          >
-            <Trash2 size={13} />הסר משתמש
-          </button>
+        {!user.isOwner && !isSelf && (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowResetPassword(true)}
+              className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 bg-white px-3 py-1.5 rounded-xl hover:border-primary hover:text-primary transition-colors"
+            >
+              <KeyRound size={13} />יצירת סיסמה חדשה
+            </button>
+            {user.isActive && (
+              <button
+                onClick={() => setShowDeactivate(true)}
+                className="flex items-center gap-1.5 text-xs text-red-500 border border-red-100 bg-red-50/50 px-3 py-1.5 rounded-xl hover:bg-red-100 transition-colors"
+              >
+                <Trash2 size={13} />השבת משתמש
+              </button>
+            )}
+          </div>
         )}
       </div>
+
+      {showDeactivate && (
+        <DeactivateConfirmModal
+          userName={user.name}
+          onConfirm={() => onDeactivate(user.id)}
+          onClose={() => setShowDeactivate(false)}
+        />
+      )}
+      {showResetPassword && (
+        <ResetPasswordModal
+          userName={user.name}
+          onGenerate={() => onGeneratePassword(user.id)}
+          onClose={() => setShowResetPassword(false)}
+        />
+      )}
 
       {/* Role selector — owner only, never for the owner row or yourself */}
       {canEditRole && (
@@ -586,10 +757,36 @@ export function Permissions() {
     return { ok: true }
   }
 
-  // Not implemented yet — see the disabled "הסר משתמש" button in
-  // UserDetailPanel. Deliberately not wired to any state change so the
-  // UI can't lie about a removal that didn't happen.
-  const handleRemove = () => {}
+  const handleDeactivate = async (id: string) => {
+    const { data, error } = await supabase.functions.invoke('deactivate-member', {
+      body: { targetId: id },
+    })
+    if (error || !data?.profile) {
+      let msg = 'ההשבתה נכשלה'
+      const ctx = (error as { context?: Response })?.context
+      if (ctx) {
+        try { msg = (await ctx.json())?.error ?? msg } catch { /* ignore */ }
+      }
+      throw new Error(data?.error ?? msg)
+    }
+    // Apply only the server-confirmed row.
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, isActive: false } : u))
+  }
+
+  const handleGeneratePassword = async (id: string): Promise<string> => {
+    const { data, error } = await supabase.functions.invoke('reset-member-password', {
+      body: { targetId: id },
+    })
+    if (error || !data?.password) {
+      let msg = 'איפוס הסיסמה נכשל'
+      const ctx = (error as { context?: Response })?.context
+      if (ctx) {
+        try { msg = (await ctx.json())?.error ?? msg } catch { /* ignore */ }
+      }
+      throw new Error(data?.error ?? msg)
+    }
+    return data.password as string
+  }
 
   if (!canManagePermissions) {
     return <AccessDenied />
@@ -644,7 +841,8 @@ export function Permissions() {
               actorIsOwner={isOwner}
               actorPermissions={toModulePermission(profile?.permissions)}
               onSave={handleSave}
-              onRemove={handleRemove}
+              onDeactivate={handleDeactivate}
+              onGeneratePassword={handleGeneratePassword}
             />
           )}
           {!selectedUser && (

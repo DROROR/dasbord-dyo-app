@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Task, TimeEntry, StatusHistoryEntry, TaskComment, Attachment, Board, BoardStatus, PriorityDef, AccessLevel, AppNotification, NotificationType, WorkDoc, DocAccessLevel } from '../types/work'
+import type { Task, TimeEntry, StatusHistoryEntry, TaskComment, Attachment, Board, BoardStatus, PriorityDef, AccessLevel, AppNotification, NotificationType, WorkDoc, DocAccessLevel, WorkReport } from '../types/work'
 import { INITIAL_BOARDS, DEFAULT_PRIORITY_DEFS } from '../data/workConstants'
 
 // ── DB Row Types (mirror schema exactly) ────────────────────────────────────────
@@ -102,6 +102,7 @@ export interface DbProfile {
   permissions: Record<string, unknown>
   is_technical_support: boolean
   is_owner: boolean
+  is_active: boolean
   created_at: string
 }
 
@@ -111,13 +112,34 @@ export async function getProfiles(): Promise<DbProfile[]> {
     .select('*')
     .order('name', { ascending: true })
   if (error) throw error
-  return data as DbProfile[]
+  // Pre-migration compatibility: is_active doesn't exist on the live
+  // profiles table yet, so it comes back undefined (key absent), not
+  // false. Only an explicit false means deactivated; anything else —
+  // including "the column doesn't exist yet" — is active. Safe to
+  // keep permanently: once the column exists, real values are always
+  // an explicit true/false, so this is a no-op post-migration.
+  return (data as DbProfile[]).map(p => ({ ...p, is_active: (p as { is_active?: boolean }).is_active !== false }))
 }
 
-// Role/permissions/is_technical_support are no longer writable from the
-// client at all (see migration 001's column-privilege lockdown) — that
-// write path is now exclusively the update-member-permissions Edge
-// Function, called directly from src/pages/Permissions.tsx.
+// Role/permissions/is_technical_support/is_active are not writable
+// from the client at all (see migration 001's column-privilege
+// lockdown) — that write path is exclusively the
+// update-member-permissions / deactivate-member Edge Functions.
+// `name` is the one exception: a pre-existing RLS policy
+// ("users can update own name", auth.uid() = id) plus the
+// column-level grant (UPDATE(name) only) together make this safe to
+// write directly — scoped to the caller's own row, that one column,
+// with no Edge Function needed.
+export async function updateOwnName(id: string, name: string): Promise<DbProfile> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ name })
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw error
+  return data as DbProfile
+}
 
 export async function getClients(): Promise<DbClient[]> {
   const { data, error } = await supabase
@@ -645,6 +667,8 @@ interface DbTask {
   ux_reviewer: string | null
   requires_app_update: boolean | null
   source_task_id: string | null
+  assignee_id: string | null
+  claimed_by_id: string | null
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -676,6 +700,8 @@ function dbToTask(db: DbTask): Task {
     uxReviewer:      db.ux_reviewer ?? undefined,
     requiresAppUpdate: db.requires_app_update ?? undefined,
     sourceTaskId:    db.source_task_id ?? undefined,
+    assigneeId:      db.assignee_id ?? undefined,
+    claimedById:     db.claimed_by_id ?? undefined,
   }
 }
 
@@ -704,6 +730,13 @@ function taskToRow(t: Partial<Task>): Record<string, unknown> {
   if (t.uxReviewer     !== undefined) r.ux_reviewer      = t.uxReviewer || null
   if (t.requiresAppUpdate !== undefined) r.requires_app_update = t.requiresAppUpdate
   if (t.sourceTaskId   !== undefined) r.source_task_id   = t.sourceTaskId || null
+  // Explicit UUID wins over the derive_task_identity_from_text trigger's
+  // name-lookup fallback (see 20260810101000's Part G) — callers that
+  // already know the real profile UUID (e.g. self-assignment on task
+  // creation) should send it directly rather than relying on a secondary
+  // name match.
+  if (t.assigneeId     !== undefined) r.assignee_id      = t.assigneeId || null
+  if (t.claimedById    !== undefined) r.claimed_by_id    = t.claimedById || null
   return r
 }
 
@@ -758,6 +791,18 @@ export async function addTaskComment(taskId: string, text: string, mentions: str
   return data as TaskComment[]
 }
 
+// Atomic claim — see claim_task() in
+// 20260810101000_rls_rpc_identity_and_queue.sql. Row-locks the task
+// server-side so two simultaneous claimants can't both "win"; the
+// loser gets a clear error instead of silently overwriting the
+// winner. Never call updateTask() for claiming — that path is not
+// concurrency-safe and doesn't enforce technical-support eligibility.
+export async function claimTask(taskId: string): Promise<Task> {
+  const { data, error } = await supabase.rpc('claim_task', { task_id: taskId })
+  if (error) throw error
+  return dbToTask(data as DbTask)
+}
+
 // ── BOARDS ──────────────────────────────────────────────────────────────────
 interface DbBoard {
   id: string
@@ -767,6 +812,7 @@ interface DbBoard {
   statuses: BoardStatus[]
   priorities: PriorityDef[] | null
   created_at: string
+  all_tasks_to_support_queue: boolean | null
 }
 
 function dbToBoard(b: DbBoard): Board {
@@ -781,6 +827,7 @@ function dbToBoard(b: DbBoard): Board {
       ? b.priorities
       : DEFAULT_PRIORITY_DEFS,
     createdAt: b.created_at,
+    allTasksToSupportQueue: b.all_tasks_to_support_queue ?? false,
   }
 }
 
@@ -793,6 +840,7 @@ function boardToRow(b: Board): Record<string, unknown> {
     statuses:   b.statuses,
     priorities: b.priorities,
     created_at: b.createdAt,
+    all_tasks_to_support_queue: b.allTasksToSupportQueue ?? false,
   }
 }
 
@@ -839,7 +887,12 @@ export async function createBoard(board: Board): Promise<Board> {
 export async function updateBoard(board: Board): Promise<Board> {
   const { data, error } = await supabase
     .from('boards')
-    .update({ name: board.name, statuses: board.statuses, priorities: board.priorities })
+    .update({
+      name: board.name,
+      statuses: board.statuses,
+      priorities: board.priorities,
+      all_tasks_to_support_queue: board.allTasksToSupportQueue ?? false,
+    })
     .eq('id', board.id)
     .select()
     .single()
@@ -1318,5 +1371,65 @@ export async function markNotificationRead(id: string): Promise<void> {
 
 export async function markAllNotificationsRead(): Promise<void> {
   const { error } = await supabase.from('notifications').update({ read: true }).eq('read', false)
+  if (error) throw error
+}
+
+// ── WORK REPORT ───────────────────────────────────────────────────────────────
+// Report data is fetched exclusively through get_work_report() — never a
+// direct table select — so a granted viewer with no board access of their
+// own still sees the full team report without being granted broad SELECT
+// access to boards/tasks they otherwise couldn't see. The RPC itself
+// re-checks has_work_report_access() server-side regardless of any
+// client-side gating; that check is the actual security boundary.
+export async function getWorkReport(reportDate: string): Promise<WorkReport> {
+  const { data, error } = await supabase.rpc('get_work_report', { report_date: reportDate })
+  if (error) throw error
+  return data as WorkReport
+}
+
+export async function hasWorkReportAccess(): Promise<boolean> {
+  const { data, error } = await supabase.rpc('has_work_report_access')
+  if (error) throw error
+  return data as boolean
+}
+
+// Access management (list/grant/revoke) reads/writes work_report_access
+// directly — safe to do so here because every RLS policy on that table
+// requires the caller to be the Owner (see the migration); a non-owner
+// attempting any of these three simply gets zero rows / a rejected write,
+// not broader access.
+export interface WorkReportAccessRow {
+  profileId: string
+  grantedAt: string
+}
+
+// Deliberately a plain select with no embedded profiles(...) join —
+// work_report_access has two FKs to profiles (profile_id, granted_by),
+// so an embed would need an exact !<constraint-name> hint to
+// disambiguate, and guessing Postgres's auto-generated constraint name
+// is a real, avoidable fragility point. The caller already has (or can
+// fetch) the full profile list via getProfiles(); joining client-side
+// is simpler and doesn't depend on an unverified constraint name.
+export async function getWorkReportAccessList(): Promise<WorkReportAccessRow[]> {
+  const { data, error } = await supabase
+    .from('work_report_access')
+    .select('profile_id, granted_at')
+  if (error) throw error
+  return (data as { profile_id: string; granted_at: string }[])
+    .map(r => ({ profileId: r.profile_id, grantedAt: r.granted_at }))
+}
+
+export async function grantWorkReportAccess(profileId: string, grantedBy: string): Promise<void> {
+  const { error } = await supabase
+    .from('work_report_access')
+    .insert({ profile_id: profileId, granted_by: grantedBy })
+  if (error) throw error
+}
+
+export async function revokeWorkReportAccess(profileId: string): Promise<void> {
+  const { error } = await supabase
+    .from('work_report_access')
+    .delete()
+    .eq('profile_id', profileId)
   if (error) throw error
 }

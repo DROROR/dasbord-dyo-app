@@ -39,7 +39,7 @@ const buildPages = (navigate: (page: string) => void): Record<string, () => Reac
 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard')
-  const { user, profile, loading, canViewPage, signOut } = useAuth()
+  const { user, profile, loading, canViewPage, isDeactivated, signOut } = useAuth()
 
   // Setting activePage even when denied is intentional: the render
   // guard below checks canViewPage(activePage) and shows AccessDenied
@@ -60,6 +60,25 @@ export default function App() {
     return (
       <NotificationProvider>
         <Login />
+      </NotificationProvider>
+    )
+  }
+
+  if (isDeactivated) {
+    return (
+      <NotificationProvider>
+        <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 text-center px-6">
+          <p className="text-lg font-bold text-gray-700">החשבון שלך הושבת</p>
+          <p className="text-sm text-gray-400 max-w-sm">
+            הגישה שלך למערכת נחסמה על ידי מנהל. פנה למנהל המערכת אם אתה סבור שזו טעות.
+          </p>
+          <button
+            onClick={() => void signOut()}
+            className="px-4 py-2 rounded-xl bg-gray-100 text-gray-600 text-sm font-medium hover:bg-gray-200 transition-colors"
+          >
+            התנתקות
+          </button>
+        </div>
       </NotificationProvider>
     )
   }
