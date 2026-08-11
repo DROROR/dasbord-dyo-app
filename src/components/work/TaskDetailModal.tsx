@@ -8,7 +8,7 @@ import { Avatar } from '../Avatar'
 import { useNotifications } from '../../contexts/NotificationContext'
 import { useTimer } from '../../contexts/TimerContext'
 import { useLang } from '../../contexts/LanguageContext'
-import type { Task, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus } from '../../types/work'
+import type { Task, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
 import { addTaskComment, claimTask, deleteTask } from '../../lib/database'
 
@@ -38,7 +38,7 @@ export interface TicketDoneAnswers {
 }
 
 export function TaskDetailModal({
-  task, onClose, onUpdate, onDeleted, currentUser, currentUserId, priorityCfg, clients, assignees, boardLabel, boardStatuses,
+  task, onClose, onUpdate, onDeleted, currentUser, currentUserId, priorityDefs, eligibleAssignees, clients, assignees, boardLabel, boardStatuses,
   openTicketsForClient = 0, onTicketDone, readonly = false, canComment = false, canDelete = false,
   isTechnicalSupport = false, boardAllTasksToSupportQueue = false,
 }: {
@@ -50,8 +50,12 @@ export function TaskDetailModal({
   currentUser: string
   /** The authenticated user's profile UUID — stamped onto any new time entry (timer or manual) as loggedById. */
   currentUserId?: string
-  priorityCfg: Record<string, PriorityDef>
+  /** This task's OWN board's priorities — never a cross-board merged map. */
+  priorityDefs: PriorityDef[]
+  /** Active profiles + Owner + non-owner profiles with explicit access above 'none' on this task's board — the assignee picker's authoritative option list, by UUID. */
+  eligibleAssignees: AssigneeOption[]
   clients: { id: string; name: string }[]
+  /** Display names only — used for the code/UX reviewer pickers and @mention autocomplete, neither of which has a UUID column to store against. */
   assignees: string[]
   boardLabel: string
   boardStatuses?: BoardStatus[]
@@ -326,7 +330,7 @@ export function TaskDetailModal({
   // Shared-queue eligibility mirrors task_eligible_for_support_queue()
   // server-side — configurable per board/priority, not a hardcoded
   // board id or priority-label regex.
-  const isQueueEligible = boardAllTasksToSupportQueue || !!priorityCfg[priority]?.showInSupportQueue
+  const isQueueEligible = boardAllTasksToSupportQueue || !!priorityDefs.find(p => p.id === priority)?.showInSupportQueue
   const isUnclaimed =
     !task.claimed &&
     status !== 'done' && status !== 'archived' &&
@@ -374,7 +378,7 @@ export function TaskDetailModal({
     setCopied(true); setTimeout(() => setCopied(false), 2000)
   }
 
-  const p            = priorityCfg[priority]
+  const p            = priorityDefs.find(pd => pd.id === priority)
   const savedTotal   = timeEntries.reduce((s, e) => s + e.hours + e.minutes / 60, 0)
   const totalTracked = savedTotal + sessionSec / 3600
   const mentionNames = assignees.filter(a => a.toLowerCase().startsWith(mentionQuery.toLowerCase()))
@@ -520,7 +524,7 @@ export function TaskDetailModal({
               <p className="text-sm text-red-800 flex-1">
                 {boardAllTasksToSupportQueue
                   ? tr('הכרטיס הזה לא נתבע — היה הראשון לקחת אותו.', 'This support ticket is unclaimed — be the first to take it.')
-                  : tr(`המשימה הזו (${priorityCfg[priority]?.label ?? 'דחוף'}) לא נתבעה — היה הראשון לקחת אותה.`, `This ${(priorityCfg[priority]?.label ?? 'urgent').toLowerCase()} task is unclaimed — be the first to take it.`)}
+                  : tr(`המשימה הזו (${p?.label ?? 'דחוף'}) לא נתבעה — היה הראשון לקחת אותה.`, `This ${(p?.label ?? 'urgent').toLowerCase()} task is unclaimed — be the first to take it.`)}
               </p>
               {!readonly && isTechnicalSupport && (
                 <button
@@ -675,14 +679,25 @@ export function TaskDetailModal({
               </div>
             </div>
 
-            {/* Assignee */}
+            {/* Assignee — authoritative by profile UUID; the display-name
+                field is saved alongside it purely for history/snapshot
+                display, never used to identify who's assigned. */}
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Assignee</p>
               <div className="flex items-center gap-2">
                 <Avatar name={assignee} />
-                <select value={assignee} onChange={e => { setAssignee(e.target.value); save({ assignee: e.target.value }) }} className="flex-1 text-sm text-gray-700 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white">
+                <select
+                  value={task.assigneeId ?? ''}
+                  disabled={readonly}
+                  onChange={e => {
+                    const opt = eligibleAssignees.find(a => a.id === e.target.value)
+                    setAssignee(opt?.name ?? '')
+                    save({ assigneeId: opt?.id ?? '', assignee: opt?.name ?? '' })
+                  }}
+                  className="flex-1 text-sm text-gray-700 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50 disabled:text-gray-500"
+                >
                   <option value="">Unassigned</option>
-                  {assignees.map(a => <option key={a} value={a}>{a}</option>)}
+                  {eligibleAssignees.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
               </div>
             </div>
@@ -700,7 +715,7 @@ export function TaskDetailModal({
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Priority</p>
               <div className="grid grid-cols-2 gap-1">
-                {Object.values(priorityCfg).map(cfg => {
+                {priorityDefs.map(cfg => {
                   const active = priority === cfg.id
                   return (
                     <button key={cfg.id} onClick={() => { setPriority(cfg.id); save({ priority: cfg.id }) }}

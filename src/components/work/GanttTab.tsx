@@ -1,7 +1,9 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { ChevronDown, Check } from 'lucide-react'
 import { Avatar } from '../Avatar'
-import type { Task, Board, PriorityDef } from '../../types/work'
+import type { Task, Board } from '../../types/work'
+import { resolveTaskPriority, priorityDefsForBoard } from '../../data/workConstants'
+import { ClientBadge } from './ClientBadge'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -104,12 +106,11 @@ function BoardFilterDropdown({
 // ─── GanttTab ─────────────────────────────────────────────────────────────────
 
 export function GanttTab({
-  tasks, boards, assignees, priorityCfg, onOpenTask, onUpdateTask, readonly = false,
+  tasks, boards, assignees, onOpenTask, onUpdateTask, readonly = false,
 }: {
   tasks: Task[]
   boards: Board[]
   assignees: string[]
-  priorityCfg: Record<string, PriorityDef>
   onOpenTask: (id: string) => void
   onUpdateTask: (t: Task) => void
   readonly?: boolean
@@ -238,7 +239,13 @@ export function GanttTab({
         </select>
         <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary">
           <option value="">כל העדיפויות</option>
-          {Object.values(priorityCfg).map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          {/* Filter enumeration only — deduplicated by id across every
+              visible board, purely to populate the dropdown. Actual
+              filtering below still matches by id, and each row's own
+              displayed priority is resolved from its OWN board only
+              (resolveTaskPriority), never from this merged list. */}
+          {Array.from(new Map(boards.flatMap(b => priorityDefsForBoard(b)).map(p => [p.id, p])).values())
+            .map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
         <div className="flex-1" />
         {/* Assignee legend */}
@@ -294,7 +301,7 @@ export function GanttTab({
 
           {/* Scheduled task rows */}
           {scheduled.map(task => {
-            const p       = priorityCfg[task.priority]
+            const p       = resolveTaskPriority(task, boards)
             const color   = colorMap[task.assignee] ?? PALETTE[0]
             const { left: bl, width: bw, isPoint } = barGeometry(task)
             const isDue   = new Date(task.dueDate!) < today
@@ -305,6 +312,7 @@ export function GanttTab({
                 <div className="sticky left-0 z-10 bg-white group-hover:bg-gray-50/50 border-r border-gray-100 flex items-center gap-2 px-3 shrink-0" style={{ width: 280, minWidth: 280 }}>
                   {p && <span className={`w-2 h-2 rounded-full shrink-0 ${p.dotCls}`} />}
                   <button onClick={() => onOpenTask(task.id)} className="flex-1 text-xs text-gray-800 truncate hover:text-primary transition-colors text-left font-medium">{task.title}</button>
+                  <ClientBadge name={task.clientName} />
                   <Avatar name={task.assignee} size="xs" />
                 </div>
 
@@ -369,13 +377,14 @@ export function GanttTab({
                 <div style={{ minWidth: totalWidth }} />
               </div>
               {unscheduled.map(task => {
-                const p     = priorityCfg[task.priority]
+                const p     = resolveTaskPriority(task, boards)
                 const color = colorMap[task.assignee] ?? PALETTE[0]
                 return (
                   <div key={task.id} className="flex border-b border-gray-50 hover:bg-gray-50/50 group" style={{ height: ROW_H }}>
                     <div className="sticky left-0 z-10 bg-white group-hover:bg-gray-50/50 border-r border-gray-100 flex items-center gap-2 px-3 shrink-0" style={{ width: 280, minWidth: 280 }}>
                       {p && <span className={`w-2 h-2 rounded-full shrink-0 ${p.dotCls}`} />}
                       <button onClick={() => onOpenTask(task.id)} className="flex-1 text-xs text-gray-500 truncate hover:text-primary transition-colors text-left">{task.title}</button>
+                      <ClientBadge name={task.clientName} />
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color.bg }} />
                       <Avatar name={task.assignee} size="xs" />
                     </div>

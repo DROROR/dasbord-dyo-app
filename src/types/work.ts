@@ -143,6 +143,24 @@ export interface Board {
   allTasksToSupportQueue?: boolean
 }
 
+export interface AssigneeOption { id: string; name: string }
+
+// Client-side mirror of the validate_task_assignee() DB trigger
+// (see the assignee-validation migration): the Owner is always
+// eligible regardless of board access; any other profile needs
+// explicit board access above 'none'; an inactive profile is never
+// eligible since `profiles` here is expected to already be filtered
+// to is_active by the caller. Not itself a security boundary — the
+// trigger is authoritative.
+export function eligibleAssigneesForBoard(
+  board: Board | undefined,
+  profiles: { id: string; name: string; isOwner: boolean }[],
+): AssigneeOption[] {
+  return profiles
+    .filter(p => p.isOwner || boardAccessRank(board?.access[p.id]) > boardAccessRank('none'))
+    .map(p => ({ id: p.id, name: p.name }))
+}
+
 export interface PriorityDef {
   id: string
   label: string
