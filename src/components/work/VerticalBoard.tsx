@@ -1,8 +1,10 @@
 import { useState, useMemo } from 'react'
 import { Search, X, Calendar, Clock, ChevronDown, Plus } from 'lucide-react'
-import { Avatar } from '../Avatar'
-import type { Task, PriorityDef, BoardStatus } from '../../types/work'
-import { DEFAULT_BOARD_STATUSES } from '../../data/workConstants'
+import type { Task, Board, BoardStatus, AssigneeOption, PriorityDef } from '../../types/work'
+import { DEFAULT_BOARD_STATUSES, priorityDefsForBoard } from '../../data/workConstants'
+import { PriorityQuickEdit, AssigneeQuickEdit } from './TaskQuickEdit'
+import { ClientBadge } from './ClientBadge'
+import { useLang } from '../../contexts/LanguageContext'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -22,29 +24,52 @@ function isOverdue(due?: string) {
   return !!due && new Date(due) < new Date()
 }
 
+// A stable identity for grouping/filtering by client even for legacy
+// tasks that only ever got a clientName snapshot with no clientId —
+// namespaced so a real client UUID can never collide with a raw name
+// string used as the fallback key.
+function clientFilterKey(t: Task): string | null {
+  if (t.clientId) return `id:${t.clientId}`
+  if (t.clientName) return `name:${t.clientName}`
+  return null
+}
+
+const NO_CLIENT = '__none__'
+
 // ─── TaskCard ─────────────────────────────────────────────────────────────────
 
 function TaskCard({
-  task, priorityCfg, statusDef, onClick,
+  task, priorityDefs, statusDef, onClick, canEdit, eligibleAssignees, onTaskSaved,
 }: {
   task: Task
-  priorityCfg: Record<string, PriorityDef>
+  /** This task's OWN board's priorities — never a cross-board merged map. */
+  priorityDefs: PriorityDef[]
   statusDef?: BoardStatus
   onClick: () => void
+  /** Whether the current user may update this task under the server's RLS policy — gates the quick-edit controls only; read-only users still see the badges. */
+  canEdit: boolean
+  eligibleAssignees: AssigneeOption[]
+  onTaskSaved: (updated: Task) => void
 }) {
-  const p         = priorityCfg[task.priority]
   const overdue   = isOverdue(task.dueDate)
   const unclaimed = task.board === 'support' && task.claimed === false
 
   return (
-    <button
+    // A div, not a button: the priority/assignee quick-edit controls
+    // below are themselves real <button>s, and nesting interactive
+    // buttons inside a button is invalid HTML with inconsistent click
+    // behavior across browsers. role="button" + onKeyDown keeps the
+    // whole card keyboard-activatable exactly like before.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
       style={{ padding: '12px 14px', minHeight: '80px' }}
-      className="flex flex-col gap-2 w-full bg-white hover:bg-gray-50/80 border border-gray-100 rounded-lg text-left transition-colors shadow-sm hover:shadow hover:border-gray-200"
+      className="flex flex-col gap-2 w-full bg-white hover:bg-gray-50/80 border border-gray-100 rounded-lg text-left transition-colors shadow-sm hover:shadow hover:border-gray-200 cursor-pointer"
     >
-      {/* Row 1 — priority dot + title + badges */}
+      {/* Row 1 — title + badges */}
       <div className="flex items-start gap-2 w-full min-w-0">
-        <span className={`w-2 h-2 rounded-full shrink-0 mt-[3px] ${p ? p.dotCls : 'bg-gray-300'}`} />
         <span className="flex-1 text-[14px] font-medium text-gray-800 leading-snug min-w-0 text-left">
           {task.title}
         </span>
@@ -53,26 +78,17 @@ function TaskCard({
             UNCLAIMED
           </span>
         )}
-        {task.clientName && (
-          <span className="text-[9px] bg-secondary/15 text-secondary-dark px-1.5 py-0.5 rounded font-semibold shrink-0">
-            {task.clientName}
-          </span>
-        )}
+        <ClientBadge name={task.clientName} />
       </div>
 
-      {/* Row 2 — status + priority, then id + meta */}
+      {/* Row 2 — status + priority (quick-edit), then id + meta + assignee (quick-edit) */}
       <div className="flex items-center gap-2 w-full flex-wrap">
         {statusDef && (
           <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg shrink-0 ${statusDef.pillCls}`}>
             {statusDef.label}
           </span>
         )}
-        {p && (
-          <span className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-lg border shrink-0 ${p.textCls} ${p.bgCls} ${p.borderCls}`}>
-            <span className={`w-2 h-2 rounded-full ${p.dotCls}`} />
-            {p.label}
-          </span>
-        )}
+        <PriorityQuickEdit task={task} priorityDefs={priorityDefs} canEdit={canEdit} onSaved={onTaskSaved} />
         <span className="text-[10px] font-mono text-gray-300 shrink-0">{task.id}</span>
         <div className="flex-1" />
         {task.dueDate && (
@@ -87,24 +103,27 @@ function TaskCard({
             {fmtHours(entryTotal(task.timeEntries))}
           </span>
         )}
-        <Avatar name={task.assignee} size="xs" />
+        <AssigneeQuickEdit task={task} eligible={eligibleAssignees} canEdit={canEdit} onSaved={onTaskSaved} />
       </div>
-    </button>
+    </div>
   )
 }
 
 // ─── StatusSection ────────────────────────────────────────────────────────────
 
 function StatusSection({
-  col, tasks, priorityCfg, onCardClick, onAddTask, defaultOpen, readonly,
+  col, tasks, boards, onCardClick, onAddTask, defaultOpen, readonly, canEditTask, eligibleAssigneesFor, onTaskSaved,
 }: {
   col: BoardStatus
   tasks: Task[]
-  priorityCfg: Record<string, PriorityDef>
+  boards: Board[]
   onCardClick: (id: string) => void
   onAddTask: (statusId: string) => void
   defaultOpen: boolean
   readonly?: boolean
+  canEditTask: (task: Task) => boolean
+  eligibleAssigneesFor: (task: Task) => AssigneeOption[]
+  onTaskSaved: (updated: Task) => void
 }) {
   const [open, setOpen] = useState(defaultOpen)
 
@@ -135,9 +154,12 @@ function StatusSection({
             <TaskCard
               key={task.id}
               task={task}
-              priorityCfg={priorityCfg}
+              priorityDefs={priorityDefsForBoard(boards.find(b => b.id === task.board))}
               statusDef={col}
               onClick={() => onCardClick(task.id)}
+              canEdit={canEditTask(task)}
+              eligibleAssignees={eligibleAssigneesFor(task)}
+              onTaskSaved={onTaskSaved}
             />
           ))}
           {!readonly && (
@@ -158,38 +180,117 @@ function StatusSection({
 // ─── VerticalBoard ────────────────────────────────────────────────────────────
 
 export function VerticalBoard({
-  tasks, priorityCfg, onOpenTask, onStatusChange, onAddTask, assignees, boardStatuses, readonly,
+  tasks, boards, activeBoardId, onOpenTask, onStatusChange, onAddTask, assignees, readonly,
+  canEditTask, eligibleAssigneesFor, onTaskSaved, onBoardFilterChange,
 }: {
+  /** Every task the caller wants considered — the internal Board filter (below) narrows this further; this is deliberately NOT pre-filtered to one board so "All Boards" has real data to show. */
   tasks: Task[]
-  priorityCfg: Record<string, PriorityDef>
+  /** Every board the current user can access — drives the Board filter's options, per-task priority/status resolution, and (in "All Boards" mode) the deduplicated status-section union. */
+  boards: Board[]
+  /** The board currently selected via the outer board tabs — the Board filter starts synced to this and reports specific-board selections back via onBoardFilterChange, so the tabs and this dropdown are one coherent source of truth, never two independent filters. */
+  activeBoardId: string
   onOpenTask: (id: string) => void
   onStatusChange: (id: string, status: string) => void
   onAddTask: (statusId: string) => void
   assignees: string[]
-  boardStatuses?: BoardStatus[]
   readonly?: boolean
+  /** Mirrors the server's "tasks: update" RLS policy exactly — gates quick-edit only, never a security boundary on its own. */
+  canEditTask: (task: Task) => boolean
+  eligibleAssigneesFor: (task: Task) => AssigneeOption[]
+  onTaskSaved: (updated: Task) => void
+  /** Fired only when the Board filter is set to one specific board (never for "All Boards") — lets the caller keep the outer board tabs / New Task target in sync. */
+  onBoardFilterChange: (boardId: string) => void
 }) {
-  const [search,   setSearch]   = useState('')
-  const [assignee, setAssignee] = useState('')
-  const [priority, setPriority] = useState('')
+  const { t: tr } = useLang()
+  const [search,       setSearch]       = useState('')
+  const [assignee,     setAssignee]     = useState('')
+  const [priority,     setPriority]     = useState('')
+  const [client,       setClient]       = useState('')
+  const [boardFilter,  setBoardFilter]  = useState(activeBoardId)
   const [showArchived, setShowArchived] = useState(false)
 
-  const statuses = boardStatuses ?? DEFAULT_BOARD_STATUSES
+  // Keeps this dropdown in sync when the board is changed from OUTSIDE
+  // (clicking one of the existing board tabs) — adjusted during render
+  // (React's own recommended pattern for "reset state when a prop
+  // changes", see https://react.dev/learn/you-might-not-need-an-effect)
+  // rather than in a useEffect, so it can't trigger the extra
+  // render-then-effect-then-render cascade a setState-in-effect would.
+  // One-directional and loop-safe: picking "All Boards" never touches
+  // activeBoardId (see onBoardFilterChange below), so this only ever
+  // fires in response to a genuine external tab change, not its own
+  // writes.
+  const [prevActiveBoardId, setPrevActiveBoardId] = useState(activeBoardId)
+  if (activeBoardId !== prevActiveBoardId) {
+    setPrevActiveBoardId(activeBoardId)
+    setBoardFilter(activeBoardId)
+  }
+
+  function changeBoardFilter(next: string) {
+    setBoardFilter(next)
+    if (next) onBoardFilterChange(next) // "" ("All Boards") never forces a tab/target-board change
+  }
+
+  const activeBoardObj = boardFilter ? boards.find(b => b.id === boardFilter) : undefined
+
+  // Board-scoped priority options for the Priority filter dropdown —
+  // the single active board's own list when one is selected; when
+  // "All Boards" is selected, a deduplicated-by-id union across every
+  // accessible board, for enumeration only (each card's own priority
+  // is still always resolved from ITS OWN task's board — see
+  // priorityDefs in StatusSection above — never from this union).
+  const priorityFilterOptions = useMemo(() => {
+    if (activeBoardObj) return priorityDefsForBoard(activeBoardObj)
+    return Array.from(new Map(boards.flatMap(b => priorityDefsForBoard(b)).map(p => [p.id, p])).values())
+  }, [activeBoardObj, boards])
+
+  // Status sections: the single active board's own statuses when one
+  // is selected (unchanged, exact behavior); a deduplicated-by-id
+  // union across every accessible board's statuses when "All Boards"
+  // is selected, so a task is never silently dropped just because its
+  // status id happens to only exist on its own board's config — the
+  // one disclosed tradeoff is that a status id shared by two boards
+  // with different labels shows whichever board's label the union
+  // happened to keep, informational only, same accepted tradeoff as
+  // the priority-filter union above.
+  const statuses = useMemo(() => {
+    if (activeBoardObj) return activeBoardObj.statuses ?? DEFAULT_BOARD_STATUSES
+    return Array.from(new Map(boards.flatMap(b => b.statuses ?? []).map(s => [s.id, s])).values())
+  }, [activeBoardObj, boards])
+
+  // Client filter options — derived only from the tasks already loaded
+  // (RLS-filtered) into this page, per the explicit instruction not to
+  // fetch or expose clients the user can't otherwise see via their
+  // accessible tasks.
+  const clientOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    tasks.forEach(t => {
+      const key = clientFilterKey(t)
+      if (key && t.clientName) map.set(key, t.clientName)
+    })
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]))
+  }, [tasks])
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return tasks.filter(t => {
       if (!showArchived && t.status === 'archived') return false
+      if (boardFilter && t.board !== boardFilter) return false
       if (q && !t.title.toLowerCase().includes(q) && !t.description.toLowerCase().includes(q)) return false
       if (assignee && t.assignee !== assignee) return false
       if (priority && t.priority !== priority) return false
+      if (client) {
+        const key = clientFilterKey(t)
+        if (client === NO_CLIENT ? key !== null : key !== client) return false
+      }
       return true
     })
-  }, [tasks, search, assignee, priority, showArchived])
+  }, [tasks, search, assignee, priority, client, boardFilter, showArchived])
 
   const visibleStatuses = statuses
     .filter(s => showArchived ? true : s.id !== 'archived')
     .sort((a, b) => a.order - b.order)
+
+  const anyFilterActive = search || assignee || priority || client || boardFilter
 
   return (
     <div className="flex flex-col gap-3 flex-1 min-h-0">
@@ -210,6 +311,15 @@ export function VerticalBoard({
           )}
         </div>
         <select
+          value={boardFilter}
+          onChange={e => changeBoardFilter(e.target.value)}
+          title={tr('בורד', 'Board')}
+          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
+        >
+          <option value="">{tr('כל הבורדים', 'All Boards')}</option>
+          {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+        <select
           value={assignee}
           onChange={e => setAssignee(e.target.value)}
           className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
@@ -223,9 +333,20 @@ export function VerticalBoard({
           className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
         >
           <option value="">All priorities</option>
-          {Object.values(priorityCfg).map(p => (
+          {priorityFilterOptions.map(p => (
             <option key={p.id} value={p.id}>{p.label}</option>
           ))}
+        </select>
+        <select
+          value={client}
+          onChange={e => setClient(e.target.value)}
+          title={tr('לקוח', 'Client')}
+          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
+        >
+          <option value="">{tr('כל הלקוחות', 'All Clients')}</option>
+          <option value={NO_CLIENT}>{tr('ללא לקוח', 'No Client')}</option>
+          {/* Client names are stored data — never translated. */}
+          {clientOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
         </select>
         <button
           onClick={() => setShowArchived(s => !s)}
@@ -233,8 +354,8 @@ export function VerticalBoard({
         >
           {showArchived ? 'Hide Archived' : 'Show Archived'}
         </button>
-        {(search || assignee || priority) && (
-          <button onClick={() => { setSearch(''); setAssignee(''); setPriority('') }} className="flex items-center gap-1 text-sm text-gray-400 hover:text-primary transition-colors">
+        {anyFilterActive && (
+          <button onClick={() => { setSearch(''); setAssignee(''); setPriority(''); setClient(''); changeBoardFilter('') }} className="flex items-center gap-1 text-sm text-gray-400 hover:text-primary transition-colors">
             <X size={12} /> Clear
           </button>
         )}
@@ -249,11 +370,21 @@ export function VerticalBoard({
             key={col.id}
             col={col}
             tasks={filtered.filter(t => t.status === col.id)}
-            priorityCfg={priorityCfg}
+            boards={boards}
             onCardClick={onOpenTask}
             onAddTask={onAddTask}
             defaultOpen={col.id !== 'done' && col.id !== 'archived'}
-            readonly={readonly}
+            // "Add task" always creates on one specific target board
+            // (see addTaskWithStatus in Work.tsx) — in "All Boards"
+            // mode a status column can be a union across boards with
+            // genuinely different status configs, so there is no safe
+            // single board to create into from here. Hidden in that
+            // case regardless of the caller's own readonly value,
+            // never just disabled-looking.
+            readonly={readonly || !boardFilter}
+            canEditTask={canEditTask}
+            eligibleAssigneesFor={eligibleAssigneesFor}
+            onTaskSaved={onTaskSaved}
           />
         ))}
       </div>

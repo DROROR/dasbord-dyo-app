@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect } from 'react'
 import { AlertCircle, Ticket, User, Calendar, Clock, ChevronDown, CheckCircle2 } from 'lucide-react'
-import { Avatar } from '../Avatar'
-import type { Task, PriorityDef, Board, TimeEntry } from '../../types/work'
-import { COLUMNS, STATUS_PILL, STATUS_LABEL, STATUS_LABEL_HE, STATUS_LEFT } from '../../data/workConstants'
+import type { Task, Board, TimeEntry, AssigneeOption } from '../../types/work'
+import { eligibleAssigneesForBoard } from '../../types/work'
+import { COLUMNS, STATUS_PILL, STATUS_LABEL, STATUS_LABEL_HE, STATUS_LEFT, resolveTaskPriority, priorityDefsForBoard } from '../../data/workConstants'
 import { useLang } from '../../contexts/LanguageContext'
+import { PriorityQuickEdit, AssigneeQuickEdit } from './TaskQuickEdit'
+import { ClientBadge } from './ClientBadge'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,32 +64,42 @@ type TaskBadge = { label: string; cls: string }
 // ─── CompactTaskRow ───────────────────────────────────────────────────────────
 
 function CompactTaskRow({
-  task, priorityCfg, onClick, badge,
+  task, boards, onClick, badge, canEdit, eligibleAssignees, onTaskSaved,
 }: {
   task: Task
-  priorityCfg: Record<string, PriorityDef>
+  boards: Board[]
   onClick: () => void
   badge?: TaskBadge
+  /** Whether the current user may update this task under the server's RLS policy — gates quick-edit only. */
+  canEdit: boolean
+  eligibleAssignees: AssigneeOption[]
+  onTaskSaved: (updated: Task) => void
 }) {
-  const p       = priorityCfg[task.priority]
+  const priorityDefs = priorityDefsForBoard(boards.find(b => b.id === task.board))
   const overdue = isOverdue(task.dueDate)
   return (
-    <button
+    // A div, not a button — PriorityQuickEdit/AssigneeQuickEdit render
+    // real <button>s, which can't validly nest inside another button.
+    // role="button" + onKeyDown keeps the row keyboard-activatable.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className="flex items-center gap-3 w-full px-4 py-2.5 bg-white hover:bg-gray-50 border-b border-gray-50 text-left transition-colors last:border-b-0"
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
+      className="flex items-center gap-3 w-full px-4 py-2.5 bg-white hover:bg-gray-50 border-b border-gray-50 text-left transition-colors last:border-b-0 cursor-pointer"
     >
-      {p
-        ? <span className={`w-2 h-2 rounded-full shrink-0 ${p.dotCls}`} />
-        : <span className="w-2 h-2 rounded-full shrink-0 bg-gray-300" />
-      }
+      <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_PILL[task.status] ?? 'bg-gray-100 text-gray-600'}`}>
+        {STATUS_LABEL[task.status] ?? task.status}
+      </span>
       <span className="text-[10px] font-mono text-gray-300 shrink-0 w-16 truncate">{task.id}</span>
       <span className="flex-1 text-sm text-gray-800 truncate min-w-0">{task.title}</span>
+      <ClientBadge name={task.clientName} />
       {badge && (
         <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 whitespace-nowrap ${badge.cls}`}>
           {badge.label}
         </span>
       )}
-      <Avatar name={task.assignee} size="xs" />
+      <PriorityQuickEdit task={task} priorityDefs={priorityDefs} canEdit={canEdit} onSaved={onTaskSaved} />
       {task.dueDate && (
         <span className={`text-[10px] flex items-center gap-0.5 shrink-0 ${overdue ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
           <Calendar size={9} />{fmtDate(task.dueDate)}
@@ -98,20 +110,24 @@ function CompactTaskRow({
           <Clock size={9} />{fmtHours(entryTotal(task.timeEntries))}
         </span>
       )}
-    </button>
+      <AssigneeQuickEdit task={task} eligible={eligibleAssignees} canEdit={canEdit} onSaved={onTaskSaved} />
+    </div>
   )
 }
 
 // ─── MyStatusSection ──────────────────────────────────────────────────────────
 
 function MyStatusSection({
-  col, tasks, priorityCfg, onCardClick, getBadge,
+  col, tasks, boards, onCardClick, getBadge, canEditTask, eligibleAssigneesFor, onTaskSaved,
 }: {
   col: { id: string; label: string }
   tasks: Task[]
-  priorityCfg: Record<string, PriorityDef>
+  boards: Board[]
   onCardClick: (id: string) => void
   getBadge?: (task: Task) => TaskBadge | undefined
+  canEditTask: (task: Task) => boolean
+  eligibleAssigneesFor: (task: Task) => AssigneeOption[]
+  onTaskSaved: (updated: Task) => void
 }) {
   const { t: tr } = useLang()
   const [open, setOpen] = useState(col.id !== 'done' && col.id !== 'archived')
@@ -143,9 +159,12 @@ function MyStatusSection({
               <CompactTaskRow
                 key={task.id}
                 task={task}
-                priorityCfg={priorityCfg}
+                boards={boards}
                 onClick={() => onCardClick(task.id)}
                 badge={getBadge?.(task)}
+                canEdit={canEditTask(task)}
+                eligibleAssignees={eligibleAssigneesFor(task)}
+                onTaskSaved={onTaskSaved}
               />
             ))
           )}
@@ -158,8 +177,8 @@ function MyStatusSection({
 // ─── MyBoard ──────────────────────────────────────────────────────────────────
 
 export function MyBoard({
-  tasks, boards, currentUser, myProfileId, priorityCfg, onOpenTask, onStatusChange,
-  isTechnicalSupport = false, activeProfileIds,
+  tasks, boards, currentUser, myProfileId, onOpenTask, onStatusChange,
+  isTechnicalSupport = false, activeProfileIds, canEditTask, allProfiles, onTaskSaved,
 }: {
   tasks: Task[]
   boards: Board[]
@@ -167,12 +186,16 @@ export function MyBoard({
   currentUser: string
   /** The authenticated user's profile UUID — authoritative once a task has assigneeId set. */
   myProfileId?: string
-  priorityCfg: Record<string, PriorityDef>
   onOpenTask: (id: string) => void
   onStatusChange: (id: string, status: string) => void
   isTechnicalSupport?: boolean
   /** Active profile UUIDs — an inactive status owner is treated as no owner at all (see statusOwnerIdOf). */
   activeProfileIds?: Set<string>
+  /** Mirrors the server's "tasks: update" RLS policy exactly — gates quick-edit only, never a security boundary on its own. */
+  canEditTask: (task: Task) => boolean
+  /** Active profiles (Owner included), used to compute each task's board-scoped assignee eligibility. */
+  allProfiles: { id: string; name: string; isOwner: boolean }[]
+  onTaskSaved: (updated: Task) => void
 }) {
   const { t: tr } = useLang()
 
@@ -248,8 +271,17 @@ export function MyBoard({
     if (t.claimed || t.assignee) return false
     const board = boards.find(b => b.id === t.board)
     if (board?.allTasksToSupportQueue) return true
-    return !!priorityCfg[t.priority]?.showInSupportQueue
+    return !!resolveTaskPriority(t, boards)?.showInSupportQueue
   }
+
+  // Memoized per active board id — cheap to recompute per task but no
+  // reason to redo the filter/map work for every card sharing a board.
+  const eligibleAssigneesByBoard = useMemo(() => {
+    const map = new Map<string, AssigneeOption[]>()
+    boards.forEach(b => map.set(b.id, eligibleAssigneesForBoard(b, allProfiles)))
+    return map
+  }, [boards, allProfiles])
+  const eligibleAssigneesFor = (task: Task): AssigneeOption[] => eligibleAssigneesByBoard.get(task.board) ?? []
 
   const unclaimed = isTechnicalSupport
     ? tasks.filter(t => isOpen(t) && isQueueEligible(t))
@@ -313,6 +345,7 @@ export function MyBoard({
               <CheckCircle2 size={14} className="text-orange-500 shrink-0" />
               <span className="text-[10px] font-mono text-orange-400 shrink-0">{t.id}</span>
               <span className="text-sm font-medium text-orange-800 flex-1 truncate">{t.title}</span>
+              <ClientBadge name={t.clientName} />
               <span className="text-[9px] bg-orange-200 text-orange-800 px-1.5 py-0.5 rounded font-bold shrink-0">
                 {tr('ממתין לסגירה', 'Pending closure')}
               </span>
@@ -326,6 +359,7 @@ export function MyBoard({
               <AlertCircle size={14} className="text-red-500 shrink-0" />
               <span className="text-[10px] font-mono text-red-400 shrink-0">{t.id}</span>
               <span className="text-sm font-medium text-red-800 flex-1 truncate">{t.title}</span>
+              <ClientBadge name={t.clientName} />
               <span className="text-[10px] text-red-500 shrink-0">{tr('עד', 'Due')} {fmtDate(t.dueDate!)}</span>
               <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 ${STATUS_PILL[t.status]}`}>
                 {tr(STATUS_LABEL_HE[t.status] ?? STATUS_LABEL[t.status], STATUS_LABEL[t.status])}
@@ -344,9 +378,10 @@ export function MyBoard({
                   : <Ticket      size={14} className="text-orange-500 shrink-0" />}
                 <span className="text-[10px] font-mono text-orange-400 shrink-0">{t.id}</span>
                 <span className="text-sm font-medium text-orange-800 flex-1 truncate">{t.title}</span>
+                <ClientBadge name={t.clientName} />
                 {urgent && (
                   <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded font-bold shrink-0">
-                    {priorityCfg[t.priority]?.label ?? tr('דחוף', 'Urgent')}
+                    {resolveTaskPriority(t, boards)?.label ?? tr('דחוף', 'Urgent')}
                   </span>
                 )}
                 <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold animate-pulse shrink-0">{tr('לא נתבע', 'UNCLAIMED')}</span>
@@ -382,9 +417,12 @@ export function MyBoard({
                     key={col.id}
                     col={col}
                     tasks={colTasks}
-                    priorityCfg={priorityCfg}
+                    boards={boards}
                     onCardClick={onOpenTask}
                     getBadge={task => statusBadgeMap.get(task.id) ?? assignedBadge(task)}
+                    canEditTask={canEditTask}
+                    eligibleAssigneesFor={eligibleAssigneesFor}
+                    onTaskSaved={onTaskSaved}
                   />
                 )
               })}

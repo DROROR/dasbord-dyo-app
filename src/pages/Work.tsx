@@ -5,7 +5,7 @@ import {
   Settings, X, Check, Pencil, ChevronDown, Trash2, Loader2, TrendingUp,
 } from 'lucide-react'
 import type { Task, Board, PriorityDef, BoardStatus } from '../types/work'
-import { boardAccessRank } from '../types/work'
+import { boardAccessRank, eligibleAssigneesForBoard } from '../types/work'
 import {
   getTasks,
   createTask as dbCreateTask,
@@ -24,7 +24,7 @@ import {
 import type { TicketDoneAnswers } from '../components/work/TaskDetailModal'
 import { PENDING_KEY } from '../contexts/TimerContext'
 import { takeTaskFocus } from '../lib/focusTarget'
-import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES } from '../data/workConstants'
+import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES, priorityDefsForBoard } from '../data/workConstants'
 import { VerticalBoard }    from '../components/work/VerticalBoard'
 import { MyBoard }          from '../components/work/MyBoard'
 import { DocsTab }          from '../components/work/DocsTab'
@@ -192,7 +192,17 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
   function addPriority() {
     if (!newPLabel.trim()) return
     const col = COLOR_OPTIONS[pDefs.length % COLOR_OPTIONS.length]
-    setPDefs(p => [...p, { id: newPLabel.toLowerCase().replace(/\s+/g, '_'), label: newPLabel.trim(), textCls: col.text, bgCls: col.bg, dotCls: col.dot, borderCls: col.border }])
+    let id = newPLabel.toLowerCase().replace(/\s+/g, '_')
+    // Guarantee a unique id even if the slugified label collides with
+    // an id already used elsewhere on this board — e.g. an earlier
+    // priority whose LABEL was later renamed (label-only edits never
+    // touch id, see savePriorityLabel) can leave its original slug
+    // "looking free" while still being claimed. Every priority on a
+    // board must have a unique id — this is the root cause of the
+    // known duplicate id "high" on the development board, fixed here
+    // so it can't happen again going forward.
+    if (pDefs.some(p => p.id === id)) id = `${id}_${newId()}`
+    setPDefs(p => [...p, { id, label: newPLabel.trim(), textCls: col.text, bgCls: col.bg, dotCls: col.dot, borderCls: col.border }])
     setNewPLabel('')
   }
 
@@ -575,21 +585,11 @@ export function Work() {
   // stay in step with the Clients board and whoever has registered in the panel.
   const [clients,   setClients]   = useState<{ id: string; name: string; phone: string | null }[]>([])
   const [assignees, setAssignees] = useState<string[]>([])
-  const [profiles,  setProfiles]  = useState<{ id: string; name: string }[]>([])
+  const [profiles,  setProfiles]  = useState<{ id: string; name: string; isOwner: boolean }[]>([])
   const [isTechnicalSupport, setIsTechnicalSupport] = useState(false)
 
   const alertsRunRef = useRef(false)
   const tasksRef     = useRef<Task[]>([])
-
-  // Priorities belong to the board they were edited on. My Board and the task
-  // modal show tasks from several boards at once, so labels are looked up in a
-  // map merged across every board.
-  const priorityCfg = useMemo(() => {
-    const merged: Record<string, PriorityDef> = {}
-    DEFAULT_PRIORITY_DEFS.forEach(p => { merged[p.id] = p })
-    boards.forEach(b => (b.priorities ?? []).forEach(p => { merged[p.id] = p }))
-    return merged
-  }, [boards])
 
   // `profiles` is already filtered to is_active at the source (see the
   // clients/team-members load effect below) — this Set lets MyBoard
@@ -605,11 +605,6 @@ export function Work() {
   // RLS (has_board_access) already filters which boards come back from
   // getBoards() — no client-side re-filtering by access needed or done here.
   const visibleBoards = boards
-
-  const boardTasks = useMemo(
-    () => tasks.filter(t => t.board === activeBoard),
-    [tasks, activeBoard],
-  )
 
   const activeBoardObj = visibleBoards.find(b => b.id === activeBoard) ?? visibleBoards[0]
   const openTask       = openId ? (tasks.find(t => t.id === openId) ?? null) : null
@@ -656,6 +651,17 @@ export function Work() {
   // never satisfy this. The RLS policy is authoritative; this is UX only.
   function canDeleteTask(task: Task): boolean {
     return canManageWork && canCreateInBoard(task.board)
+  }
+
+  // Mirrors the live "tasks: update" RLS policy exactly:
+  // has_permission('work','edit') AND has_board_access(board,'full')
+  // (Owner bypassed via has_board_access's own bypass, already inside
+  // canCreateInBoard). Gates the quick priority/assignee edit controls
+  // on task cards — same authorization a full modal edit already
+  // requires, nothing broadened. UX only; the server policy is
+  // authoritative.
+  function canEditTask(task: Task): boolean {
+    return canEdit && canCreateInBoard(task.board)
   }
 
   // Load tasks from Supabase; run stale alerts once after load
@@ -737,7 +743,7 @@ export function Work() {
         // at the source every one of those pickers reads from.
         const activeProfiles = dbProfiles.filter(p => p.is_active)
         setAssignees(activeProfiles.map(p => p.name).filter(Boolean))
-        setProfiles(activeProfiles.map(p => ({ id: p.id, name: p.name })))
+        setProfiles(activeProfiles.map(p => ({ id: p.id, name: p.name, isOwner: p.is_owner })))
         setIsTechnicalSupport(
           dbProfiles.find(p => p.id === profile?.id)?.is_technical_support ?? false,
         )
@@ -789,6 +795,15 @@ export function Work() {
     if (!canEdit) return
     setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
     void dbUpdateTask(updated.id, updated).catch(err => console.error('Task sync failed:', err))
+  }
+
+  // Applies an already server-confirmed row (quick priority/assignee
+  // edit on a task card — see TaskQuickEdit.tsx) to local state. Never
+  // optimistic: by the time this is called, dbUpdateTask() has already
+  // awaited and returned the real saved row, so there is nothing left
+  // to reconcile in the background.
+  function handleTaskSaved(updated: Task) {
+    setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
   }
 
   // Called only after TaskDetailModal has already confirmed the DELETE
@@ -1005,11 +1020,13 @@ export function Work() {
             boards={boards}
             currentUser={currentUser}
             myProfileId={profile?.id}
-            priorityCfg={priorityCfg}
             onOpenTask={setOpenId}
             onStatusChange={changeStatus}
             isTechnicalSupport={isTechnicalSupport}
             activeProfileIds={activeProfileIds}
+            canEditTask={canEditTask}
+            allProfiles={profiles}
+            onTaskSaved={handleTaskSaved}
           />
         )}
 
@@ -1063,14 +1080,18 @@ export function Work() {
             )}
 
             <VerticalBoard
-              tasks={boardTasks}
-              priorityCfg={priorityCfg}
+              tasks={tasks}
+              boards={visibleBoards}
+              activeBoardId={activeBoard}
               onOpenTask={setOpenId}
               onStatusChange={changeStatus}
               onAddTask={addTaskWithStatus}
               assignees={assignees}
-              boardStatuses={activeBoardObj?.statuses}
               readonly={!canEdit || !canCreateInBoard(activeBoard)}
+              canEditTask={canEditTask}
+              eligibleAssigneesFor={task => eligibleAssigneesForBoard(boards.find(b => b.id === task.board), profiles)}
+              onTaskSaved={handleTaskSaved}
+              onBoardFilterChange={setActiveBoard}
             />
           </div>
         )}
@@ -1080,7 +1101,6 @@ export function Work() {
             tasks={tasks}
             boards={visibleBoards}
             assignees={assignees}
-            priorityCfg={priorityCfg}
             onOpenTask={setOpenId}
             onUpdateTask={updateTask}
             readonly={!canEdit}
@@ -1104,7 +1124,7 @@ export function Work() {
         {tab === 'ai' && (
           <AiTaskCreator
             boards={visibleBoards}
-            priorityDefs={activeBoardObj?.priorities ?? DEFAULT_PRIORITY_DEFS}
+            priorityDefs={priorityDefsForBoard(activeBoardObj)}
             assignees={assignees}
             clients={clients}
             onCreateTask={createTask}
@@ -1139,7 +1159,8 @@ export function Work() {
           onDeleted={handleTaskDeleted}
           currentUser={currentUser}
           currentUserId={profile?.id}
-          priorityCfg={priorityCfg}
+          priorityDefs={priorityDefsForBoard(openTaskBoardObj)}
+          eligibleAssignees={eligibleAssigneesForBoard(openTaskBoardObj, profiles)}
           clients={clients}
           assignees={assignees}
           boardLabel={activeBoardObj?.name ?? openTask.board}
@@ -1175,7 +1196,7 @@ export function Work() {
           board={settingsBoard}
           profiles={profiles}
           canManagePermissions={canManagePermissions}
-          priorityDefs={settingsBoard.priorities ?? DEFAULT_PRIORITY_DEFS}
+          priorityDefs={priorityDefsForBoard(settingsBoard)}
           tasks={tasks}
           onSave={saveBoardSettings}
           onAccessChange={(boardId, access) => setBoards(prev => prev.map(b => b.id === boardId ? { ...b, access: access as Board['access'] } : b))}

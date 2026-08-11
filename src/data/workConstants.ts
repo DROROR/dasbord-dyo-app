@@ -1,4 +1,4 @@
-import type { PriorityDef, Board, BoardStatus } from '../types/work'
+import type { PriorityDef, Board, BoardStatus, Task } from '../types/work'
 
 export const COLUMNS: { id: string; label: string }[] = [
   { id: 'not_started',         label: 'Not Started'          },
@@ -78,6 +78,27 @@ export const DEFAULT_PRIORITY_DEFS: PriorityDef[] = [
   { id: 'medium',   label: 'Medium',   textCls: 'text-amber-600',  bgCls: 'bg-amber-50',  dotCls: 'bg-amber-500',  borderCls: 'border-amber-200',  showInSupportQueue: false },
   { id: 'low',      label: 'Low',      textCls: 'text-blue-600',   bgCls: 'bg-blue-50',   dotCls: 'bg-blue-400',   borderCls: 'border-blue-200',   showInSupportQueue: false },
 ]
+
+// Single source of truth for "what priorities exist on this board" —
+// the board's own saved priorities array when it has one, otherwise
+// these defaults (matching dbToBoard()'s own fallback in database.ts,
+// so client-created and freshly-loaded boards never disagree). Never
+// merge multiple boards' priority arrays together: two different
+// boards — or even two entries on the SAME board, see the known
+// duplicate id "high" on the live `development` board — can use the
+// same id for a different priority, so resolution must always be
+// scoped to one specific board's own array, never a cross-board map.
+export function priorityDefsForBoard(board: Board | undefined): PriorityDef[] {
+  return (board?.priorities && board.priorities.length > 0) ? board.priorities : DEFAULT_PRIORITY_DEFS
+}
+
+// Resolves a task's priority definition from its OWN board only. Used
+// by components that render tasks from several boards at once (My
+// Board, Gantt, the task modal) where a single board-scoped array
+// isn't available up front.
+export function resolveTaskPriority(task: Task, boards: Board[]): PriorityDef | undefined {
+  return priorityDefsForBoard(boards.find(b => b.id === task.board)).find(p => p.id === task.priority)
+}
 
 export const INITIAL_BOARDS: Board[] = [
   {
