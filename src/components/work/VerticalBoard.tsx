@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react'
-import { Search, X, Calendar, Clock, ChevronDown, Plus } from 'lucide-react'
+import { Search, X, Calendar, Clock, ChevronDown, Plus, ArrowRightLeft } from 'lucide-react'
 import type { Task, Board, BoardStatus, AssigneeOption, PriorityDef } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, priorityDefsForBoard } from '../../data/workConstants'
 import { PriorityQuickEdit, AssigneeQuickEdit } from './TaskQuickEdit'
 import { ClientBadge } from './ClientBadge'
+import { MoveTaskModal } from './MoveTaskModal'
 import { useLang } from '../../contexts/LanguageContext'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -39,7 +40,7 @@ const NO_CLIENT = '__none__'
 // ─── TaskCard ─────────────────────────────────────────────────────────────────
 
 function TaskCard({
-  task, priorityDefs, statusDef, onClick, canEdit, eligibleAssignees, onTaskSaved,
+  task, priorityDefs, statusDef, onClick, canEdit, eligibleAssignees, onTaskSaved, canMove, onMoveClick,
 }: {
   task: Task
   /** This task's OWN board's priorities — never a cross-board merged map. */
@@ -50,6 +51,9 @@ function TaskCard({
   canEdit: boolean
   eligibleAssignees: AssigneeOption[]
   onTaskSaved: (updated: Task) => void
+  /** Mirrors "tasks: delete"'s formula (work:'full' AND board:'full' on this task's current board) — same bar move_task_to_board() itself requires for the source board. */
+  canMove: boolean
+  onMoveClick: (task: Task) => void
 }) {
   const overdue   = isOverdue(task.dueDate)
   const unclaimed = task.board === 'support' && task.claimed === false
@@ -77,6 +81,15 @@ function TaskCard({
           <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold animate-pulse shrink-0">
             UNCLAIMED
           </span>
+        )}
+        {canMove && (
+          <button
+            onClick={e => { e.stopPropagation(); onMoveClick(task) }}
+            title="Move to another board"
+            className="p-1 rounded-lg text-gray-300 hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
+          >
+            <ArrowRightLeft size={13} />
+          </button>
         )}
         <ClientBadge name={task.clientName} />
       </div>
@@ -112,7 +125,7 @@ function TaskCard({
 // ─── StatusSection ────────────────────────────────────────────────────────────
 
 function StatusSection({
-  col, tasks, boards, onCardClick, onAddTask, defaultOpen, readonly, canEditTask, eligibleAssigneesFor, onTaskSaved,
+  col, tasks, boards, onCardClick, onAddTask, defaultOpen, readonly, canEditTask, eligibleAssigneesFor, onTaskSaved, canMoveTask, onMoveClick,
 }: {
   col: BoardStatus
   tasks: Task[]
@@ -124,6 +137,8 @@ function StatusSection({
   canEditTask: (task: Task) => boolean
   eligibleAssigneesFor: (task: Task) => AssigneeOption[]
   onTaskSaved: (updated: Task) => void
+  canMoveTask: (task: Task) => boolean
+  onMoveClick: (task: Task) => void
 }) {
   const [open, setOpen] = useState(defaultOpen)
 
@@ -160,6 +175,8 @@ function StatusSection({
               canEdit={canEditTask(task)}
               eligibleAssignees={eligibleAssigneesFor(task)}
               onTaskSaved={onTaskSaved}
+              canMove={canMoveTask(task)}
+              onMoveClick={onMoveClick}
             />
           ))}
           {!readonly && (
@@ -182,6 +199,7 @@ function StatusSection({
 export function VerticalBoard({
   tasks, boards, activeBoardId, onOpenTask, onStatusChange, onAddTask, assignees, readonly,
   canEditTask, eligibleAssigneesFor, onTaskSaved, onBoardFilterChange,
+  canMoveTask, profiles,
 }: {
   /** Every task the caller wants considered — the internal Board filter (below) narrows this further; this is deliberately NOT pre-filtered to one board so "All Boards" has real data to show. */
   tasks: Task[]
@@ -200,8 +218,13 @@ export function VerticalBoard({
   onTaskSaved: (updated: Task) => void
   /** Fired only when the Board filter is set to one specific board (never for "All Boards") — lets the caller keep the outer board tabs / New Task target in sync. */
   onBoardFilterChange: (boardId: string) => void
+  /** Mirrors "tasks: delete"'s formula (work:'full' AND board:'full' on the task's current board) — gates the "Move to another board" quick action and the modal's own source-side check. */
+  canMoveTask: (task: Task) => boolean
+  /** Active profiles + isOwner flag, used by the move modal to resolve assignee eligibility on whichever destination board is picked. */
+  profiles: { id: string; name: string; isOwner: boolean }[]
 }) {
   const { t: tr } = useLang()
+  const [movingTask, setMovingTask] = useState<Task | null>(null)
   const [search,       setSearch]       = useState('')
   const [assignee,     setAssignee]     = useState('')
   const [priority,     setPriority]     = useState('')
@@ -385,9 +408,26 @@ export function VerticalBoard({
             canEditTask={canEditTask}
             eligibleAssigneesFor={eligibleAssigneesFor}
             onTaskSaved={onTaskSaved}
+            canMoveTask={canMoveTask}
+            onMoveClick={setMovingTask}
           />
         ))}
       </div>
+
+      {movingTask && (
+        <MoveTaskModal
+          task={movingTask}
+          sourceBoardName={boards.find(b => b.id === movingTask.board)?.name ?? movingTask.board}
+          // canMoveTask only inspects task.board (see its definition in
+          // Work.tsx) — probing it with the candidate board substituted
+          // in reproduces the exact same work:'full' AND board:'full'
+          // formula per destination board without a second prop.
+          eligibleBoards={boards.filter(b => b.id !== movingTask.board && canMoveTask({ ...movingTask, board: b.id }))}
+          profiles={profiles}
+          onClose={() => setMovingTask(null)}
+          onMoved={updated => { onTaskSaved(updated); setMovingTask(null) }}
+        />
+      )}
     </div>
   )
 }

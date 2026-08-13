@@ -2,15 +2,16 @@ import { useState, useRef, useEffect } from 'react'
 import {
   X, Check, Copy, Clock, ChevronDown,
   Send, Paperclip, Link2, Play, Square, AlertCircle,
-  Lock, Pencil, Loader2, Trash2,
+  Lock, Pencil, Loader2, Trash2, ArrowRightLeft,
 } from 'lucide-react'
 import { Avatar } from '../Avatar'
 import { useNotifications } from '../../contexts/NotificationContext'
 import { useTimer } from '../../contexts/TimerContext'
 import { useLang } from '../../contexts/LanguageContext'
-import type { Task, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption } from '../../types/work'
+import type { Task, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption, Board } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
-import { addTaskComment, claimTask, deleteTask } from '../../lib/database'
+import { addTaskComment, claimTask, deleteTask, getTaskBoardMoves, type TaskBoardMove } from '../../lib/database'
+import { MoveTaskModal } from './MoveTaskModal'
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
@@ -41,6 +42,7 @@ export function TaskDetailModal({
   task, onClose, onUpdate, onDeleted, currentUser, currentUserId, priorityDefs, eligibleAssignees, clients, assignees, boardLabel, boardStatuses,
   openTicketsForClient = 0, onTicketDone, readonly = false, canComment = false, canDelete = false,
   isTechnicalSupport = false, boardAllTasksToSupportQueue = false,
+  canMoveBoard = false, eligibleMoveBoards = [], profiles = [], onMoved,
 }: {
   task: Task
   onClose: () => void
@@ -80,6 +82,14 @@ export function TaskDetailModal({
   isTechnicalSupport?: boolean
   /** Whether the task's board sends every task to the shared queue regardless of priority. */
   boardAllTasksToSupportQueue?: boolean
+  /** Mirrors the server's own has_permission('work','full') AND has_board_access(board,'full') check on the CURRENT board — same formula as canDelete. Server-side move_task_to_board() re-validates both source and destination independently. */
+  canMoveBoard?: boolean
+  /** Boards the caller has 'full' access to, excluding this task's current board — never a board the caller (or the server) would reject as a destination. */
+  eligibleMoveBoards?: Board[]
+  /** Active profiles + isOwner flag, used to resolve assignee eligibility on whichever destination board is picked. */
+  profiles?: { id: string; name: string; isOwner: boolean }[]
+  /** Called only after move_task_to_board() returns the server-confirmed row. */
+  onMoved?: (t: Task) => void
 }) {
   const { addNotification } = useNotifications()
   const { t: tr } = useLang()
@@ -136,6 +146,11 @@ export function TaskDetailModal({
   const [showHistory,  setShowHistory]  = useState(false)
   const [copied,       setCopied]       = useState(false)
 
+  const [showMoveModal, setShowMoveModal] = useState(false)
+  const [showMoveHistory, setShowMoveHistory] = useState(false)
+  const [moveHistory, setMoveHistory] = useState<TaskBoardMove[] | null>(null)
+  const [moveHistoryError, setMoveHistoryError] = useState<string | null>(null)
+
   const taskRef = useRef(task)
   useEffect(() => { taskRef.current = task }, [task])
 
@@ -165,6 +180,17 @@ export function TaskDetailModal({
 
   function saveTitle() { setEditTitle(false); if (!readonly && title !== taskRef.current.title) save({ title }) }
   function saveDesc()  { if (!readonly && desc !== taskRef.current.description) save({ description: desc }) }
+
+  const profileNamesById = Object.fromEntries(profiles.map(p => [p.id, p.name]))
+  function toggleMoveHistory() {
+    const next = !showMoveHistory
+    setShowMoveHistory(next)
+    if (next && moveHistory === null) {
+      getTaskBoardMoves(task.id, profileNamesById)
+        .then(setMoveHistory)
+        .catch((err: Error) => setMoveHistoryError(err.message))
+    }
+  }
 
   function handleStatusChange(newStatus: string) {
     if (readonly) return
@@ -413,6 +439,15 @@ export function TaskDetailModal({
           <button onClick={copyLink} title="Copy task link" className={`p-1.5 rounded-lg transition-colors shrink-0 ${copied ? 'bg-green-100 text-green-600' : 'text-gray-400 hover:bg-gray-100 hover:text-primary'}`}>
             {copied ? <Check size={15} /> : <Copy size={15} />}
           </button>
+          {canMoveBoard && (
+            <button
+              onClick={() => setShowMoveModal(true)}
+              title={tr('העבר ללוח אחר', 'Move to another board')}
+              className="p-1.5 rounded-lg text-gray-400 hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
+            >
+              <ArrowRightLeft size={15} />
+            </button>
+          )}
           {canDelete && (
             <button
               onClick={() => setShowDeleteConfirm(true)}
@@ -424,6 +459,17 @@ export function TaskDetailModal({
           )}
           <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors shrink-0"><X size={15} /></button>
         </div>
+
+        {showMoveModal && (
+          <MoveTaskModal
+            task={task}
+            sourceBoardName={boardLabel}
+            eligibleBoards={eligibleMoveBoards}
+            profiles={profiles}
+            onClose={() => setShowMoveModal(false)}
+            onMoved={updated => { onMoved?.(updated); setShowMoveModal(false) }}
+          />
+        )}
 
         {showDeleteConfirm && (
           <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={() => !deleting && setShowDeleteConfirm(false)}>
@@ -932,6 +978,46 @@ export function TaskDetailModal({
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+
+        {/* Board move history — durable, from task_board_moves, survives
+            later board/status/priority renames or deletions (snapshots,
+            not live joins) and later task deletion (no FK on task_id). */}
+        <div className="border-t border-gray-100 shrink-0">
+          <button onClick={toggleMoveHistory} className="flex items-center gap-2 w-full px-6 py-3 text-xs font-semibold text-gray-500 hover:text-primary hover:bg-gray-50 transition-colors">
+            <ArrowRightLeft size={13} />
+            {tr('היסטוריית העברות בין לוחות', 'Board Move History')}
+            {moveHistory && <span className="text-gray-400 font-normal">({moveHistory.length})</span>}
+            <ChevronDown size={13} className={`ml-auto transition-transform ${showMoveHistory ? 'rotate-180' : ''}`} />
+          </button>
+          {showMoveHistory && (
+            <div className="overflow-auto max-h-40 border-t border-gray-50 px-6 py-2">
+              {moveHistoryError && (
+                <div className="flex items-center gap-2 text-xs text-red-500 py-2">
+                  <AlertCircle size={13} /> {moveHistoryError}
+                </div>
+              )}
+              {moveHistory === null && !moveHistoryError && (
+                <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
+                  <Loader2 size={12} className="animate-spin" /> {tr('טוען...', 'Loading...')}
+                </div>
+              )}
+              {moveHistory?.length === 0 && (
+                <p className="text-xs text-gray-400 py-2">{tr('המשימה מעולם לא הועברה בין לוחות.', 'This task has never been moved between boards.')}</p>
+              )}
+              {moveHistory && moveHistory.length > 0 && (
+                <ul className="flex flex-col gap-2">
+                  {moveHistory.map(m => (
+                    <li key={m.id} className="text-xs text-gray-600">
+                      <span className="font-semibold">{m.sourceBoardName}</span> → <span className="font-semibold text-primary">{m.destBoardName}</span>
+                      {' · '}{new Date(m.movedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      {' · '}{m.movedByName ?? tr('מערכת', 'System')}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </div>

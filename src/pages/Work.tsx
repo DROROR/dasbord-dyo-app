@@ -45,7 +45,7 @@ const WORK_TABS: { id: WorkTab; label: string; labelHe?: string; labelEn?: strin
   { id: 'myboard', label: 'My Board',      icon: User       },
   { id: 'tasks',   label: 'Tasks',         icon: LayoutGrid },
   { id: 'gantt',   label: 'Gantt',         icon: BarChart2  },
-  { id: 'docs',    label: 'Docs',          icon: FileText   },
+  { id: 'docs',    label: 'Documentation', labelHe: 'דוקומנטציה', labelEn: 'Documentation', icon: FileText },
   { id: 'ai',      label: 'New Task (AI)', icon: Bot        },
   { id: 'report',  label: 'Work Report',   labelHe: 'דוח עבודה', labelEn: 'Work Report', icon: TrendingUp },
 ]
@@ -1027,6 +1027,7 @@ export function Work() {
             canEditTask={canEditTask}
             allProfiles={profiles}
             onTaskSaved={handleTaskSaved}
+            canMoveTask={canDeleteTask}
           />
         )}
 
@@ -1092,6 +1093,8 @@ export function Work() {
               eligibleAssigneesFor={task => eligibleAssigneesForBoard(boards.find(b => b.id === task.board), profiles)}
               onTaskSaved={handleTaskSaved}
               onBoardFilterChange={setActiveBoard}
+              canMoveTask={canDeleteTask}
+              profiles={profiles}
             />
           </div>
         )}
@@ -1181,6 +1184,10 @@ export function Work() {
           canComment={canCommentOnTask(openTask)}
           canDelete={canDeleteTask(openTask)}
           readonly={!canEdit}
+          canMoveBoard={canDeleteTask(openTask)}
+          eligibleMoveBoards={boards.filter(b => b.id !== openTask.board && canCreateInBoard(b.id))}
+          profiles={profiles}
+          onMoved={handleTaskSaved}
         />
       )}
 

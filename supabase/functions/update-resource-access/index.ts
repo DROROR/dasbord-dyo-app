@@ -16,9 +16,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.107.0'
 import { corsHeaders } from '../_shared/cors.ts'
 import { WORK_DOC_ACCESS_LEVELS, BOARD_ACCESS_LEVELS } from '../_shared/permissions.ts'
 
+// work_doc_folders uses the exact same none/view/full vocabulary as
+// work_docs — no new level constant needed.
 const RESOURCE_TABLES = {
   work_docs: { levels: WORK_DOC_ACCESS_LEVELS as readonly string[] },
   boards: { levels: BOARD_ACCESS_LEVELS as readonly string[] },
+  work_doc_folders: { levels: WORK_DOC_ACCESS_LEVELS as readonly string[] },
 } as const
 type ResourceTable = keyof typeof RESOURCE_TABLES
 

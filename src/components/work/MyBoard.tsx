@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from 'react'
-import { AlertCircle, Ticket, User, Calendar, Clock, ChevronDown, CheckCircle2 } from 'lucide-react'
+import { AlertCircle, Ticket, User, Calendar, Clock, ChevronDown, CheckCircle2, ArrowRightLeft } from 'lucide-react'
 import type { Task, Board, TimeEntry, AssigneeOption } from '../../types/work'
 import { eligibleAssigneesForBoard } from '../../types/work'
 import { COLUMNS, STATUS_PILL, STATUS_LABEL, STATUS_LABEL_HE, STATUS_LEFT, resolveTaskPriority, priorityDefsForBoard } from '../../data/workConstants'
 import { useLang } from '../../contexts/LanguageContext'
 import { PriorityQuickEdit, AssigneeQuickEdit } from './TaskQuickEdit'
 import { ClientBadge } from './ClientBadge'
+import { MoveTaskModal } from './MoveTaskModal'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ type TaskBadge = { label: string; cls: string }
 // ─── CompactTaskRow ───────────────────────────────────────────────────────────
 
 function CompactTaskRow({
-  task, boards, onClick, badge, canEdit, eligibleAssignees, onTaskSaved,
+  task, boards, onClick, badge, canEdit, eligibleAssignees, onTaskSaved, canMove, onMoveClick,
 }: {
   task: Task
   boards: Board[]
@@ -74,6 +75,8 @@ function CompactTaskRow({
   canEdit: boolean
   eligibleAssignees: AssigneeOption[]
   onTaskSaved: (updated: Task) => void
+  canMove: boolean
+  onMoveClick: (task: Task) => void
 }) {
   const priorityDefs = priorityDefsForBoard(boards.find(b => b.id === task.board))
   const overdue = isOverdue(task.dueDate)
@@ -111,6 +114,15 @@ function CompactTaskRow({
         </span>
       )}
       <AssigneeQuickEdit task={task} eligible={eligibleAssignees} canEdit={canEdit} onSaved={onTaskSaved} />
+      {canMove && (
+        <button
+          onClick={e => { e.stopPropagation(); onMoveClick(task) }}
+          title="Move to another board"
+          className="p-1 rounded-lg text-gray-300 hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
+        >
+          <ArrowRightLeft size={12} />
+        </button>
+      )}
     </div>
   )
 }
@@ -118,7 +130,7 @@ function CompactTaskRow({
 // ─── MyStatusSection ──────────────────────────────────────────────────────────
 
 function MyStatusSection({
-  col, tasks, boards, onCardClick, getBadge, canEditTask, eligibleAssigneesFor, onTaskSaved,
+  col, tasks, boards, onCardClick, getBadge, canEditTask, eligibleAssigneesFor, onTaskSaved, canMoveTask, onMoveClick,
 }: {
   col: { id: string; label: string }
   tasks: Task[]
@@ -128,6 +140,8 @@ function MyStatusSection({
   canEditTask: (task: Task) => boolean
   eligibleAssigneesFor: (task: Task) => AssigneeOption[]
   onTaskSaved: (updated: Task) => void
+  canMoveTask: (task: Task) => boolean
+  onMoveClick: (task: Task) => void
 }) {
   const { t: tr } = useLang()
   const [open, setOpen] = useState(col.id !== 'done' && col.id !== 'archived')
@@ -165,6 +179,8 @@ function MyStatusSection({
                 canEdit={canEditTask(task)}
                 eligibleAssignees={eligibleAssigneesFor(task)}
                 onTaskSaved={onTaskSaved}
+                canMove={canMoveTask(task)}
+                onMoveClick={onMoveClick}
               />
             ))
           )}
@@ -178,7 +194,7 @@ function MyStatusSection({
 
 export function MyBoard({
   tasks, boards, currentUser, myProfileId, onOpenTask, onStatusChange,
-  isTechnicalSupport = false, activeProfileIds, canEditTask, allProfiles, onTaskSaved,
+  isTechnicalSupport = false, activeProfileIds, canEditTask, allProfiles, onTaskSaved, canMoveTask,
 }: {
   tasks: Task[]
   boards: Board[]
@@ -196,8 +212,11 @@ export function MyBoard({
   /** Active profiles (Owner included), used to compute each task's board-scoped assignee eligibility. */
   allProfiles: { id: string; name: string; isOwner: boolean }[]
   onTaskSaved: (updated: Task) => void
+  /** Mirrors "tasks: delete"'s formula (work:'full' AND board:'full' on the task's current board) — gates the "Move to another board" quick action. */
+  canMoveTask: (task: Task) => boolean
 }) {
   const { t: tr } = useLang()
+  const [movingTask, setMovingTask] = useState<Task | null>(null)
 
   // Tasks assigned to me — EXCEPT one currently routed away to someone
   // else's queue by status ownership (it comes back automatically once
@@ -423,12 +442,25 @@ export function MyBoard({
                     canEditTask={canEditTask}
                     eligibleAssigneesFor={eligibleAssigneesFor}
                     onTaskSaved={onTaskSaved}
+                    canMoveTask={canMoveTask}
+                    onMoveClick={setMovingTask}
                   />
                 )
               })}
             </div>
           )}
         </div>
+      )}
+
+      {movingTask && (
+        <MoveTaskModal
+          task={movingTask}
+          sourceBoardName={boards.find(b => b.id === movingTask.board)?.name ?? movingTask.board}
+          eligibleBoards={boards.filter(b => b.id !== movingTask.board && canMoveTask({ ...movingTask, board: b.id }))}
+          profiles={allProfiles}
+          onClose={() => setMovingTask(null)}
+          onMoved={updated => { onTaskSaved(updated); setMovingTask(null) }}
+        />
       )}
     </div>
   )
