@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Task, TimeEntry, StatusHistoryEntry, TaskComment, Attachment, Board, BoardStatus, PriorityDef, AccessLevel, AppNotification, NotificationType, WorkDoc, DocAccessLevel, WorkReport } from '../types/work'
+import type { Task, TimeEntry, StatusHistoryEntry, TaskComment, Attachment, Board, BoardStatus, PriorityDef, AccessLevel, AppNotification, NotificationType, WorkDoc, WorkDocFolder, DocAccessLevel, WorkReport } from '../types/work'
 import { INITIAL_BOARDS, DEFAULT_PRIORITY_DEFS } from '../data/workConstants'
 
 // ── DB Row Types (mirror schema exactly) ────────────────────────────────────────
@@ -803,6 +803,95 @@ export async function claimTask(taskId: string): Promise<Task> {
   return dbToTask(data as DbTask)
 }
 
+// Thrown specifically when the server rejects a move because the
+// task's live board no longer matches expectedSourceBoard (SQLSTATE
+// '40001' — see 20260813060000) — distinguishes "reload and retry"
+// from every other move failure so the caller can show a specific
+// message instead of a generic one.
+export class StaleSourceBoardError extends Error {}
+
+// Atomic board move — see move_task_to_board() in
+// 20260812090000_move_task_to_board.sql / 20260813060000. Updates
+// board/status/priority/assignee together in one server-side operation
+// (never several client UPDATEs) and records a durable
+// task_board_moves history row. A null priorityId means "No Priority";
+// a null assigneeId means Unassigned. expectedSourceBoard must be the
+// task.board value the caller last saw (e.g. when the move dialog was
+// opened) — the server rejects the whole call with StaleSourceBoardError
+// if the task has since moved to a different board.
+export async function moveTaskToBoard(
+  taskId: string, expectedSourceBoard: string, destBoardId: string, destStatusId: string, destPriorityId: string | null, destAssigneeId: string | null,
+): Promise<Task> {
+  const { data, error } = await supabase.rpc('move_task_to_board', {
+    task_id_in: taskId,
+    expected_source_board: expectedSourceBoard,
+    dest_board_id_in: destBoardId,
+    dest_status_id_in: destStatusId,
+    dest_priority_id_in: destPriorityId,
+    dest_assignee_id_in: destAssigneeId,
+  })
+  if (error) {
+    if ((error as { code?: string }).code === '40001') throw new StaleSourceBoardError(error.message)
+    throw error
+  }
+  return dbToTask(data as DbTask)
+}
+
+export interface TaskBoardMove {
+  id: string
+  sourceBoardName: string
+  destBoardName: string
+  fromStatusLabel: string | null
+  toStatusLabel: string | null
+  fromPriorityLabel: string | null
+  toPriorityLabel: string | null
+  fromAssigneeName: string | null
+  toAssigneeName: string | null
+  movedByName: string | null
+  movedAt: string
+}
+
+// Read-only history for the task detail modal's timeline — RLS
+// ("task_board_moves: view") already restricts this to moves touching a
+// board the caller can currently see, so no extra filtering is needed
+// client-side.
+export async function getTaskBoardMoves(taskId: string, profileNames: Record<string, string>): Promise<TaskBoardMove[]> {
+  const { data, error } = await supabase
+    .from('task_board_moves')
+    .select('id, source_board_name_snapshot, dest_board_name_snapshot, from_status_label, to_status_label, from_priority_label, to_priority_label, from_assignee_name_snapshot, to_assignee_name_snapshot, moved_by, moved_at')
+    .eq('task_id', taskId)
+    .order('moved_at', { ascending: false })
+  if (error) throw error
+  return (data as {
+    id: string
+    source_board_name_snapshot: string
+    dest_board_name_snapshot: string
+    from_status_label: string | null
+    to_status_label: string | null
+    from_priority_label: string | null
+    to_priority_label: string | null
+    from_assignee_name_snapshot: string | null
+    to_assignee_name_snapshot: string | null
+    moved_by: string | null
+    moved_at: string
+  }[]).map(m => ({
+    id: m.id,
+    sourceBoardName: m.source_board_name_snapshot,
+    destBoardName: m.dest_board_name_snapshot,
+    fromStatusLabel: m.from_status_label,
+    toStatusLabel: m.to_status_label,
+    fromPriorityLabel: m.from_priority_label,
+    toPriorityLabel: m.to_priority_label,
+    fromAssigneeName: m.from_assignee_name_snapshot,
+    toAssigneeName: m.to_assignee_name_snapshot,
+    // moved_by is a raw profile UUID (never a display name) — unattributed
+    // (null) for a system/service-role move, same convention already used
+    // for changed_by on task_status_events.
+    movedByName: (m.moved_by && profileNames[m.moved_by]) || (m.moved_by ? 'Unknown' : null),
+    movedAt: m.moved_at,
+  }))
+}
+
 // ── BOARDS ──────────────────────────────────────────────────────────────────
 interface DbBoard {
   id: string
@@ -925,13 +1014,13 @@ async function invokeResourceAccess(body: Record<string, unknown>): Promise<{ ac
   return data as { access: Record<string, string> }
 }
 
-export async function getResourceAccess(table: 'work_docs' | 'boards', resourceId: string): Promise<Record<string, string>> {
+export async function getResourceAccess(table: 'work_docs' | 'boards' | 'work_doc_folders', resourceId: string): Promise<Record<string, string>> {
   const { access } = await invokeResourceAccess({ table, resourceId, action: 'read' })
   return access
 }
 
 export async function setResourceAccess(
-  table: 'work_docs' | 'boards', resourceId: string, profileId: string, level: string,
+  table: 'work_docs' | 'boards' | 'work_doc_folders', resourceId: string, profileId: string, level: string,
 ): Promise<Record<string, string>> {
   const { access } = await invokeResourceAccess({ table, resourceId, profileId, level })
   return access
@@ -948,10 +1037,11 @@ interface DbWorkDoc {
   content: string
   created_by: string | null
   updated_at: string
+  folder_id: string | null
   my_doc_access_level: DocAccessLevel
 }
 
-const WORK_DOC_COLUMNS = 'id, title, content, created_by, updated_at, my_doc_access_level'
+const WORK_DOC_COLUMNS = 'id, title, content, created_by, updated_at, folder_id, my_doc_access_level'
 
 function dbToWorkDoc(d: DbWorkDoc, profileNames: Record<string, string>): WorkDoc & { myLevel: DocAccessLevel } {
   return {
@@ -960,6 +1050,7 @@ function dbToWorkDoc(d: DbWorkDoc, profileNames: Record<string, string>): WorkDo
     content: d.content,
     createdBy: (d.created_by && profileNames[d.created_by]) || 'Unknown',
     updatedAt: d.updated_at,
+    folderId: d.folder_id,
     myLevel: d.my_doc_access_level,
   }
 }
@@ -974,11 +1065,14 @@ export async function getWorkDocs(profileNames: Record<string, string>): Promise
 }
 
 // created_by/access are set server-side by the set_work_doc_creator_access
-// trigger — the client's job is only title/content.
-export async function createWorkDoc(title: string, content: string, profileNames: Record<string, string>): Promise<WorkDoc & { myLevel: DocAccessLevel }> {
+// trigger (which also seeds access from folderId's own access map, when
+// given one) — the client's job is only title/content/folderId.
+export async function createWorkDoc(
+  title: string, content: string, profileNames: Record<string, string>, folderId?: string | null,
+): Promise<WorkDoc & { myLevel: DocAccessLevel }> {
   const { data, error } = await supabase
     .from('work_docs')
-    .insert({ title, content })
+    .insert({ title, content, folder_id: folderId ?? null })
     .select(WORK_DOC_COLUMNS)
     .single()
   if (error) throw error
@@ -996,8 +1090,104 @@ export async function updateWorkDoc(id: string, title: string, content: string, 
   return dbToWorkDoc(data as unknown as DbWorkDoc, profileNames)
 }
 
+// Moves a document between folders (or back to root with folderId=null).
+// RLS ("work_docs: update") requires 'full' on both the document's
+// current ancestor folder path and the destination folder's — a plain
+// UPDATE is enough, no RPC needed, mirroring how title/content saves work.
+export async function moveWorkDocToFolder(id: string, folderId: string | null, profileNames: Record<string, string>): Promise<WorkDoc & { myLevel: DocAccessLevel }> {
+  const { data, error } = await supabase
+    .from('work_docs')
+    .update({ folder_id: folderId, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select(WORK_DOC_COLUMNS)
+    .single()
+  if (error) throw error
+  return dbToWorkDoc(data as unknown as DbWorkDoc, profileNames)
+}
+
 export async function deleteWorkDoc(id: string): Promise<void> {
   const { error } = await supabase.from('work_docs').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ── WORK DOC FOLDERS ────────────────────────────────────────────────────────
+// access is deliberately excluded here too — same reasoning as work_docs:
+// only fetched on demand via getResourceAccess('work_doc_folders', ...).
+interface DbWorkDocFolder {
+  id: string
+  name: string
+  parent_id: string | null
+  created_by: string | null
+  updated_at: string
+  my_folder_access_level: DocAccessLevel
+}
+
+const WORK_DOC_FOLDER_COLUMNS = 'id, name, parent_id, created_by, updated_at, my_folder_access_level'
+
+function dbToWorkDocFolder(f: DbWorkDocFolder, profileNames: Record<string, string>): WorkDocFolder {
+  return {
+    id: f.id,
+    name: f.name,
+    parentId: f.parent_id,
+    createdBy: (f.created_by && profileNames[f.created_by]) || 'Unknown',
+    updatedAt: f.updated_at,
+    myLevel: f.my_folder_access_level,
+  }
+}
+
+export async function getWorkDocFolders(profileNames: Record<string, string>): Promise<WorkDocFolder[]> {
+  const { data, error } = await supabase
+    .from('work_doc_folders')
+    .select(WORK_DOC_FOLDER_COLUMNS)
+    .order('name', { ascending: true })
+  if (error) throw error
+  return (data as unknown as DbWorkDocFolder[]).map(f => dbToWorkDocFolder(f, profileNames))
+}
+
+// access is set server-side by set_work_doc_folder_creator_access (copies
+// the parent folder's access map, then forces the creator to 'full').
+export async function createWorkDocFolder(name: string, parentId: string | null, profileNames: Record<string, string>): Promise<WorkDocFolder> {
+  const { data, error } = await supabase
+    .from('work_doc_folders')
+    .insert({ name, parent_id: parentId })
+    .select(WORK_DOC_FOLDER_COLUMNS)
+    .single()
+  if (error) throw error
+  return dbToWorkDocFolder(data as unknown as DbWorkDocFolder, profileNames)
+}
+
+export async function renameWorkDocFolder(id: string, name: string, profileNames: Record<string, string>): Promise<WorkDocFolder> {
+  const { data, error } = await supabase
+    .from('work_doc_folders')
+    .update({ name, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select(WORK_DOC_FOLDER_COLUMNS)
+    .single()
+  if (error) throw error
+  return dbToWorkDocFolder(data as unknown as DbWorkDocFolder, profileNames)
+}
+
+// Server-side (enforce_folder_depth trigger) rejects a self-parent, a
+// parent cycle, or a resulting depth beyond two levels — this call
+// surfaces whatever error message that trigger raises verbatim.
+export async function moveWorkDocFolder(id: string, parentId: string | null, profileNames: Record<string, string>): Promise<WorkDocFolder> {
+  const { data, error } = await supabase
+    .from('work_doc_folders')
+    .update({ parent_id: parentId, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select(WORK_DOC_FOLDER_COLUMNS)
+    .single()
+  if (error) throw error
+  return dbToWorkDocFolder(data as unknown as DbWorkDocFolder, profileNames)
+}
+
+// Goes through the delete_work_doc_folder() RPC rather than a raw DELETE
+// so a non-empty folder fails with a clear, friendly message (the RPC's
+// own emptiness check) instead of a raw foreign-key-violation — the FK
+// itself (work_docs.folder_id / work_doc_folders.parent_id both "on
+// delete restrict") is the unconditional backstop either way.
+export async function deleteWorkDocFolder(id: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_work_doc_folder', { folder_id_in: id })
   if (error) throw error
 }
 

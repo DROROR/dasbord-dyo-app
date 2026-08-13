@@ -127,8 +127,21 @@ export interface WorkDoc {
   /** profile UUID of the creator, resolved to a display name for "Created by" text via the profiles list. */
   createdBy: string
   updatedAt: string
+  /** null/undefined = lives at the Documentation root, not inside any folder. */
+  folderId?: string | null
   /** profile UUID -> access level. Populated only when explicitly fetched via update-resource-access; omitted from the regular doc list/fetch. */
   access?: Record<string, DocAccessLevel>
+}
+
+export interface WorkDocFolder {
+  id: string
+  name: string
+  /** null = a root-level folder; a two-level hierarchy max (root + one subfolder level) is enforced server-side. */
+  parentId: string | null
+  createdBy: string
+  updatedAt: string
+  /** The caller's own effective level on this folder (owner/active bypass -> 'full'). */
+  myLevel: DocAccessLevel
 }
 
 export interface Board {
