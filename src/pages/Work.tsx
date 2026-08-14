@@ -20,10 +20,11 @@ import {
   generateCustomerMessage,
   createPendingMessage,
   hasWorkReportAccess,
+  addTaskTimeEntry,
 } from '../lib/database'
 import type { TicketDoneAnswers } from '../components/work/TaskDetailModal'
 import { PENDING_KEY } from '../contexts/TimerContext'
-import { takeTaskFocus } from '../lib/focusTarget'
+import { takeTaskFocus, TASK_FOCUS_EVENT } from '../lib/focusTarget'
 import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES, priorityDefsForBoard } from '../data/workConstants'
 import { VerticalBoard }    from '../components/work/VerticalBoard'
 import { MyBoard }          from '../components/work/MyBoard'
@@ -664,6 +665,13 @@ export function Work() {
     return canEdit && canCreateInBoard(task.board)
   }
 
+  function canLogTimeOnTask(task: Task): boolean {
+    if (!canEdit || !profile) return false
+    return canEditTask(task)
+      || task.assigneeId === profile.id
+      || (task.subtasks ?? []).some(s => s.assigneeId === profile.id && s.status !== 'done')
+  }
+
   // Load tasks from Supabase; run stale alerts once after load
   useEffect(() => {
     void (async () => {
@@ -731,6 +739,28 @@ export function Work() {
     setOpenId(focusId)
   }, [tasksLoading, tasks])
 
+  // Clicking a task notification while already on Work (no navigation, so
+  // the mount-time effect above never re-runs and the sessionStorage value
+  // sits unread). requestTaskFocus() also dispatches this event for exactly
+  // that case; added once at mount, so it reads tasksRef (kept current by
+  // the effect below) rather than the `tasks` state closed over at mount.
+  useEffect(() => {
+    function onTaskFocusRequested(e: Event) {
+      const taskId = (e as CustomEvent<string>).detail
+      // Clear unconditionally, before the lookup — same as takeTaskFocus()
+      // being called first above — so a task not yet loaded can never
+      // reopen itself later from a stale sessionStorage entry.
+      takeTaskFocus()
+      const target = tasksRef.current.find(t => t.id === taskId)
+      if (!target) return
+      setTab('tasks')
+      setActiveBoard(target.board)
+      setOpenId(taskId)
+    }
+    window.addEventListener(TASK_FOCUS_EVENT, onTaskFocusRequested)
+    return () => window.removeEventListener(TASK_FOCUS_EVENT, onTaskFocusRequested)
+  }, [])
+
   // Clients and team members come straight from the database, so adding or
   // removing either is picked up here with no code change.
   useEffect(() => {
@@ -760,15 +790,12 @@ export function Work() {
   useEffect(() => {
     function handleTimerEntry(e: Event) {
       const { taskId, entry } = (e as CustomEvent).detail
-      // Clear the localStorage backup since we're handling it now
-      localStorage.removeItem(PENDING_KEY)
-      setTasks(prev => {
-        const task = prev.find(t => t.id === taskId)
-        if (!task) return prev
-        const updated = { ...task, timeEntries: [...(task.timeEntries ?? []), entry] }
-        void dbUpdateTask(updated.id, updated).catch(console.error)
-        return prev.map(t => t.id === taskId ? updated : t)
-      })
+      void addTaskTimeEntry(taskId, entry)
+        .then(entries => {
+          localStorage.removeItem(PENDING_KEY)
+          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, timeEntries: entries } : t))
+        })
+        .catch(err => console.error('Timer entry sync failed:', err))
     }
     window.addEventListener('timerEntrySaved', handleTimerEntry)
     return () => window.removeEventListener('timerEntrySaved', handleTimerEntry)
@@ -780,13 +807,15 @@ export function Work() {
     try {
       const raw = localStorage.getItem(PENDING_KEY)
       if (!raw) return
-      localStorage.removeItem(PENDING_KEY)
       const { taskId, entry } = JSON.parse(raw)
       const task = tasksRef.current.find(t => t.id === taskId)
       if (!task) return
-      const updated = { ...task, timeEntries: [...(task.timeEntries ?? []), entry] }
-      setTasks(prev => prev.map(t => t.id === taskId ? updated : t))
-      void dbUpdateTask(updated.id, updated).catch(console.error)
+      void addTaskTimeEntry(taskId, entry)
+        .then(entries => {
+          localStorage.removeItem(PENDING_KEY)
+          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, timeEntries: entries } : t))
+        })
+        .catch(err => console.error('Pending timer entry sync failed:', err))
     } catch {}
   }, [tasksLoading])
 
@@ -804,6 +833,14 @@ export function Work() {
   // to reconcile in the background.
   function handleTaskSaved(updated: Task) {
     setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
+  }
+
+  function handleSubtasksChanged(taskId: string, subtasks: NonNullable<Task['subtasks']>) {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks } : t))
+  }
+
+  function handleTimeEntriesChanged(taskId: string, timeEntries: Task['timeEntries']) {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, timeEntries } : t))
   }
 
   // Called only after TaskDetailModal has already confirmed the DELETE
@@ -825,23 +862,13 @@ export function Work() {
 
     if (task) {
       if (newStatus === 'done') {
-        addNotification({
+        if (task.assigneeId) addNotification({
           type: 'task_done_return',
           message: `המשימה "${task.title}" הושלמה — אנא סגור את המשימה סופית`,
           taskId,
           taskTitle: task.title,
+          recipientId: task.assigneeId,
         })
-      } else {
-        const taskBoard  = boards.find(b => b.id === task.board)
-        const statusDef  = taskBoard?.statuses.find(s => s.id === newStatus)
-        if (statusDef?.owner) {
-          addNotification({
-            type: 'status_owner_assigned',
-            message: `יש משימה חדשה לבדיקה שלך: ${task.title}`,
-            taskId,
-            taskTitle: task.title,
-          })
-        }
       }
     }
   }
@@ -1166,8 +1193,8 @@ export function Work() {
           eligibleAssignees={eligibleAssigneesForBoard(openTaskBoardObj, profiles)}
           clients={clients}
           assignees={assignees}
-          boardLabel={activeBoardObj?.name ?? openTask.board}
-          boardStatuses={activeBoardObj?.statuses}
+          boardLabel={openTaskBoardObj?.name ?? openTask.board}
+          boardStatuses={openTaskBoardObj?.statuses}
           isTechnicalSupport={isTechnicalSupport}
           boardAllTasksToSupportQueue={openTaskBoardObj?.allTasksToSupportQueue}
           openTicketsForClient={
@@ -1183,11 +1210,15 @@ export function Work() {
           onTicketDone={handleTicketDone}
           canComment={canCommentOnTask(openTask)}
           canDelete={canDeleteTask(openTask)}
-          readonly={!canEdit}
+          readonly={!canEditTask(openTask)}
           canMoveBoard={canDeleteTask(openTask)}
           eligibleMoveBoards={boards.filter(b => b.id !== openTask.board && canCreateInBoard(b.id))}
           profiles={profiles}
           onMoved={handleTaskSaved}
+          canManageSubtasks={canEditTask(openTask)}
+          canLogTime={canLogTimeOnTask(openTask)}
+          onSubtasksChanged={handleSubtasksChanged}
+          onTimeEntriesChanged={handleTimeEntriesChanged}
         />
       )}
 

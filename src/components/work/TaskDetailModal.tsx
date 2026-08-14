@@ -2,15 +2,19 @@ import { useState, useRef, useEffect } from 'react'
 import {
   X, Check, Copy, Clock, ChevronDown,
   Send, Paperclip, Link2, Play, Square, AlertCircle,
-  Lock, Pencil, Loader2, Trash2, ArrowRightLeft,
+  Lock, Pencil, Loader2, Trash2, ArrowRightLeft, Plus, ListChecks,
 } from 'lucide-react'
 import { Avatar } from '../Avatar'
 import { useNotifications } from '../../contexts/NotificationContext'
-import { useTimer } from '../../contexts/TimerContext'
+import { PENDING_KEY, useTimer } from '../../contexts/TimerContext'
 import { useLang } from '../../contexts/LanguageContext'
-import type { Task, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption, Board } from '../../types/work'
+import type { Task, TaskSubtask, TaskSubtaskStatus, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption, Board } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
-import { addTaskComment, claimTask, deleteTask, getTaskBoardMoves, type TaskBoardMove } from '../../lib/database'
+import {
+  addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask,
+  deleteTask, deleteTaskSubtask, getTaskBoardMoves, updateTaskSubtask,
+  type TaskBoardMove,
+} from '../../lib/database'
 import { MoveTaskModal } from './MoveTaskModal'
 
 function fmtDate(iso: string) {
@@ -43,6 +47,7 @@ export function TaskDetailModal({
   openTicketsForClient = 0, onTicketDone, readonly = false, canComment = false, canDelete = false,
   isTechnicalSupport = false, boardAllTasksToSupportQueue = false,
   canMoveBoard = false, eligibleMoveBoards = [], profiles = [], onMoved,
+  canManageSubtasks = false, canLogTime = false, onSubtasksChanged, onTimeEntriesChanged,
 }: {
   task: Task
   onClose: () => void
@@ -90,6 +95,12 @@ export function TaskDetailModal({
   profiles?: { id: string; name: string; isOwner: boolean }[]
   /** Called only after move_task_to_board() returns the server-confirmed row. */
   onMoved?: (t: Task) => void
+  /** Full-board editors can create/reassign/delete child work items. */
+  canManageSubtasks?: boolean
+  /** Main assignees and subtask participants may log their own time without editing the whole task. */
+  canLogTime?: boolean
+  onSubtasksChanged?: (taskId: string, subtasks: TaskSubtask[]) => void
+  onTimeEntriesChanged?: (taskId: string, entries: TimeEntry[]) => void
 }) {
   const { addNotification } = useNotifications()
   const { t: tr } = useLang()
@@ -111,6 +122,7 @@ export function TaskDetailModal({
   const [history,     setHistory]     = useState<StatusHistoryEntry[]>(task.statusHistory)
   const [comments,    setComments]    = useState<TaskComment[]>(task.comments)
   const [attachments, setAttachments] = useState<Attachment[]>(task.attachments)
+  const [subtasks,    setSubtasks]    = useState<TaskSubtask[]>(task.subtasks ?? [])
 
   const [newComment,   setNewComment]   = useState('')
   const [mentionQuery, setMentionQuery] = useState('')
@@ -142,6 +154,14 @@ export function TaskDetailModal({
   const [editH,       setEditH]       = useState('')
   const [editM,       setEditM]       = useState('')
   const [editNote,    setEditNote]    = useState('')
+  const [timeSaving,  setTimeSaving]  = useState(false)
+  const [timeError,   setTimeError]   = useState<string | null>(null)
+  const [timeSubtaskId, setTimeSubtaskId] = useState('')
+
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
+  const [newSubtaskAssignee, setNewSubtaskAssignee] = useState('')
+  const [subtaskSaving, setSubtaskSaving] = useState(false)
+  const [subtaskError, setSubtaskError] = useState<string | null>(null)
 
   const [showHistory,  setShowHistory]  = useState(false)
   const [copied,       setCopied]       = useState(false)
@@ -214,15 +234,19 @@ export function TaskDetailModal({
     if (newStatus === 'pending_code_review') {
       const reviewer = codeRev || taskRef.current.codeReviewer || ''
       patch.codeReviewer = reviewer
-      if (reviewer) addNotification({ type: 'code_review', message: `${reviewer}: new code review for "${taskRef.current.title}"`, taskId: task.id, taskTitle: task.title })
+      const reviewerId = profiles.find(p => p.name === reviewer)?.id
+      const statusOwnerId = statuses.find(s => s.id === newStatus)?.ownerId
+      if (reviewerId && reviewerId !== statusOwnerId) addNotification({ type: 'code_review', message: `${reviewer}: new code review for "${taskRef.current.title}"`, taskId: task.id, taskTitle: task.title, recipientId: reviewerId })
     }
     if (newStatus === 'pending_ux_review') {
       const reviewer = uxRev || taskRef.current.uxReviewer || ''
       patch.uxReviewer = reviewer
-      if (reviewer) addNotification({ type: 'ux_review', message: `${reviewer}: new UX review for "${taskRef.current.title}"`, taskId: task.id, taskTitle: task.title })
+      const reviewerId = profiles.find(p => p.name === reviewer)?.id
+      const statusOwnerId = statuses.find(s => s.id === newStatus)?.ownerId
+      if (reviewerId && reviewerId !== statusOwnerId) addNotification({ type: 'ux_review', message: `${reviewer}: new UX review for "${taskRef.current.title}"`, taskId: task.id, taskTitle: task.title, recipientId: reviewerId })
     }
     if (newStatus === 'fixing') {
-      addNotification({ type: 'fixing', message: `${taskRef.current.assignee}: "${taskRef.current.title}" sent back for fixes`, taskId: task.id, taskTitle: task.title })
+      if (taskRef.current.assigneeId) addNotification({ type: 'fixing', message: `${taskRef.current.assignee}: "${taskRef.current.title}" sent back for fixes`, taskId: task.id, taskTitle: task.title, recipientId: taskRef.current.assigneeId })
     }
     if (task.board === 'support' && newStatus === 'not_started') {
       addNotification({ type: 'support_opened', message: `New support ticket: ${taskRef.current.title}`, taskId: task.id, taskTitle: task.title, severity: 'high' })
@@ -231,10 +255,11 @@ export function TaskDetailModal({
   }
 
   function startTimer() {
-    if (readonly) return
+    if (!canLogTime) return
     timerCtx.start(task.id, task.title, currentUser, currentUserId)
   }
-  function stopTimer() {
+  async function stopTimer() {
+    if (!canLogTime || timeSaving) return
     const result = timerCtx.stop()
     if (result.discarded) {
       setStopMsg('פחות מדקה — לא נרשם')
@@ -242,12 +267,26 @@ export function TaskDetailModal({
       return
     }
     if (result.entry) {
-      const updated = [...timeEntries, result.entry]
-      setTimeEntries(updated)
-      save({ timeEntries: updated })
+      setTimeSaving(true)
+      setTimeError(null)
+      try {
+        const entry = { ...result.entry, subtaskId: timeSubtaskId || undefined }
+        // TimerContext writes a retry backup before this modal can attach the
+        // selected subtask. Keep the backup identical to the RPC payload.
+        localStorage.setItem(PENDING_KEY, JSON.stringify({ taskId: task.id, entry }))
+        const updated = await addTaskTimeEntry(task.id, entry)
+        localStorage.removeItem(PENDING_KEY)
+        setTimeEntries(updated)
+        onTimeEntriesChanged?.(task.id, updated)
+      } catch (err) {
+        setTimeError(err instanceof Error ? err.message : tr('שמירת הזמן נכשלה', 'Failed to save time'))
+      } finally {
+        setTimeSaving(false)
+      }
     }
   }
-  function addManualEntry() {
+  async function addManualEntry() {
+    if (!canLogTime || timeSaving) return
     const h = parseInt(manualHours) || 0; const m = parseInt(manualMins) || 0
     if (h === 0 && m === 0) return
     const entry: TimeEntry = {
@@ -256,13 +295,23 @@ export function TaskDetailModal({
       hours: h, minutes: m,
       loggedBy: currentUser,
       loggedById: currentUserId,
+      subtaskId: timeSubtaskId || undefined,
       note: manualNote.trim() || undefined,
       isLocked: false,
       createdAt: new Date().toISOString(),
     }
-    const updated = [...timeEntries, entry]
-    setTimeEntries(updated); save({ timeEntries: updated })
-    setManualHours(''); setManualMins(''); setManualNote('')
+    setTimeSaving(true)
+    setTimeError(null)
+    try {
+      const updated = await addTaskTimeEntry(task.id, entry)
+      setTimeEntries(updated)
+      onTimeEntriesChanged?.(task.id, updated)
+      setManualHours(''); setManualMins(''); setManualNote('')
+    } catch (err) {
+      setTimeError(err instanceof Error ? err.message : tr('שמירת הזמן נכשלה', 'Failed to save time'))
+    } finally {
+      setTimeSaving(false)
+    }
   }
   function deleteEntry(id: string) {
     const updated = timeEntries.filter(e => e.id !== id)
@@ -280,6 +329,61 @@ export function TaskDetailModal({
     setTimeEntries(updated); save({ timeEntries: updated }); setEditingId(null)
   }
   function cancelEdit() { setEditingId(null) }
+
+  function publishSubtasks(updated: TaskSubtask[]) {
+    setSubtasks(updated)
+    onSubtasksChanged?.(task.id, updated)
+  }
+
+  async function addSubtask() {
+    if (!canManageSubtasks || subtaskSaving || !newSubtaskTitle.trim() || !newSubtaskAssignee) return
+    setSubtaskSaving(true)
+    setSubtaskError(null)
+    try {
+      const created = await createTaskSubtask({
+        taskId: task.id,
+        title: newSubtaskTitle.trim(),
+        assigneeId: newSubtaskAssignee,
+      })
+      publishSubtasks([...subtasks, created])
+      setNewSubtaskTitle('')
+      setNewSubtaskAssignee('')
+    } catch (err) {
+      setSubtaskError(err instanceof Error ? err.message : tr('יצירת תת־המשימה נכשלה', 'Failed to create subtask'))
+    } finally {
+      setSubtaskSaving(false)
+    }
+  }
+
+  async function changeSubtask(subtask: TaskSubtask, patch: Partial<TaskSubtask>) {
+    const candidate = { ...subtask, ...patch }
+    const participantCanChangeStatus = subtask.assigneeId === currentUserId && Object.keys(patch).every(k => k === 'status')
+    if ((!canManageSubtasks && !participantCanChangeStatus) || subtaskSaving) return
+    setSubtaskSaving(true)
+    setSubtaskError(null)
+    try {
+      const saved = await updateTaskSubtask(candidate)
+      publishSubtasks(subtasks.map(s => s.id === saved.id ? saved : s))
+    } catch (err) {
+      setSubtaskError(err instanceof Error ? err.message : tr('עדכון תת־המשימה נכשל', 'Failed to update subtask'))
+    } finally {
+      setSubtaskSaving(false)
+    }
+  }
+
+  async function removeSubtask(id: string) {
+    if (!canManageSubtasks || subtaskSaving) return
+    setSubtaskSaving(true)
+    setSubtaskError(null)
+    try {
+      await deleteTaskSubtask(id)
+      publishSubtasks(subtasks.filter(s => s.id !== id))
+    } catch (err) {
+      setSubtaskError(err instanceof Error ? err.message : tr('מחיקת תת־המשימה נכשלה', 'Failed to delete subtask'))
+    } finally {
+      setSubtaskSaving(false)
+    }
+  }
 
   function handleCommentInput(val: string) {
     setNewComment(val)
@@ -409,6 +513,7 @@ export function TaskDetailModal({
   const totalTracked = savedTotal + sessionSec / 3600
   const mentionNames = assignees.filter(a => a.toLowerCase().startsWith(mentionQuery.toLowerCase()))
   const historyEst   = task.timeEstimate ?? 0
+  const myOpenSubtasks = subtasks.filter(s => s.assigneeId === currentUserId && s.status !== 'done')
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
@@ -594,7 +699,7 @@ export function TaskDetailModal({
         )}
 
         {/* Body */}
-        <div className="flex flex-1 min-h-0 overflow-hidden">
+        <div className="flex flex-col lg:flex-row flex-1 min-h-0 overflow-y-auto lg:overflow-hidden">
           {/* Left */}
           <div className="flex-1 min-w-0 overflow-y-auto px-6 py-5 flex flex-col gap-6">
 
@@ -605,6 +710,100 @@ export function TaskDetailModal({
                 placeholder="Add a description..." disabled={readonly}
                 className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-4 py-3 resize-none focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-300 leading-relaxed disabled:bg-gray-50 disabled:text-gray-500"
               />
+            </section>
+
+            {/* Subtasks — the parent task remains the item shown on My Board. */}
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <ListChecks size={14} className="text-primary" />
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                  {tr('תת־משימות', 'Subtasks')}
+                </p>
+                {subtasks.length > 0 && (
+                  <span className="text-[10px] font-bold text-gray-400 bg-gray-100 rounded-full px-1.5">{subtasks.length}</span>
+                )}
+              </div>
+
+              {subtasks.length > 0 && (
+                <div className="flex flex-col gap-2 mb-3">
+                  {subtasks.map(subtask => {
+                    const isMine = subtask.assigneeId === currentUserId
+                    const canChangeStatus = canManageSubtasks || isMine
+                    return (
+                      <div
+                        key={subtask.id}
+                        className={`grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_150px_135px_auto] items-center gap-2 rounded-xl border px-3 py-2 ${isMine ? 'border-cyan-200 bg-cyan-50/50' : 'border-gray-100 bg-gray-50/60'}`}
+                      >
+                        <div className="min-w-0">
+                          <p className={`text-sm truncate ${subtask.status === 'done' ? 'line-through text-gray-400' : 'font-medium text-gray-700'}`}>{subtask.title}</p>
+                          {isMine && <p className="text-[9px] text-cyan-700 mt-0.5">{tr('מוקצה לך', 'Assigned to you')}</p>}
+                        </div>
+                        <select
+                          value={subtask.assigneeId ?? ''}
+                          disabled={!canManageSubtasks || subtaskSaving}
+                          onChange={e => {
+                            const selected = eligibleAssignees.find(a => a.id === e.target.value)
+                            void changeSubtask(subtask, { assigneeId: selected?.id, assigneeName: selected?.name ?? '' })
+                          }}
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white disabled:bg-gray-100 disabled:text-gray-500 min-w-0"
+                        >
+                          <option value="">{tr('לא משויך', 'Unassigned')}</option>
+                          {eligibleAssignees.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        </select>
+                        <select
+                          value={subtask.status}
+                          disabled={!canChangeStatus || subtaskSaving}
+                          onChange={e => void changeSubtask(subtask, { status: e.target.value as TaskSubtaskStatus })}
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white disabled:bg-gray-100 disabled:text-gray-500"
+                        >
+                          <option value="not_started">Not Started</option>
+                          <option value="in_progress">In Progress</option>
+                          <option value="done">Done</option>
+                        </select>
+                        {canManageSubtasks ? (
+                          <button
+                            onClick={() => void removeSubtask(subtask.id)}
+                            disabled={subtaskSaving}
+                            title={tr('מחק תת־משימה', 'Delete subtask')}
+                            className="p-1.5 rounded-lg text-gray-300 hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        ) : <span />}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {canManageSubtasks && (
+                <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_180px_auto] gap-2">
+                  <input
+                    value={newSubtaskTitle}
+                    onChange={e => setNewSubtaskTitle(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') void addSubtask() }}
+                    placeholder={tr('מה צריך לבצע?', 'What needs to be done?')}
+                    className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-primary"
+                  />
+                  <select
+                    value={newSubtaskAssignee}
+                    onChange={e => setNewSubtaskAssignee(e.target.value)}
+                    className="text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white focus:outline-none focus:border-primary"
+                  >
+                    <option value="">{tr('בחירת משתתף', 'Choose participant')}</option>
+                    {eligibleAssignees.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                  <button
+                    onClick={() => void addSubtask()}
+                    disabled={subtaskSaving || !newSubtaskTitle.trim() || !newSubtaskAssignee}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-40"
+                  >
+                    {subtaskSaving ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                    {tr('הוסף', 'Add')}
+                  </button>
+                </div>
+              )}
+              {subtaskError && <p className="text-xs text-red-500 mt-2">{subtaskError}</p>}
             </section>
 
             {/* Comments */}
@@ -675,7 +874,7 @@ export function TaskDetailModal({
                         <div key={a.id} className="flex flex-col gap-1.5 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 group">
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] text-gray-500 truncate flex-1">{a.name}</span>
-                            <button onClick={() => removeAttachment(a.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0"><X size={11} /></button>
+                            {!readonly && <button onClick={() => removeAttachment(a.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0"><X size={11} /></button>}
                           </div>
                           <img
                             src={a.url}
@@ -693,26 +892,26 @@ export function TaskDetailModal({
                         <Paperclip size={12} className="text-gray-400 shrink-0" />
                         <a href={a.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline flex-1 truncate">{a.name}</a>
                         <span className="text-[9px] text-gray-300 uppercase font-semibold shrink-0">{a.type}</span>
-                        <button onClick={() => removeAttachment(a.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0"><X size={11} /></button>
+                        {!readonly && <button onClick={() => removeAttachment(a.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0"><X size={11} /></button>}
                       </div>
                     )
                   })}
                 </div>
               )}
               <div className="flex gap-2 mb-2">
-                <input value={attachName} onChange={e => setAttachName(e.target.value)} placeholder="Label" className="w-24 shrink-0 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-300" />
-                <input value={attachUrl} onChange={e => setAttachUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addUrlAttachment() }} placeholder="https://..." className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-300" />
-                <button onClick={addUrlAttachment} disabled={!attachUrl.trim()} className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs rounded-lg transition-colors disabled:opacity-40 shrink-0"><Link2 size={11} /> Add</button>
+                <input value={attachName} onChange={e => setAttachName(e.target.value)} disabled={readonly} placeholder="Label" className="w-24 shrink-0 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-300 disabled:bg-gray-50" />
+                <input value={attachUrl} onChange={e => setAttachUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addUrlAttachment() }} disabled={readonly} placeholder="https://..." className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-300 disabled:bg-gray-50" />
+                <button onClick={addUrlAttachment} disabled={readonly || !attachUrl.trim()} className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs rounded-lg transition-colors disabled:opacity-40 shrink-0"><Link2 size={11} /> Add</button>
               </div>
-              <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} />
-              <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-primary transition-colors">
+              <input ref={fileInputRef} type="file" disabled={readonly} className="hidden" onChange={handleFileSelect} />
+              <button onClick={() => fileInputRef.current?.click()} disabled={readonly} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-primary transition-colors disabled:opacity-40">
                 <Paperclip size={12} /> Upload file
               </button>
             </section>
           </div>
 
           {/* Right sidebar */}
-          <div className="shrink-0 border-l border-gray-100 overflow-y-auto px-5 py-5 flex flex-col gap-4" style={{ width: '272px' }}>
+          <div className="w-full lg:w-[272px] shrink-0 border-t lg:border-t-0 lg:border-l border-gray-100 overflow-visible lg:overflow-y-auto px-5 py-5 flex flex-col gap-4">
 
             {/* Status */}
             <div>
@@ -751,7 +950,7 @@ export function TaskDetailModal({
             {/* Client link */}
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Client link</p>
-              <select value={clientId} onChange={e => { setClientId(e.target.value); save({ clientId: e.target.value || undefined, clientName: clients.find(c => c.id === e.target.value)?.name }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white">
+              <select value={clientId} disabled={readonly} onChange={e => { setClientId(e.target.value); save({ clientId: e.target.value || undefined, clientName: clients.find(c => c.id === e.target.value)?.name }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50">
                 <option value="">No client linked</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -764,8 +963,8 @@ export function TaskDetailModal({
                 {priorityDefs.map(cfg => {
                   const active = priority === cfg.id
                   return (
-                    <button key={cfg.id} onClick={() => { setPriority(cfg.id); save({ priority: cfg.id }) }}
-                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all border ${active ? `${cfg.textCls} ${cfg.bgCls} ${cfg.borderCls} shadow-sm` : 'text-gray-400 bg-white border-gray-200 hover:border-gray-300'}`}
+                    <button key={cfg.id} onClick={() => { setPriority(cfg.id); save({ priority: cfg.id }) }} disabled={readonly}
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all border disabled:cursor-default ${active ? `${cfg.textCls} ${cfg.bgCls} ${cfg.borderCls} shadow-sm` : 'text-gray-400 bg-white border-gray-200 hover:border-gray-300'}`}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${active ? cfg.dotCls : 'bg-gray-300'}`} />
                       {cfg.label}
@@ -778,21 +977,21 @@ export function TaskDetailModal({
             {/* Start date */}
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Start date</p>
-              <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); save({ startDate: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white" />
+              <input type="date" value={startDate} disabled={readonly} onChange={e => { setStartDate(e.target.value); save({ startDate: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50" />
             </div>
 
             {/* Due date */}
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Due date</p>
-              <input type="date" value={dueDate} onChange={e => { setDueDate(e.target.value); save({ dueDate: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white" />
+              <input type="date" value={dueDate} disabled={readonly} onChange={e => { setDueDate(e.target.value); save({ dueDate: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50" />
             </div>
 
             {/* Time estimate */}
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Time estimate (h)</p>
-              <input type="number" min="0" step="0.5" value={timeEst} onChange={e => setTimeEst(e.target.value)}
+              <input type="number" min="0" step="0.5" value={timeEst} onChange={e => setTimeEst(e.target.value)} disabled={readonly}
                 onBlur={() => { const h = parseFloat(timeEst); if (!isNaN(h)) save({ timeEstimate: h }) }}
-                placeholder="e.g. 8" className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white placeholder:text-gray-300"
+                placeholder="e.g. 8" className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white placeholder:text-gray-300 disabled:bg-gray-50"
               />
             </div>
 
@@ -822,35 +1021,52 @@ export function TaskDetailModal({
                   {stopMsg}
                 </p>
               )}
+              {timeError && (
+                <p className="text-center text-[11px] text-red-500 font-medium -mb-1">{timeError}</p>
+              )}
               <button
-                onClick={isThisTaskRunning ? stopTimer : startTimer}
-                disabled={readonly && !isThisTaskRunning}
+                onClick={isThisTaskRunning ? () => void stopTimer() : startTimer}
+                disabled={!canLogTime || timeSaving}
                 className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-40 ${isThisTaskRunning ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-primary text-white hover:bg-primary/90'}`}
               >
-                {isThisTaskRunning ? <><Square size={12} /> Stop</> : <><Play size={12} /> Start</>}
+                {timeSaving ? <Loader2 size={12} className="animate-spin" /> : isThisTaskRunning ? <><Square size={12} /> Stop</> : <><Play size={12} /> Start</>}
               </button>
 
               {/* Manual entry form */}
               <div className="pt-2 border-t border-gray-200 flex flex-col gap-1.5">
+                {myOpenSubtasks.length > 0 && (
+                  <select
+                    value={timeSubtaskId}
+                    onChange={e => setTimeSubtaskId(e.target.value)}
+                    disabled={!canLogTime || timeSaving}
+                    className="w-full text-[11px] border border-cyan-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-cyan-400 bg-white"
+                  >
+                    <option value="">{tr('זמן כללי למשימה', 'General task time')}</option>
+                    {myOpenSubtasks.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+                  </select>
+                )}
                 <input
                   type="date" value={manualDate} onChange={e => setManualDate(e.target.value)}
+                  disabled={!canLogTime || timeSaving}
                   className="w-full text-[11px] border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-primary bg-white"
                 />
                 <div className="flex gap-1.5">
                   <input
                     type="number" min="0" max="23" placeholder="h" value={manualHours}
                     onChange={e => setManualHours(e.target.value)}
+                    disabled={!canLogTime || timeSaving}
                     className="w-16 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-primary bg-white text-center placeholder:text-gray-300"
                   />
                   <input
                     type="number" min="0" max="59" placeholder="m" value={manualMins}
                     onChange={e => setManualMins(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') addManualEntry() }}
+                    onKeyDown={e => { if (e.key === 'Enter') void addManualEntry() }}
+                    disabled={!canLogTime || timeSaving}
                     className="w-16 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-primary bg-white text-center placeholder:text-gray-300"
                   />
                   <button
-                    onClick={addManualEntry}
-                    disabled={(!manualHours && !manualMins) || (parseInt(manualHours) === 0 && parseInt(manualMins) === 0)}
+                    onClick={() => void addManualEntry()}
+                    disabled={!canLogTime || timeSaving || ((!manualHours && !manualMins) || (parseInt(manualHours) === 0 && parseInt(manualMins) === 0))}
                     className="flex-1 px-2 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs rounded-lg transition-colors disabled:opacity-40 font-semibold"
                   >
                     Add
@@ -859,6 +1075,7 @@ export function TaskDetailModal({
                 <input
                   placeholder="Note (optional)" value={manualNote}
                   onChange={e => setManualNote(e.target.value)}
+                  disabled={!canLogTime || timeSaving}
                   className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-primary bg-white placeholder:text-gray-300"
                 />
               </div>
@@ -905,18 +1122,22 @@ export function TaskDetailModal({
                           ? <span className="text-gray-400 truncate flex-1 min-w-0">{entry.note}</span>
                           : <div className="flex-1" />
                         }
-                        <button
-                          onClick={() => startEdit(entry)}
-                          className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-primary transition-all shrink-0 p-0.5"
-                        >
-                          <Pencil size={9} />
-                        </button>
-                        <button
-                          onClick={() => deleteEntry(entry.id)}
-                          className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0 p-0.5"
-                        >
-                          <X size={10} />
-                        </button>
+                        {!readonly && (
+                          <>
+                            <button
+                              onClick={() => startEdit(entry)}
+                              className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-primary transition-all shrink-0 p-0.5"
+                            >
+                              <Pencil size={9} />
+                            </button>
+                            <button
+                              onClick={() => deleteEntry(entry.id)}
+                              className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0 p-0.5"
+                            >
+                              <X size={10} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     )
                   ))}
@@ -928,7 +1149,7 @@ export function TaskDetailModal({
             {status === 'pending_code_review' && (
               <div className="border border-purple-200 bg-purple-50 rounded-xl p-3">
                 <p className="text-[10px] font-semibold text-purple-600 uppercase tracking-wider mb-1.5">Code Reviewer</p>
-                <select value={codeRev} onChange={e => { setCodeRev(e.target.value); save({ codeReviewer: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-purple-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-purple-200 transition bg-white">
+                <select value={codeRev} disabled={readonly} onChange={e => { setCodeRev(e.target.value); save({ codeReviewer: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-purple-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-purple-200 transition bg-white disabled:bg-purple-50">
                   <option value="">Select reviewer...</option>
                   {assignees.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
@@ -939,7 +1160,7 @@ export function TaskDetailModal({
             {status === 'pending_ux_review' && (
               <div className="border border-pink-200 bg-pink-50 rounded-xl p-3">
                 <p className="text-[10px] font-semibold text-pink-600 uppercase tracking-wider mb-1.5">UI/UX Reviewer</p>
-                <select value={uxRev} onChange={e => { setUxRev(e.target.value); save({ uxReviewer: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-pink-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-pink-200 transition bg-white">
+                <select value={uxRev} disabled={readonly} onChange={e => { setUxRev(e.target.value); save({ uxReviewer: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-pink-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-pink-200 transition bg-white disabled:bg-pink-50">
                   <option value="">Select reviewer...</option>
                   {assignees.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>

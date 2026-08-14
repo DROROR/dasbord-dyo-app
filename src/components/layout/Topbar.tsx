@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react'
-import { Bell, Search, PanelRight, X, Check, AlertTriangle, MessageSquare, Code, Palette, RotateCcw, Clock, Send, Globe, ExternalLink } from 'lucide-react'
+import { Bell, Search, PanelRight, X, Check, AlertTriangle, MessageSquare, Code, Palette, RotateCcw, Clock, Send, Globe, ExternalLink, UserPlus, ListChecks } from 'lucide-react'
 import { useNotifications } from '../../contexts/NotificationContext'
 import { requestTaskFocus, requestClientFocus } from '../../lib/focusTarget'
 import { useLang } from '../../contexts/LanguageContext'
@@ -30,6 +30,8 @@ const NOTIF_ICON: Record<NotificationType, React.ElementType> = {
   wa_pending:            MessageSquare,
   status_owner_assigned: Bell,
   task_done_return:      Check,
+  task_assigned:         UserPlus,
+  subtask_assigned:      ListChecks,
 }
 
 const NOTIF_COLOR: Record<NotificationType, string> = {
@@ -44,6 +46,8 @@ const NOTIF_COLOR: Record<NotificationType, string> = {
   wa_pending:            'bg-green-100 text-green-600',
   status_owner_assigned: 'bg-blue-100 text-blue-600',
   task_done_return:      'bg-green-100 text-green-600',
+  task_assigned:         'bg-blue-100 text-blue-700',
+  subtask_assigned:      'bg-cyan-100 text-cyan-700',
 }
 
 // A notification type with no entry above must never blank the screen.
@@ -124,6 +128,10 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
     if (n.type === 'wa_pending') {
       setExpandedWa(prev => prev === n.id ? null : n.id)
       markRead(n.id)
+    } else if (n.taskId) {
+      openTicket(n)
+    } else if (n.clientId) {
+      openClient(n)
     } else {
       markRead(n.id)
     }
