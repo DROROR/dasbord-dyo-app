@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Task, TimeEntry, StatusHistoryEntry, TaskComment, Attachment, Board, BoardStatus, PriorityDef, AccessLevel, AppNotification, NotificationType, WorkDoc, WorkDocFolder, DocAccessLevel, WorkReport } from '../types/work'
+import type { Task, TaskSubtask, TaskSubtaskStatus, TimeEntry, StatusHistoryEntry, TaskComment, Attachment, Board, BoardStatus, PriorityDef, AccessLevel, AppNotification, NotificationType, WorkDoc, WorkDocFolder, DocAccessLevel, WorkReport } from '../types/work'
 import { INITIAL_BOARDS, DEFAULT_PRIORITY_DEFS } from '../data/workConstants'
 
 // ── DB Row Types (mirror schema exactly) ────────────────────────────────────────
@@ -669,6 +669,35 @@ interface DbTask {
   source_task_id: string | null
   assignee_id: string | null
   claimed_by_id: string | null
+  task_subtasks?: DbTaskSubtask[]
+}
+
+interface DbTaskSubtask {
+  id: string
+  task_id: string
+  title: string
+  description: string | null
+  status: TaskSubtaskStatus
+  assignee_id: string | null
+  assignee_name_snapshot: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+function dbToTaskSubtask(db: DbTaskSubtask): TaskSubtask {
+  return {
+    id: db.id,
+    taskId: db.task_id,
+    title: db.title,
+    description: db.description ?? undefined,
+    status: db.status,
+    assigneeId: db.assignee_id ?? undefined,
+    assigneeName: db.assignee_name_snapshot ?? '',
+    createdBy: db.created_by ?? undefined,
+    createdAt: db.created_at,
+    updatedAt: db.updated_at,
+  }
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -691,6 +720,7 @@ function dbToTask(db: DbTask): Task {
     statusHistory:   db.status_history ?? [],
     attachments:     db.attachments ?? [],
     comments:        db.comments ?? [],
+    subtasks:        (db.task_subtasks ?? []).map(dbToTaskSubtask).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     createdAt:       db.created_at,
     doneAt:          db.done_at ?? undefined,
     whatsappPending: db.whatsapp_pending ?? undefined,
@@ -741,7 +771,7 @@ function taskToRow(t: Partial<Task>): Record<string, unknown> {
 }
 
 export async function getTasks(board?: string): Promise<Task[]> {
-  let q = supabase.from('tasks').select('*').order('created_at', { ascending: false })
+  let q = supabase.from('tasks').select('*, task_subtasks(*)').order('created_at', { ascending: false })
   if (board) q = q.eq('board', board)
   const { data, error } = await q
   if (error) throw error
@@ -752,7 +782,7 @@ export async function createTask(task: Omit<Task, 'id'>): Promise<Task> {
   const { data, error } = await supabase
     .from('tasks')
     .insert(taskToRow(task as Partial<Task>))
-    .select()
+    .select('*, task_subtasks(*)')
     .single()
   if (error) throw error
   return dbToTask(data as DbTask)
@@ -763,10 +793,59 @@ export async function updateTask(id: string, updates: Partial<Task>): Promise<Ta
     .from('tasks')
     .update({ ...taskToRow(updates), updated_at: new Date().toISOString() })
     .eq('id', id)
-    .select()
+    .select('*, task_subtasks(*)')
     .single()
   if (error) throw error
   return dbToTask(data as DbTask)
+}
+
+export async function createTaskSubtask(input: {
+  taskId: string
+  title: string
+  description?: string
+  assigneeId: string
+}): Promise<TaskSubtask> {
+  const { data, error } = await supabase.rpc('create_task_subtask', {
+    task_id_in: input.taskId,
+    title_in: input.title,
+    description_in: input.description ?? '',
+    assignee_id_in: input.assigneeId,
+  })
+  if (error) throw error
+  return dbToTaskSubtask(data as DbTaskSubtask)
+}
+
+export async function updateTaskSubtask(subtask: TaskSubtask): Promise<TaskSubtask> {
+  const { data, error } = await supabase.rpc('update_task_subtask', {
+    subtask_id_in: subtask.id,
+    title_in: subtask.title,
+    description_in: subtask.description ?? '',
+    status_in: subtask.status,
+    assignee_id_in: subtask.assigneeId ?? null,
+  })
+  if (error) throw error
+  return dbToTaskSubtask(data as DbTaskSubtask)
+}
+
+export async function deleteTaskSubtask(subtaskId: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_task_subtask', { subtask_id_in: subtaskId })
+  if (error) throw error
+}
+
+/** Atomic, user-attributed append. Safe to retry with the same entry id. */
+export async function addTaskTimeEntry(taskId: string, entry: TimeEntry): Promise<TimeEntry[]> {
+  const { data, error } = await supabase.rpc('add_task_time_entry', {
+    task_id_in: taskId,
+    entry_id_in: entry.id,
+    date_in: entry.date,
+    hours_in: entry.hours,
+    minutes_in: entry.minutes,
+    note_in: entry.note ?? null,
+    is_locked_in: entry.isLocked,
+    subtask_id_in: entry.subtaskId ?? null,
+  })
+  if (error) throw error
+  return data as TimeEntry[]
 }
 
 export async function deleteTask(id: string): Promise<void> {
@@ -1484,10 +1563,12 @@ interface DbNotification {
   type: string
   message: string
   recipient: string | null
+  recipient_id: string | null
   severity: string
   read: boolean
   task_id: string | null
   task_title: string | null
+  subtask_id: string | null
   client_id: string | null
   client_name: string | null
   phone: string | null
@@ -1503,6 +1584,8 @@ function dbToNotification(n: DbNotification): AppNotification {
     message: n.message,
     taskId: n.task_id ?? undefined,
     taskTitle: n.task_title ?? undefined,
+    recipientId: n.recipient_id ?? undefined,
+    subtaskId: n.subtask_id ?? undefined,
     clientId: n.client_id ?? undefined,
     clientName: n.client_name ?? undefined,
     phone: n.phone ?? undefined,
@@ -1528,6 +1611,8 @@ export async function createNotification(n: {
   message: string
   taskId?: string
   taskTitle?: string
+  recipientId?: string
+  subtaskId?: string
   severity?: 'normal' | 'high'
   waDetails?: { clientName: string; message: string }
   dedupeKey?: string
@@ -1537,6 +1622,8 @@ export async function createNotification(n: {
     message: n.message,
     task_id: n.taskId ?? null,
     task_title: n.taskTitle ?? null,
+    recipient_id: n.recipientId ?? null,
+    subtask_id: n.subtaskId ?? null,
     severity: n.severity ?? 'normal',
     wa_details: n.waDetails ?? null,
     dedupe_key: n.dedupeKey ?? null,

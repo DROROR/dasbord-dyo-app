@@ -12,6 +12,8 @@ type AddPayload = {
   message: string
   taskId?: string
   taskTitle?: string
+  recipientId?: string
+  subtaskId?: string
   severity?: 'normal' | 'high'
   waDetails?: { clientName: string; message: string }
   /** Set on recurring scan alerts so the same alert is only raised once. */
@@ -74,6 +76,19 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   }, [])
 
   const unreadCount = notifications.filter(n => !n.read).length
+
+  // Installed PWAs can surface the personal unread count directly on the app
+  // icon. Unsupported browsers simply keep the in-app bell badge.
+  useEffect(() => {
+    const badgeNavigator = navigator as Navigator & {
+      setAppBadge?: (contents?: number) => Promise<void>
+      clearAppBadge?: () => Promise<void>
+    }
+    const request = unreadCount > 0
+      ? badgeNavigator.setAppBadge?.(unreadCount)
+      : badgeNavigator.clearAppBadge?.()
+    request?.catch(() => {})
+  }, [unreadCount])
 
   return (
     <Ctx.Provider value={{ notifications, unreadCount, addNotification, markRead, markAllRead }}>

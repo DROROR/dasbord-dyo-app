@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { AlertCircle, Ticket, User, Calendar, Clock, ChevronDown, CheckCircle2, ArrowRightLeft } from 'lucide-react'
 import type { Task, Board, TimeEntry, AssigneeOption } from '../../types/work'
 import { eligibleAssigneesForBoard } from '../../types/work'
-import { COLUMNS, STATUS_PILL, STATUS_LABEL, STATUS_LABEL_HE, STATUS_LEFT, resolveTaskPriority, priorityDefsForBoard } from '../../data/workConstants'
+import { STATUS_PILL, STATUS_LABEL, STATUS_LABEL_HE, STATUS_LEFT, resolveTaskPriority, priorityDefsForBoard } from '../../data/workConstants'
 import { useLang } from '../../contexts/LanguageContext'
 import { PriorityQuickEdit, AssigneeQuickEdit } from './TaskQuickEdit'
 import { ClientBadge } from './ClientBadge'
@@ -60,7 +60,19 @@ function isMine(t: Task, myProfileId: string | undefined, currentUser: string): 
   return !!currentUser && t.assignee === currentUser
 }
 
+function normalizedStatus(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+}
+
+function taskMatchesStatus(t: Task, boards: Board[], stableId: string, label: string): boolean {
+  if (t.status === stableId) return true
+  const status = boards.find(b => b.id === t.board)?.statuses.find(s => s.id === t.status)
+  return normalizedStatus(status?.label ?? '') === normalizedStatus(label)
+    || normalizedStatus(t.status).startsWith(`${normalizedStatus(stableId)}_`)
+}
+
 type TaskBadge = { label: string; cls: string }
+type TaskGroup = { id: string; label: string; tasks: Task[]; boardLabel?: string }
 
 // ─── CompactTaskRow ───────────────────────────────────────────────────────────
 
@@ -218,31 +230,55 @@ export function MyBoard({
   const { t: tr } = useLang()
   const [movingTask, setMovingTask] = useState<Task | null>(null)
 
-  // Tasks assigned to me — EXCEPT one currently routed away to someone
-  // else's queue by status ownership (it comes back automatically once
-  // the task leaves that status; assigneeId itself is never touched).
-  const myTasks = useMemo(() => tasks.filter(t => {
-    if (!isMine(t, myProfileId, currentUser)) return false
-    const ownerId = statusOwnerIdOf(boards, t, activeProfileIds)
-    return !ownerId || ownerId === myProfileId
-  }), [tasks, boards, myProfileId, currentUser, activeProfileIds])
+  // Status routing is additive: the task always stays visible to its original
+  // assignee, while the status owner receives a second view of the same task.
+  const myTasks = useMemo(
+    () => tasks.filter(t => isMine(t, myProfileId, currentUser)),
+    [tasks, myProfileId, currentUser],
+  )
 
-  // Tasks currently routed to me by status ownership, not directly
-  // assigned to me — folded into the same per-status grouping as
-  // myTasks below (no separate "Review Queue" section anymore), with
-  // a badge explaining why they're here.
-  const statusOwnedTasks = useMemo(() => tasks.filter(t => {
-    if (isMine(t, myProfileId, currentUser)) return false
+  // Status responsibility outranks ordinary assignment on My Board. This
+  // deliberately includes tasks also assigned directly to the viewer: if the
+  // current status belongs to them, it still belongs in their prominent queue.
+  const statusResponsibilityTasks = useMemo(() => tasks.filter(t => {
+    if (!myProfileId) return false
     if (t.status === 'done' || t.status === 'archived') return false
     return statusOwnerIdOf(boards, t, activeProfileIds) === myProfileId
+  }), [tasks, boards, myProfileId, activeProfileIds])
+
+  const statusResponsibilityTaskIds = useMemo(
+    () => new Set(statusResponsibilityTasks.map(t => t.id)),
+    [statusResponsibilityTasks],
+  )
+
+  // The original assignee keeps the task, but does not see a duplicate lower
+  // down when its current status is also their own responsibility.
+  const regularAssignedTasks = useMemo(
+    () => myTasks.filter(t => !statusResponsibilityTaskIds.has(t.id)),
+    [myTasks, statusResponsibilityTaskIds],
+  )
+
+  // A collaborator sees the full parent task, not an isolated child card.
+  // Main assignees/status owners take precedence so one task never appears in
+  // two personal-board groups for the same employee.
+  const collaborationTasks = useMemo(() => tasks.filter(t => {
+    if (!myProfileId) return false
+    if (isMine(t, myProfileId, currentUser)) return false
+    if (statusOwnerIdOf(boards, t, activeProfileIds) === myProfileId) return false
+    if (t.status === 'done' || t.status === 'archived') return false
+    return (t.subtasks ?? []).some(s => s.assigneeId === myProfileId && s.status !== 'done')
   }), [tasks, boards, myProfileId, currentUser, activeProfileIds])
 
-  const displayTasks = useMemo(() => [...myTasks, ...statusOwnedTasks], [myTasks, statusOwnedTasks])
+  const displayTasks = useMemo(() => {
+    const byId = new Map<string, Task>()
+    ;[...myTasks, ...statusResponsibilityTasks, ...collaborationTasks].forEach(t => byId.set(t.id, t))
+    return [...byId.values()]
+  }, [myTasks, statusResponsibilityTasks, collaborationTasks])
 
   // Badge label map for status-routed tasks
   const statusBadgeMap = useMemo(() => {
     const map = new Map<string, TaskBadge>()
-    statusOwnedTasks.forEach(t => {
+    statusResponsibilityTasks.forEach(t => {
       const board     = boards.find(b => b.id === t.board)
       const statusDef = board?.statuses.find(s => s.id === t.status)
       map.set(t.id, {
@@ -253,7 +289,21 @@ export function MyBoard({
       })
     })
     return map
-  }, [statusOwnedTasks, boards, tr])
+  }, [statusResponsibilityTasks, boards, tr])
+
+  const collaborationBadgeMap = useMemo(() => {
+    const map = new Map<string, TaskBadge>()
+    collaborationTasks.forEach(t => {
+      const mine = (t.subtasks ?? []).filter(s => s.assigneeId === myProfileId && s.status !== 'done')
+      map.set(t.id, {
+        label: mine.length === 1
+          ? mine[0].title
+          : tr(`${mine.length} תת־משימות שלך`, `${mine.length} assigned subtasks`),
+        cls: 'bg-cyan-50 text-cyan-700 border border-cyan-100',
+      })
+    })
+    return map
+  }, [collaborationTasks, myProfileId, tr])
 
   const [activeTimer, setActiveTimer] = useState<{ taskId: string; taskTitle: string } | null>(null)
 
@@ -309,12 +359,74 @@ export function MyBoard({
     boards.filter(b => b.allTasksToSupportQueue).map(b => b.id),
   )
   const thisMonth = new Date().toISOString().slice(0, 7)
-  const hoursThisMonth = displayTasks
+  // Personal total follows the logger UUID across every visible task, even
+  // after a collaboration subtask is completed and leaves the action tiles.
+  const hoursThisMonth = tasks
     .flatMap(t => t.timeEntries)
     .filter(e => e.date.startsWith(thisMonth))
+    .filter(e => e.loggedById ? e.loggedById === myProfileId : e.loggedBy === currentUser)
     .reduce((sum, e) => sum + e.hours + e.minutes / 60, 0)
 
-  const MY_COLS = COLUMNS.filter(c => c.id !== 'archived')
+  const statusResponsibilityGroups: TaskGroup[] = boards.flatMap(board =>
+    board.statuses
+      .filter(status => !!myProfileId && !!status.ownerId && status.ownerId === myProfileId && (!activeProfileIds || activeProfileIds.has(status.ownerId)))
+      .map(status => ({
+        id: `responsibility:${board.id}:${status.id}`,
+        label: status.label,
+        boardLabel: board.name,
+        tasks: statusResponsibilityTasks.filter(t => t.board === board.id && t.status === status.id),
+      }))
+      .filter(group => group.tasks.length > 0),
+  )
+
+  // A task assigned to me but currently sitting in somebody else's owned
+  // status is information to track, not work waiting for me. Pending reviews
+  // remain tracking statuses even on boards where no owner was configured.
+  const pendingCodeTasks = regularAssignedTasks.filter(t => taskMatchesStatus(t, boards, 'pending_code_review', 'Pending Code Review'))
+  const pendingUxTasks = regularAssignedTasks.filter(t => taskMatchesStatus(t, boards, 'pending_ux_review', 'Pending UI/UX Review'))
+  const delegatedTrackingTasks = regularAssignedTasks.filter(t => {
+    const ownerId = statusOwnerIdOf(boards, t, activeProfileIds)
+    return !!ownerId && ownerId !== myProfileId
+  })
+  const trackingTaskIds = new Set([
+    ...pendingCodeTasks,
+    ...pendingUxTasks,
+    ...delegatedTrackingTasks,
+  ].map(t => t.id))
+  const actionEligibleTasks = regularAssignedTasks.filter(t => !trackingTaskIds.has(t.id))
+
+  const actionGroups: TaskGroup[] = [
+    { id: 'in_progress', label: tr('בתהליך', 'In Progress'), tasks: actionEligibleTasks.filter(t => taskMatchesStatus(t, boards, 'in_progress', 'In Progress')) },
+    { id: 'fixing', label: tr('תיקונים / סבב', 'Fixing / Round'), tasks: actionEligibleTasks.filter(t => taskMatchesStatus(t, boards, 'fixing', 'Fixing / Round')) },
+    { id: 'to_deploy', label: 'To Deploy', tasks: actionEligibleTasks.filter(t => taskMatchesStatus(t, boards, 'to_deploy', 'To Deploy')) },
+    { id: 'collaboration', label: tr('משימות שיתופיות', 'Collaboration Tasks'), tasks: collaborationTasks },
+    { id: 'not_started', label: tr('טרם התחיל', 'Not Started'), tasks: actionEligibleTasks.filter(t => taskMatchesStatus(t, boards, 'not_started', 'Not Started')) },
+  ].filter(group => group.tasks.length > 0)
+
+  const delegatedTrackingGroups: TaskGroup[] = boards.flatMap(board =>
+    board.statuses.map(status => ({
+      id: `tracking:${board.id}:${status.id}`,
+      label: status.label,
+      boardLabel: board.name,
+      tasks: delegatedTrackingTasks.filter(t =>
+        t.board === board.id
+        && t.status === status.id
+        && !pendingCodeTasks.some(reviewTask => reviewTask.id === t.id)
+        && !pendingUxTasks.some(reviewTask => reviewTask.id === t.id),
+      ),
+    })).filter(group => group.tasks.length > 0),
+  )
+
+  const trackingGroups: TaskGroup[] = [
+    { id: 'pending_code_review', label: tr('ממתין לבדיקת קוד', 'Pending Code Review'), tasks: pendingCodeTasks },
+    { id: 'pending_ux_review', label: tr('ממתין לבדיקת UI/UX', 'Pending UI/UX Review'), tasks: pendingUxTasks },
+    ...delegatedTrackingGroups,
+  ].filter(group => group.tasks.length > 0)
+
+  const allGroups = [...statusResponsibilityGroups, ...actionGroups, ...trackingGroups]
+  const [selectedGroupId, setSelectedGroupId] = useState('')
+  const selectedGroup = allGroups.find(g => g.id === selectedGroupId) ?? allGroups[0]
+  const activeGroupId = selectedGroup?.id ?? ''
 
   function assignedBadge(task: Task): TaskBadge {
     if (task.status === 'done')
@@ -326,21 +438,6 @@ export function MyBoard({
 
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 shrink-0">
-        {([
-          { label: tr('המשימות שלי', 'My Tasks'),   value: displayTasks.length, sub: tr('משויכות אליך', 'assigned to you'), cls: 'text-primary' },
-          { label: tr('באיחור', 'Overdue'),          value: overdueTasks.length, sub: tr('עבר תאריך היעד', 'past due date'), cls: overdueTasks.length > 0 ? 'text-red-600' : 'text-gray-300', bg: overdueTasks.length > 0 ? 'bg-red-50 border-red-200' : undefined },
-          { label: tr('החודש', 'This Month'),        value: hoursThisMonth,      sub: tr('שעות שנרשמו', 'hours logged'),     cls: 'text-primary', isHours: true },
-        ] as const).map(({ label, value, sub, cls, bg, isHours }) => (
-          <div key={label} className={`border rounded-xl p-4 shadow-sm ${bg ?? 'bg-white border-gray-100'}`}>
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{label}</p>
-            <p className={`text-2xl font-bold ${cls}`}>{isHours ? fmtHours(value as number) : value}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
-          </div>
-        ))}
-      </div>
-
       {/* Active timer banner */}
       {activeTimer && (
         <button
@@ -356,6 +453,30 @@ export function MyBoard({
       {(pendingClose.length > 0 || overdueTasks.length > 0 || unclaimed.length > 0) && (
         <div className="flex flex-col gap-2 shrink-0">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{tr('התראות', 'Alerts')}</p>
+
+          {/* Urgent work and support tickets are always the first actionable
+              items on the personal board. */}
+          {unclaimed.map(t => {
+            const urgent = !unclaimedSupportBoard.has(t.board)
+            return (
+              <button key={t.id} onClick={() => onOpenTask(t.id)}
+                className="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5 hover:bg-orange-100 transition-colors text-left w-full"
+              >
+                {urgent
+                  ? <AlertCircle size={14} className="text-red-500 shrink-0" />
+                  : <Ticket      size={14} className="text-orange-500 shrink-0" />}
+                <span className="text-[10px] font-mono text-orange-400 shrink-0">{t.id}</span>
+                <span className="text-sm font-medium text-orange-800 flex-1 truncate">{t.title}</span>
+                <ClientBadge name={t.clientName} />
+                {urgent && (
+                  <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded font-bold shrink-0">
+                    {resolveTaskPriority(t, boards)?.label ?? tr('דחוף', 'Urgent')}
+                  </span>
+                )}
+                <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold animate-pulse shrink-0">{tr('לא נתבע', 'UNCLAIMED')}</span>
+              </button>
+            )
+          })}
 
           {pendingClose.map(t => (
             <button key={t.id} onClick={() => onOpenTask(t.id)}
@@ -386,31 +507,30 @@ export function MyBoard({
             </button>
           ))}
 
-          {unclaimed.map(t => {
-            const urgent = !unclaimedSupportBoard.has(t.board)
-            return (
-              <button key={t.id} onClick={() => onOpenTask(t.id)}
-                className="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5 hover:bg-orange-100 transition-colors text-left w-full"
-              >
-                {urgent
-                  ? <AlertCircle size={14} className="text-red-500 shrink-0" />
-                  : <Ticket      size={14} className="text-orange-500 shrink-0" />}
-                <span className="text-[10px] font-mono text-orange-400 shrink-0">{t.id}</span>
-                <span className="text-sm font-medium text-orange-800 flex-1 truncate">{t.title}</span>
-                <ClientBadge name={t.clientName} />
-                {urgent && (
-                  <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded font-bold shrink-0">
-                    {resolveTaskPriority(t, boards)?.label ?? tr('דחוף', 'Urgent')}
-                  </span>
-                )}
-                <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold animate-pulse shrink-0">{tr('לא נתבע', 'UNCLAIMED')}</span>
-              </button>
-            )
-          })}
         </div>
       )}
 
-      {/* Board */}
+      {/* Summary row — always rendered, including when hoursThisMonth is 0.
+          Sits as a shrink-0 sibling before the dashboard's own scroll
+          container below, so it can never end up scrolled out of view or
+          reordered beneath it (that's what the removed order-first classes
+          on the alerts/dashboard blocks used to cause — DOM order alone now
+          matches the intended visual order, so no CSS ordering is needed). */}
+      <div className="grid grid-cols-3 gap-3 shrink-0">
+        {([
+          { label: tr('המשימות שלי', 'My Tasks'),   value: displayTasks.length, sub: tr('משויכות אליך', 'assigned to you'), cls: 'text-primary' },
+          { label: tr('באיחור', 'Overdue'),          value: overdueTasks.length, sub: tr('עבר תאריך היעד', 'past due date'), cls: overdueTasks.length > 0 ? 'text-red-600' : 'text-gray-300', bg: overdueTasks.length > 0 ? 'bg-red-50 border-red-200' : undefined },
+          { label: tr('זמן העבודה שלי', 'My Working Time'), value: hoursThisMonth, sub: tr('סה״כ שעות החודש', 'Total hours this month'), cls: 'text-primary', isHours: true },
+        ] as const).map(({ label, value, sub, cls, bg, isHours }) => (
+          <div key={label} className={`border rounded-xl p-4 shadow-sm ${bg ?? 'bg-white border-gray-100'}`}>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{label}</p>
+            <p className={`text-2xl font-bold ${cls}`}>{isHours ? fmtHours(value as number) : value}</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Personal board status dashboard */}
       {!hasAnyTasks ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center">
           <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
@@ -420,34 +540,102 @@ export function MyBoard({
         </div>
       ) : (
         <div className="flex flex-col gap-5 flex-1 min-h-0 overflow-y-auto pb-4">
+          {statusResponsibilityGroups.length > 0 && (
+            <section className="rounded-2xl border-2 border-primary/30 bg-gradient-to-br from-primary/10 via-white to-purple-50 p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div>
+                  <p className="text-sm font-bold text-primary">{tr('התורים באחריותך', 'Your Status Queues')}</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    {tr('המשימות האלה ממתינות עכשיו לטיפול שלך', 'These tasks are waiting for your action now')}
+                  </p>
+                </div>
+                <span className="min-w-9 h-9 px-2 rounded-xl bg-primary text-white flex items-center justify-center text-base font-bold shadow-sm">
+                  {statusResponsibilityTasks.length}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {statusResponsibilityGroups.map(group => {
+                  const selected = activeGroupId === group.id
+                  return (
+                    <button
+                      key={group.id}
+                      onClick={() => setSelectedGroupId(group.id)}
+                      className={`flex items-center gap-3 rounded-xl border p-4 text-left transition-all ${selected ? 'border-primary bg-white shadow-md ring-2 ring-primary/15' : 'border-primary/20 bg-white/80 hover:border-primary/50 hover:shadow-sm'}`}
+                    >
+                      <span className={`min-w-12 h-12 px-2 rounded-xl flex items-center justify-center text-xl font-bold ${selected ? 'bg-primary text-white' : 'bg-primary/10 text-primary'}`}>
+                        {group.tasks.length}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-bold text-gray-800 truncate">{group.label}</span>
+                        <span className="block text-[10px] text-gray-400 truncate mt-0.5">{group.boardLabel}</span>
+                        <span className="block text-[10px] font-semibold text-primary mt-1">{tr('נדרש הטיפול שלך', 'Needs your action')}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          )}
 
-          {/* Assigned + status-routed tasks, grouped by status. A task
-              routed to you by status ownership sits in the same
-              grouping as your own assigned tasks — not a separate
-              queue — with a badge explaining why it's here. */}
-          {displayTasks.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider shrink-0">{tr('המשימות שלי', 'My Tasks')}</p>
-              {MY_COLS.map(col => {
-                const colTasks = displayTasks.filter(t => t.status === col.id)
-                if (colTasks.length === 0) return null
-                return (
-                  <MyStatusSection
-                    key={col.id}
-                    col={col}
-                    tasks={colTasks}
-                    boards={boards}
-                    onCardClick={onOpenTask}
-                    getBadge={task => statusBadgeMap.get(task.id) ?? assignedBadge(task)}
-                    canEditTask={canEditTask}
-                    eligibleAssigneesFor={eligibleAssigneesFor}
-                    onTaskSaved={onTaskSaved}
-                    canMoveTask={canMoveTask}
-                    onMoveClick={setMovingTask}
-                  />
-                )
-              })}
-            </div>
+          {actionGroups.length > 0 && (
+            <section className="flex flex-col gap-2">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{tr('נדרש טיפול', 'Needs Action')}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                {actionGroups.map(group => {
+                  const selected = activeGroupId === group.id
+                  return (
+                    <button
+                      key={group.id}
+                      onClick={() => setSelectedGroupId(group.id)}
+                      className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-3 text-left transition-all ${selected ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/10' : 'border-gray-100 bg-white hover:border-primary/30 hover:bg-gray-50'}`}
+                    >
+                      <span className={`text-xs font-semibold truncate ${selected ? 'text-primary' : 'text-gray-600'}`}>{group.label}</span>
+                      <span className={`min-w-6 h-6 px-1.5 rounded-full flex items-center justify-center text-xs font-bold ${selected ? 'bg-primary text-white' : 'bg-gray-100 text-gray-500'}`}>{group.tasks.length}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
+          {trackingGroups.length > 0 && (
+            <section className="flex flex-col gap-2 rounded-xl border border-gray-100 bg-gray-50/70 p-3">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{tr('משימות בבדיקה', 'Under Review')}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {trackingGroups.map(group => {
+                  const selected = activeGroupId === group.id
+                  return (
+                    <button
+                      key={group.id}
+                      onClick={() => setSelectedGroupId(group.id)}
+                      className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${selected ? 'border-purple-300 bg-white shadow-sm' : 'border-gray-100 bg-white/70 hover:border-purple-200'}`}
+                    >
+                      <span className={`text-xs font-semibold truncate ${selected ? 'text-purple-700' : 'text-gray-500'}`}>{group.label}</span>
+                      <span className="flex items-center gap-2 shrink-0">
+                        {group.boardLabel && <span className="hidden sm:inline text-[9px] text-gray-400 max-w-28 truncate">{group.boardLabel}</span>}
+                        <span className="min-w-6 h-6 px-1.5 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">{group.tasks.length}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
+          {selectedGroup && (
+            <MyStatusSection
+              key={selectedGroup.id}
+              col={{ id: selectedGroup.id, label: selectedGroup.label }}
+              tasks={selectedGroup.tasks}
+              boards={boards}
+              onCardClick={onOpenTask}
+              getBadge={task => collaborationBadgeMap.get(task.id) ?? statusBadgeMap.get(task.id) ?? assignedBadge(task)}
+              canEditTask={canEditTask}
+              eligibleAssigneesFor={eligibleAssigneesFor}
+              onTaskSaved={onTaskSaved}
+              canMoveTask={canMoveTask}
+              onMoveClick={setMovingTask}
+            />
           )}
         </div>
       )}

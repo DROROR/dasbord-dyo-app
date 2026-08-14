@@ -41,9 +41,27 @@ export interface TimeEntry {
   loggedBy: string
   /** Authoritative: the profile UUID who logged this entry. Absent on entries created before this field existed and never resolved to a unique profile name. */
   loggedById?: string
+  /** Optional child-work item this entry was logged against. */
+  subtaskId?: string
   note?: string
   isLocked: boolean  // true = created by timer stop, false = manual entry
   createdAt: string
+}
+
+export type TaskSubtaskStatus = 'not_started' | 'in_progress' | 'done'
+
+export interface TaskSubtask {
+  id: string
+  taskId: string
+  title: string
+  description?: string
+  status: TaskSubtaskStatus
+  assigneeId?: string
+  /** Display snapshot only; assigneeId is authoritative. */
+  assigneeName: string
+  createdBy?: string
+  createdAt: string
+  updatedAt: string
 }
 
 export interface StatusHistoryEntry {
@@ -102,6 +120,7 @@ export interface Task {
   statusHistory: StatusHistoryEntry[]
   attachments: Attachment[]
   comments: TaskComment[]
+  subtasks?: TaskSubtask[]
   createdAt: string
   doneAt?: string
   whatsappPending?: boolean
@@ -197,6 +216,8 @@ export type NotificationType =
   | 'status_owner_assigned'
   | 'task_done_return'
   | 'support_escalation'
+  | 'task_assigned'
+  | 'subtask_assigned'
 
 export interface AppNotification {
   id: string
@@ -204,6 +225,8 @@ export interface AppNotification {
   message: string
   taskId?: string
   taskTitle?: string
+  recipientId?: string
+  subtaskId?: string
   clientId?: string
   clientName?: string
   phone?: string
