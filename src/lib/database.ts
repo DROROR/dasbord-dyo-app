@@ -848,6 +848,39 @@ export async function addTaskTimeEntry(taskId: string, entry: TimeEntry): Promis
   return data as TimeEntry[]
 }
 
+// Employee-safe edit — see update_task_time_entry() in
+// 20260816090000_time_entry_edit_and_assignee_handoff.sql. Only
+// hours/minutes/note are ever sent; the server independently
+// authorizes by entry ownership (loggedById) or full board access,
+// never by trusting the caller's claim to own the entry.
+export async function updateTaskTimeEntry(
+  taskId: string, entryId: string, hours: number, minutes: number, note?: string,
+): Promise<TimeEntry[]> {
+  const { data, error } = await supabase.rpc('update_task_time_entry', {
+    task_id_in: taskId,
+    entry_id_in: entryId,
+    hours_in: hours,
+    minutes_in: minutes,
+    note_in: note ?? null,
+  })
+  if (error) throw error
+  return data as TimeEntry[]
+}
+
+// Restricted handoff — see handoff_task_assignment() in
+// 20260816090000_time_entry_edit_and_assignee_handoff.sql. The server
+// rejects this unless the caller IS the task's current assignee_id;
+// pass null to unassign, or another active profile's id to transfer
+// directly. Never touches any field but assignee_id.
+export async function handoffTaskAssignment(taskId: string, newAssigneeId: string | null): Promise<Task> {
+  const { data, error } = await supabase.rpc('handoff_task_assignment', {
+    task_id_in: taskId,
+    new_assignee_id_in: newAssigneeId,
+  })
+  if (error) throw error
+  return dbToTask(data as DbTask)
+}
+
 export async function deleteTask(id: string): Promise<void> {
   const { error } = await supabase.from('tasks').delete().eq('id', id)
   if (error) throw error

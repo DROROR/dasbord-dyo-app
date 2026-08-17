@@ -20,10 +20,9 @@ import {
   generateCustomerMessage,
   createPendingMessage,
   hasWorkReportAccess,
-  addTaskTimeEntry,
 } from '../lib/database'
 import type { TicketDoneAnswers } from '../components/work/TaskDetailModal'
-import { PENDING_KEY } from '../contexts/TimerContext'
+import { TIMER_ENTRY_SAVED_EVENT, type TimerEntrySavedDetail } from '../contexts/TimerContext'
 import { takeTaskFocus, TASK_FOCUS_EVENT } from '../lib/focusTarget'
 import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES, priorityDefsForBoard } from '../data/workConstants'
 import { VerticalBoard }    from '../components/work/VerticalBoard'
@@ -786,44 +785,40 @@ export function Work() {
   // Keep tasksRef current so event/effect handlers always see latest tasks
   useEffect(() => { tasksRef.current = tasks }, [tasks])
 
-  // Real-time: process an entry the floating widget just saved (user is on Work page)
+  // TimerContext.stop() already persisted the entry via addTaskTimeEntry
+  // and only fires this event once that save is confirmed — this just
+  // mirrors the already-authoritative server result into local state,
+  // regardless of whether the floating widget or the modal triggered
+  // the stop. No RPC call here, so there is exactly one write per stop.
   useEffect(() => {
     function handleTimerEntry(e: Event) {
-      const { taskId, entry } = (e as CustomEvent).detail
-      void addTaskTimeEntry(taskId, entry)
-        .then(entries => {
-          localStorage.removeItem(PENDING_KEY)
-          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, timeEntries: entries } : t))
-        })
-        .catch(err => console.error('Timer entry sync failed:', err))
+      const { taskId, entries } = (e as CustomEvent<TimerEntrySavedDetail>).detail
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, timeEntries: entries } : t))
     }
-    window.addEventListener('timerEntrySaved', handleTimerEntry)
-    return () => window.removeEventListener('timerEntrySaved', handleTimerEntry)
+    window.addEventListener(TIMER_ENTRY_SAVED_EVENT, handleTimerEntry)
+    return () => window.removeEventListener(TIMER_ENTRY_SAVED_EVENT, handleTimerEntry)
   }, [])
-
-  // Fallback: on page mount, pick up any entry saved while Work page was not mounted
-  useEffect(() => {
-    if (tasksLoading) return
-    try {
-      const raw = localStorage.getItem(PENDING_KEY)
-      if (!raw) return
-      const { taskId, entry } = JSON.parse(raw)
-      const task = tasksRef.current.find(t => t.id === taskId)
-      if (!task) return
-      void addTaskTimeEntry(taskId, entry)
-        .then(entries => {
-          localStorage.removeItem(PENDING_KEY)
-          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, timeEntries: entries } : t))
-        })
-        .catch(err => console.error('Pending timer entry sync failed:', err))
-    } catch {}
-  }, [tasksLoading])
 
   // Optimistic update + background DB sync
   function updateTask(updated: Task) {
     if (!canEdit) return
     setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
     void dbUpdateTask(updated.id, updated).catch(err => console.error('Task sync failed:', err))
+  }
+
+  // Non-optimistic sibling of updateTask(), used only by the Gantt's own
+  // drag/resize/drop interactions so they can show a live local preview
+  // and only touch shared `tasks` state (or roll their preview back) once
+  // the server has actually confirmed the change — reuses the same
+  // dbUpdateTask() call updateTask() does, but awaits and rejects instead
+  // of swallowing the error, and never applies an unconfirmed write.
+  // updateTask()/onUpdate itself (used by TaskDetailModal for every other
+  // field edit) is deliberately left untouched.
+  async function updateTaskConfirmed(updated: Task): Promise<Task> {
+    if (!canEdit) throw new Error('Insufficient permission to edit this task')
+    const saved = await dbUpdateTask(updated.id, updated)
+    setTasks(prev => prev.map(t => t.id === saved.id ? saved : t))
+    return saved
   }
 
   // Applies an already server-confirmed row (quick priority/assignee
@@ -1012,7 +1007,7 @@ export function Work() {
   }
 
   return (
-    <div dir="ltr" className="flex flex-col -m-6" style={{ height: 'calc(100vh - 64px)' }}>
+    <div dir="ltr" className="flex flex-col -m-6 w-full max-w-full min-w-0" style={{ height: 'calc(100vh - 64px)' }}>
 
       {/* Tab bar */}
       <nav className="flex items-center gap-0 border-b border-gray-200 bg-white px-6 shrink-0 overflow-x-auto">
@@ -1033,7 +1028,7 @@ export function Work() {
       </nav>
 
       {/* Content */}
-      <div className="flex-1 min-h-0 overflow-hidden flex flex-col px-6 pt-5 pb-0">
+      <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col px-6 pt-5 pb-0">
 
         {(tasksLoading || boardsLoading) && (tab === 'myboard' || tab === 'tasks' || tab === 'gantt') && (
           <div className="flex-1 flex items-center justify-center">
@@ -1131,8 +1126,9 @@ export function Work() {
             tasks={tasks}
             boards={visibleBoards}
             assignees={assignees}
+            profiles={profiles}
             onOpenTask={setOpenId}
-            onUpdateTask={updateTask}
+            onUpdateTask={updateTaskConfirmed}
             readonly={!canEdit}
           />
         )}
@@ -1217,6 +1213,7 @@ export function Work() {
           onMoved={handleTaskSaved}
           canManageSubtasks={canEditTask(openTask)}
           canLogTime={canLogTimeOnTask(openTask)}
+          canEditWork={canEdit}
           onSubtasksChanged={handleSubtasksChanged}
           onTimeEntriesChanged={handleTimeEntriesChanged}
         />
