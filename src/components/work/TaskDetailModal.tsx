@@ -2,17 +2,18 @@ import { useState, useRef, useEffect } from 'react'
 import {
   X, Check, Copy, Clock, ChevronDown,
   Send, Paperclip, Link2, Play, Square, AlertCircle,
-  Lock, Pencil, Loader2, Trash2, ArrowRightLeft, Plus, ListChecks,
+  Lock, Pencil, Loader2, Trash2, ArrowRightLeft, Plus, ListChecks, UserMinus,
 } from 'lucide-react'
 import { Avatar } from '../Avatar'
 import { useNotifications } from '../../contexts/NotificationContext'
-import { PENDING_KEY, useTimer } from '../../contexts/TimerContext'
+import { useTimer, TIMER_ENTRY_SAVED_EVENT, type TimerEntrySavedDetail } from '../../contexts/TimerContext'
 import { useLang } from '../../contexts/LanguageContext'
 import type { Task, TaskSubtask, TaskSubtaskStatus, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption, Board } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
 import {
   addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask,
   deleteTask, deleteTaskSubtask, getTaskBoardMoves, updateTaskSubtask,
+  updateTaskTimeEntry, handoffTaskAssignment,
   type TaskBoardMove,
 } from '../../lib/database'
 import { MoveTaskModal } from './MoveTaskModal'
@@ -47,7 +48,7 @@ export function TaskDetailModal({
   openTicketsForClient = 0, onTicketDone, readonly = false, canComment = false, canDelete = false,
   isTechnicalSupport = false, boardAllTasksToSupportQueue = false,
   canMoveBoard = false, eligibleMoveBoards = [], profiles = [], onMoved,
-  canManageSubtasks = false, canLogTime = false, onSubtasksChanged, onTimeEntriesChanged,
+  canManageSubtasks = false, canLogTime = false, canEditWork = false, onSubtasksChanged, onTimeEntriesChanged,
 }: {
   task: Task
   onClose: () => void
@@ -99,6 +100,8 @@ export function TaskDetailModal({
   canManageSubtasks?: boolean
   /** Main assignees and subtask participants may log their own time without editing the whole task. */
   canLogTime?: boolean
+  /** Mirrors has_permission('work','edit') — independent of board access or current assignment on THIS task. Lets a caller edit a time entry they logged themselves even after being unassigned or handed off, as long as they can still open the task at all (existing view/collaborator access) and hold this baseline Work permission. Defaults to false so any caller that hasn't been updated to compute it fails closed. */
+  canEditWork?: boolean
   onSubtasksChanged?: (taskId: string, subtasks: TaskSubtask[]) => void
   onTimeEntriesChanged?: (taskId: string, entries: TimeEntry[]) => void
 }) {
@@ -131,6 +134,9 @@ export function TaskDetailModal({
   const [commentError,  setCommentError]  = useState<string | null>(null)
   const [claiming,      setClaiming]      = useState(false)
   const [claimError,    setClaimError]    = useState<string | null>(null)
+  const [handoffTarget, setHandoffTarget] = useState('')
+  const [handoffSaving, setHandoffSaving] = useState(false)
+  const [handoffError,  setHandoffError]  = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting,          setDeleting]          = useState(false)
   const [deleteError,       setDeleteError]       = useState<string | null>(null)
@@ -180,15 +186,19 @@ export function TaskDetailModal({
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  // When the floating widget stops this task's timer, sync the new entry into local state
+  // When the floating widget stops this task's timer (persistence now
+  // happens inside TimerContext.stop() itself), sync the confirmed,
+  // server-returned array into local state — never the client-guessed
+  // single entry, so this never shows an unconfirmed optimistic row.
   useEffect(() => {
     function onTimerSaved(e: Event) {
-      const { taskId, entry } = (e as CustomEvent).detail
+      const { taskId, entries } = (e as CustomEvent<TimerEntrySavedDetail>).detail
       if (taskId !== task.id) return
-      setTimeEntries(prev => prev.some(x => x.id === entry.id) ? prev : [...prev, entry])
+      setTimeEntries(entries)
+      onTimeEntriesChanged?.(task.id, entries)
     }
-    window.addEventListener('timerEntrySaved', onTimerSaved)
-    return () => window.removeEventListener('timerEntrySaved', onTimerSaved)
+    window.addEventListener(TIMER_ENTRY_SAVED_EVENT, onTimerSaved)
+    return () => window.removeEventListener(TIMER_ENTRY_SAVED_EVENT, onTimerSaved)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id])
 
@@ -260,29 +270,22 @@ export function TaskDetailModal({
   }
   async function stopTimer() {
     if (!canLogTime || timeSaving) return
-    const result = timerCtx.stop()
+    setTimeSaving(true)
+    setTimeError(null)
+    // TimerContext.stop() does the actual RPC call and only clears the
+    // running timer once it's confirmed saved — this modal no longer
+    // persists it a second time. On success it also dispatches
+    // TIMER_ENTRY_SAVED_EVENT, which the listener above picks up to
+    // refresh timeEntries with the server-confirmed array.
+    const result = await timerCtx.stop({ subtaskId: timeSubtaskId || undefined })
+    setTimeSaving(false)
     if (result.discarded) {
       setStopMsg('פחות מדקה — לא נרשם')
       setTimeout(() => setStopMsg(null), 3000)
       return
     }
-    if (result.entry) {
-      setTimeSaving(true)
-      setTimeError(null)
-      try {
-        const entry = { ...result.entry, subtaskId: timeSubtaskId || undefined }
-        // TimerContext writes a retry backup before this modal can attach the
-        // selected subtask. Keep the backup identical to the RPC payload.
-        localStorage.setItem(PENDING_KEY, JSON.stringify({ taskId: task.id, entry }))
-        const updated = await addTaskTimeEntry(task.id, entry)
-        localStorage.removeItem(PENDING_KEY)
-        setTimeEntries(updated)
-        onTimeEntriesChanged?.(task.id, updated)
-      } catch (err) {
-        setTimeError(err instanceof Error ? err.message : tr('שמירת הזמן נכשלה', 'Failed to save time'))
-      } finally {
-        setTimeSaving(false)
-      }
+    if (result.error) {
+      setTimeError(result.error)
     }
   }
   async function addManualEntry() {
@@ -313,20 +316,55 @@ export function TaskDetailModal({
       setTimeSaving(false)
     }
   }
+  // Full board editors only — deleting stays on the existing generic
+  // save() path (still gated by the "tasks: update" RLS policy, which
+  // requires board-full access), never exposed to a plain logger of
+  // their own entry. There is deliberately no employee-facing delete RPC.
   function deleteEntry(id: string) {
+    if (readonly) return
     const updated = timeEntries.filter(e => e.id !== id)
     setTimeEntries(updated); save({ timeEntries: updated })
   }
+  // A full board editor may edit any entry. Anyone else may only edit
+  // an entry whose loggedById is their own — deliberately NOT gated on
+  // canLogTime (current assignment) or !readonly (current board
+  // access): ownership of a historical entry must survive being
+  // unassigned or handed off (see handoff_task_assignment()). The only
+  // remaining client-side gates are canEditWork (mirrors
+  // has_permission('work','edit')) and simply having the task open at
+  // all, which already required the existing view/collaborator access
+  // rules to have loaded it. Mirrors update_task_time_entry()'s
+  // server-side authorization exactly; a legacy entry with no
+  // loggedById can never be "claimed" by name.
+  function canEditTimeEntry(entry: TimeEntry) {
+    return !readonly || (canEditWork && !!entry.loggedById && entry.loggedById === currentUserId)
+  }
   function startEdit(entry: TimeEntry) {
+    if (!canEditTimeEntry(entry)) return
     setEditingId(entry.id)
     setEditH(entry.hours.toString())
     setEditM(entry.minutes.toString())
     setEditNote(entry.note ?? '')
   }
-  function saveEdit(id: string) {
+  async function saveEdit(id: string) {
+    if (timeSaving) return
     const h = parseInt(editH) || 0; const m = parseInt(editM) || 0
-    const updated = timeEntries.map(e => e.id !== id ? e : { ...e, hours: h, minutes: m, note: editNote.trim() || undefined })
-    setTimeEntries(updated); save({ timeEntries: updated }); setEditingId(null)
+    if (h === 0 && m === 0) {
+      setTimeError(tr('משך זמן לא תקין', 'Invalid duration'))
+      return
+    }
+    setTimeSaving(true)
+    setTimeError(null)
+    try {
+      const updated = await updateTaskTimeEntry(task.id, id, h, m, editNote.trim() || undefined)
+      setTimeEntries(updated)
+      onTimeEntriesChanged?.(task.id, updated)
+      setEditingId(null)
+    } catch (err) {
+      setTimeError(err instanceof Error ? err.message : tr('שמירת השינוי נכשלה', 'Failed to save the change'))
+    } finally {
+      setTimeSaving(false)
+    }
   }
   function cancelEdit() { setEditingId(null) }
 
@@ -482,6 +520,30 @@ export function TaskDetailModal({
       setClaimError(err instanceof Error ? err.message : tr('התביעה נכשלה — ייתכן שמישהו אחר כבר לקח את המשימה', 'Claim failed — someone else may have already taken this task'))
     } finally {
       setClaiming(false)
+    }
+  }
+
+  // Only the current main assignee may reach this — see
+  // handoff_task_assignment() in
+  // 20260816090000_time_entry_edit_and_assignee_handoff.sql, which
+  // re-checks that server-side regardless of what this component
+  // renders. newAssigneeId null means self-unassign (leave
+  // Unassigned); a non-null id transfers directly, immediately, no
+  // accept/decline step. Never touches any field but assigneeId — the
+  // existing assignment-notification trigger fires normally for a
+  // transfer and is skipped by its own null-check for an unassign.
+  async function handoffAssignment(newAssigneeId: string | null) {
+    if (handoffSaving || task.assigneeId !== currentUserId) return
+    setHandoffSaving(true)
+    setHandoffError(null)
+    try {
+      const updated = await handoffTaskAssignment(task.id, newAssigneeId)
+      onUpdate(updated)
+      setHandoffTarget('')
+    } catch (err) {
+      setHandoffError(err instanceof Error ? err.message : tr('העברת המשימה נכשלה', 'Handoff failed'))
+    } finally {
+      setHandoffSaving(false)
     }
   }
 
@@ -945,6 +1007,52 @@ export function TaskDetailModal({
                   {eligibleAssignees.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
               </div>
+
+              {/* Restricted handoff — visible only to the current main
+                  assignee when they don't already have the full editor
+                  dropdown above (that already covers this and more).
+                  Cannot touch any field but assigneeId. */}
+              {readonly && task.assigneeId === currentUserId && (
+                <div className="mt-2 pt-2 border-t border-gray-100 flex flex-col gap-1.5">
+                  <p className="text-[9px] text-gray-400">
+                    {tr('המשימה משויכת אליך — ניתן להעביר אותה ישירות', 'This task is assigned to you — you may hand it off directly')}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={handoffTarget}
+                      disabled={handoffSaving}
+                      onChange={e => setHandoffTarget(e.target.value)}
+                      className="flex-1 text-xs text-gray-700 border border-gray-200 rounded-lg px-2 py-1.5 bg-white disabled:bg-gray-50 min-w-0"
+                    >
+                      <option value="">{tr('בחר עובד להעברה...', 'Select someone to transfer to...')}</option>
+                      {eligibleAssignees.filter(a => a.id !== currentUserId).map(a => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => void handoffAssignment(handoffTarget)}
+                      disabled={handoffSaving || !handoffTarget}
+                      className="flex items-center gap-1 px-2 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40 shrink-0"
+                    >
+                      {handoffSaving ? <Loader2 size={11} className="animate-spin" /> : <ArrowRightLeft size={11} />}
+                      {tr('העבר', 'Transfer')}
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => void handoffAssignment(null)}
+                    disabled={handoffSaving}
+                    className="flex items-center justify-center gap-1 px-2 py-1.5 border border-gray-200 text-gray-500 hover:bg-gray-50 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
+                  >
+                    <UserMinus size={11} />
+                    {tr('הסר אותי מהמשימה', 'Remove myself from this task')}
+                  </button>
+                  {handoffError && (
+                    <p className="flex items-center gap-1 text-[10px] text-red-500 font-medium">
+                      <AlertCircle size={10} className="shrink-0" /> {handoffError}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Client link */}
@@ -1100,12 +1208,15 @@ export function TaskDetailModal({
                         />
                         <input
                           value={editNote} onChange={e => setEditNote(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') saveEdit(entry.id); if (e.key === 'Escape') cancelEdit() }}
-                          className="flex-1 min-w-0 text-[10px] border border-primary/40 rounded px-1 py-0.5 bg-white focus:outline-none focus:border-primary"
+                          onKeyDown={e => { if (e.key === 'Enter') void saveEdit(entry.id); if (e.key === 'Escape') cancelEdit() }}
+                          disabled={timeSaving}
+                          className="flex-1 min-w-0 text-[10px] border border-primary/40 rounded px-1 py-0.5 bg-white focus:outline-none focus:border-primary disabled:bg-gray-50"
                           placeholder="note"
                         />
-                        <button onClick={() => saveEdit(entry.id)} className="text-green-500 hover:text-green-600 shrink-0 p-0.5"><Check size={10} /></button>
-                        <button onClick={cancelEdit} className="text-gray-300 hover:text-gray-500 shrink-0 p-0.5"><X size={10} /></button>
+                        <button onClick={() => void saveEdit(entry.id)} disabled={timeSaving} className="text-green-500 hover:text-green-600 shrink-0 p-0.5 disabled:opacity-40">
+                          {timeSaving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                        </button>
+                        <button onClick={cancelEdit} disabled={timeSaving} className="text-gray-300 hover:text-gray-500 shrink-0 p-0.5 disabled:opacity-40"><X size={10} /></button>
                       </div>
                     ) : (
                       <div key={entry.id} className="flex items-center gap-1.5 text-[10px] group py-0.5">
@@ -1122,21 +1233,21 @@ export function TaskDetailModal({
                           ? <span className="text-gray-400 truncate flex-1 min-w-0">{entry.note}</span>
                           : <div className="flex-1" />
                         }
+                        {canEditTimeEntry(entry) && (
+                          <button
+                            onClick={() => startEdit(entry)}
+                            className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-primary transition-all shrink-0 p-0.5"
+                          >
+                            <Pencil size={9} />
+                          </button>
+                        )}
                         {!readonly && (
-                          <>
-                            <button
-                              onClick={() => startEdit(entry)}
-                              className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-primary transition-all shrink-0 p-0.5"
-                            >
-                              <Pencil size={9} />
-                            </button>
-                            <button
-                              onClick={() => deleteEntry(entry.id)}
-                              className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0 p-0.5"
-                            >
-                              <X size={10} />
-                            </button>
-                          </>
+                          <button
+                            onClick={() => deleteEntry(entry.id)}
+                            className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all shrink-0 p-0.5"
+                          >
+                            <X size={10} />
+                          </button>
                         )}
                       </div>
                     )

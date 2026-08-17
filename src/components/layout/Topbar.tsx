@@ -154,9 +154,10 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
   }
 
   return (
-    <header className="h-16 bg-surface border-b border-gray-200 flex items-center justify-between px-5 shrink-0 gap-4">
-      {/* Right: Toggle + Page title */}
-      <div className="flex items-center gap-3">
+    <header className="relative h-16 md:h-28 lg:h-32 xl:h-36 2xl:h-44 min-[1800px]:h-48 bg-surface border-b border-gray-200 flex items-center justify-between px-5 shrink-0 gap-4">
+      {/* Right: Toggle + Page title — z-10 so it always paints above the
+          decorative banner below, regardless of any incidental overlap. */}
+      <div className="relative z-10 flex items-center gap-3">
         <button
           onClick={onToggleSidebar}
           className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-primary transition-colors"
@@ -169,8 +170,47 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
         </h1>
       </div>
 
+      {/* Center: decorative brand banner — desktop/tablet only. Absolutely
+          centered on the FULL header width (not the leftover gap between
+          the two unequal side groups), and non-interactive so it can never
+          intercept a click even if it visually approaches a control.
+
+          Width steps (not a single vw-based clamp): the Sidebar next to
+          this header is itself 240px wide when expanded (Sidebar.tsx,
+          w-60) or 64px collapsed, and the search box jumps from w-48 to
+          w-64 exactly at the lg breakpoint (below) — both shift how much
+          real horizontal room exists independently of viewport width, in
+          a way a single continuous vw formula can't track (it would
+          either overflow into the search box right around the lg jump,
+          or stay too small everywhere to compensate). Each step below was
+          checked against the worst case at the bottom of its breakpoint
+          bucket with the sidebar EXPANDED (the more common default
+          state), so it clears both side groups with margin to spare
+          there — and therefore everywhere else in that bucket too. The
+          720px tier only engages at very wide viewports (custom
+          min-[1800px]) specifically because 720px is not safe yet at the
+          bottom of the plain 2xl bucket (1536px) with the sidebar
+          expanded. */}
+      {/* Header heights (h-28/h-32/h-36/h-44/h-48) are sized off the
+          approved widths above times this image's own aspect ratio, with
+          headroom to spare at every tier — never solved by cropping. At
+          the current ~4.99:1 source ratio that works out to roughly:
+          md 40px in 112px, lg 60px in 128px, xl 80px in 144px,
+          2xl 124px in 176px, ≥1800px 144px in 192px. Whenever the source
+          artwork is replaced with a different aspect ratio, recompute
+          this table (rendered height = approved width × new-height /
+          new-width) and raise whichever header tier no longer has
+          reasonable margin — the widths themselves stay fixed. */}
+      <div className="hidden md:flex absolute inset-y-0 left-1/2 -translate-x-1/2 items-center justify-center pointer-events-none z-0">
+        <img
+          src="/topbar-prosperity-banner.webp"
+          alt={t('באנר: שגשוג והתרחבות', 'Banner: Prosperity and expansion')}
+          className="w-[200px] lg:w-[300px] xl:w-[400px] 2xl:w-[620px] min-[1800px]:w-[720px] aspect-[1023/205] object-contain"
+        />
+      </div>
+
       {/* Left: Search + Notifications + Avatar */}
-      <div className="flex items-center gap-2">
+      <div className="relative z-10 flex items-center gap-2">
         {/* Search */}
         <div className="relative hidden sm:block">
           <Search size={15} className="absolute top-1/2 -translate-y-1/2 end-3 text-gray-400 pointer-events-none" />

@@ -92,6 +92,15 @@ export function priorityDefsForBoard(board: Board | undefined): PriorityDef[] {
   return (board?.priorities && board.priorities.length > 0) ? board.priorities : DEFAULT_PRIORITY_DEFS
 }
 
+// Same fallback convention as priorityDefsForBoard, for the same reason:
+// dbToBoard() maps a board with no stored statuses to an empty array, not
+// to DEFAULT_BOARD_STATUSES — this is the single place that substitutes
+// the default set back in, so every caller (Gantt's status filter, any
+// future one) sees a board's REAL custom statuses when it has them.
+export function statusesForBoard(board: Board | undefined): BoardStatus[] {
+  return (board?.statuses && board.statuses.length > 0) ? board.statuses : DEFAULT_BOARD_STATUSES
+}
+
 // Resolves a task's priority definition from its OWN board only. Used
 // by components that render tasks from several boards at once (My
 // Board, Gantt, the task modal) where a single board-scoped array
