@@ -47,6 +47,10 @@ fi
 git switch --quiet "$EXPECTED_BRANCH"
 git merge --quiet --ff-only "$EXPECTED_SHA"
 
+
+pm2 startOrReload "$APP_DIR/ecosystem.config.cjs" --update-env
+pm2 save --force >/dev/null
+curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3002/health >/dev/null
 npm ci --no-audit --no-fund
 
 BUILD_DIR="$(mktemp -d "$APP_DIR/.deploy-build.XXXXXX")"
