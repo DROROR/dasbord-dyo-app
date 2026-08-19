@@ -14,6 +14,18 @@ readonly EXPECTED_SHA="$1"
 
 cd "$APP_DIR"
 
+readonly NVM_DIR='/home/fahad/.nvm'
+# SSH forced-command sessions do not load the user shell profile.
+# Load the server-managed default Node.js version explicitly.
+if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
+  echo "NVM is not installed at $NVM_DIR." >&2
+  exit 69
+fi
+# shellcheck source=/dev/null
+source "$NVM_DIR/nvm.sh"
+nvm use --silent default >/dev/null
+command -v npm >/dev/null
+
 exec 9>"$APP_DIR/.deploy.lock"
 if ! flock -n 9; then
   echo 'Another production deployment is already running.' >&2
