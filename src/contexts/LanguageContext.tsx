@@ -18,7 +18,9 @@ function initialLang(): Lang {
   try {
     const s = localStorage.getItem(KEY)
     if (s === 'en' || s === 'he') return s
-  } catch {}
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts.
+  }
   return 'he'
 }
 
@@ -31,7 +33,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.dir = dir
     try {
       localStorage.setItem(KEY, lang)
-    } catch {}
+    } catch {
+      // Language preference remains in memory when persistence is unavailable.
+    }
   }, [lang, dir])
 
   const value: LangCtx = {

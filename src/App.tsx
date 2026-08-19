@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Layout } from './components/layout/Layout'
 import { Dashboard } from './pages/Dashboard'
@@ -40,11 +40,28 @@ const buildPages = (navigate: (page: string) => void): Record<string, () => Reac
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard')
   const { user, profile, loading, canViewPage, isDeactivated, signOut } = useAuth()
+  const landingSelectedRef = useRef(false)
 
   // Setting activePage even when denied is intentional: the render
   // guard below checks canViewPage(activePage) and shows AccessDenied
   // for that specific page id, rather than silently doing nothing.
   const navigate = useCallback((page: string) => setActivePage(page), [])
+
+  useEffect(() => {
+    if (!profile) {
+      landingSelectedRef.current = false
+      return
+    }
+    if (landingSelectedRef.current) return
+
+    landingSelectedRef.current = true
+    const firstAllowed = Object.keys(PAGE_MODULE).find(canViewPage)
+    const landingPage = !profile.is_owner && canViewPage('work') ? 'work' : firstAllowed
+    if (!landingPage) return
+
+    const timer = window.setTimeout(() => setActivePage(landingPage), 0)
+    return () => window.clearTimeout(timer)
+  }, [profile, canViewPage])
 
   if (loading) {
     return (

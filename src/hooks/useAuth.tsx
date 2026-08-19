@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { FULL_PERMISSIONS, PAGE_MODULE, rankOf, type PermissionLevel, type PermissionModule } from '../lib/permissions'
@@ -26,6 +26,7 @@ interface AuthValue {
   /** True once a profile has loaded and is_active is explicitly false — deactivated, real server-side enforcement is independent of this (RLS/has_permission also check is_active), this only drives the UI's own "you're deactivated" state. */
   isDeactivated: boolean
   refreshProfile: () => Promise<void>
+  signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -49,13 +50,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(DEV_BYPASS ? DEV_USER : null)
   const [profile, setProfile] = useState<UserProfile | null>(DEV_BYPASS ? DEV_PROFILE : null)
   const [loading, setLoading] = useState(!DEV_BYPASS)
+  const authRequestRef = useRef(0)
 
-  async function fetchProfile(userId: string) {
-    const { data } = await supabase
+  const fetchProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
+    const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single()
+    if (error) throw error
     // Pre-migration compatibility: profiles.is_active doesn't exist on
     // the live DB yet, so `data.is_active` comes back `undefined`
     // (key absent from the row), not `false`. Treat anything other
@@ -63,39 +66,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // real deactivations always write an explicit `false`, so this
     // expression keeps working correctly after the migration too; it
     // isn't code to remove later.
-    setProfile(data ? { ...(data as UserProfile), is_active: (data as { is_active?: boolean }).is_active !== false } : null)
-  }
+    return data ? { ...(data as UserProfile), is_active: (data as { is_active?: boolean }).is_active !== false } : null
+  }, [])
 
   const refreshProfile = useCallback(async () => {
     if (!user) return
-    await fetchProfile(user.id)
-  }, [user])
+    const nextProfile = await fetchProfile(user.id)
+    setProfile(nextProfile)
+  }, [user, fetchProfile])
+
+  const hydrateUser = useCallback(async (nextUser: User | null) => {
+    const requestId = ++authRequestRef.current
+    setUser(nextUser)
+
+    if (!nextUser) {
+      setProfile(null)
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
+    try {
+      const nextProfile = await fetchProfile(nextUser.id)
+      if (requestId === authRequestRef.current) setProfile(nextProfile)
+    } catch (error) {
+      console.error('Failed to load authenticated user profile:', error)
+      if (requestId === authRequestRef.current) setProfile(null)
+    } finally {
+      if (requestId === authRequestRef.current) setLoading(false)
+    }
+  }, [fetchProfile])
 
   useEffect(() => {
     if (DEV_BYPASS) return
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      const u = session?.user ?? null
-      setUser(u)
-      if (u) {
-        fetchProfile(u.id).finally(() => setLoading(false))
-      } else {
-        setLoading(false)
-      }
-    })
+    void supabase.auth.getSession().then(({ data: { session } }) => hydrateUser(session?.user ?? null))
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      const u = session?.user ?? null
-      setUser(u)
-      if (u) {
-        fetchProfile(u.id)
-      } else {
-        setProfile(null)
-      }
+      // A Supabase query inside this callback can block the sign-in event.
+      // Defer profile hydration so a successful login renders immediately.
+      setTimeout(() => void hydrateUser(session?.user ?? null), 0)
     })
 
-    return () => subscription.unsubscribe()
-  }, [])
+    return () => {
+      authRequestRef.current += 1
+      subscription.unsubscribe()
+    }
+  }, [hydrateUser])
+
+  async function signIn(email: string, password: string) {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw error
+    if (!data.user) throw new Error('Sign-in succeeded without a user session')
+    await hydrateUser(data.user)
+  }
 
   async function signOut() {
     await supabase.auth.signOut()
@@ -142,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value: AuthValue = {
     user, profile, loading, isOwner, isAdmin,
     hasPermission, canViewPage, canManagePermissions, isDeactivated, refreshProfile, signOut,
+    signIn,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

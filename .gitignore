@@ -7,14 +7,14 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+node_modules/
+dist/
+dist-ssr/
 *.local
 
-# Environment variables
-.env
-.env.*
+# Environment variables (keep local secrets out of Git, but allow safe templates)
+.env*
+!.env.example
 
 # Editor directories and files
 .vscode/*
@@ -27,8 +27,8 @@ dist-ssr
 *.sln
 *.sw?
 
-.vercel
-.env*
+.vercel/
+.claude/
 
 # Supabase CLI local state
 supabase/.temp

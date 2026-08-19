@@ -18,9 +18,6 @@ import {
 } from '../../lib/database'
 import { MoveTaskModal } from './MoveTaskModal'
 
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
-}
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
@@ -33,7 +30,6 @@ function fmtTimer(s: number) {
   const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = s % 60
   return [h, m, sec].map(n => String(n).padStart(2, '0')).join(':')
 }
-function isOverdue(due?: string) { return !!due && new Date(due) < new Date() }
 function newId() { return Math.random().toString(36).slice(2, 10) }
 
 /** What the developer answered when closing a support ticket. */

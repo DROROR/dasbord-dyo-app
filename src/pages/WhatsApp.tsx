@@ -10,7 +10,7 @@ import { getAllMessages, getClientNameMap,
   getClients,
 } from '../lib/database'
 import type { DbMessage, DbMessageTemplate, DbSequenceWithSteps, DbSequenceStep, DbClient } from '../lib/database'
-import { getRecipientChannel, getChannelLabel } from '../lib/whatsapp'
+import { getChannelLabel } from '../lib/whatsapp'
 import type { Channel } from '../lib/whatsapp'
 import { useCan } from '../hooks/useCan'
 

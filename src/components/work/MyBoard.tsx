@@ -25,10 +25,6 @@ function isOverdue(due?: string) {
 function entryTotal(entries: TimeEntry[]) {
   return entries.reduce((s, e) => s + e.hours + e.minutes / 60, 0)
 }
-function entriesThisMonth(entries: TimeEntry[]) {
-  const ym = new Date().toISOString().slice(0, 7)
-  return entries.filter(e => e.date.startsWith(ym)).reduce((s, e) => s + e.hours + e.minutes / 60, 0)
-}
 // activeProfileIds is optional (undefined means "not checked, trust the
 // stored ownerId as-is") so callers that don't have an active-profile list
 // handy don't have to fabricate one — but Work.tsx always passes it, and
@@ -205,7 +201,7 @@ function MyStatusSection({
 // ─── MyBoard ──────────────────────────────────────────────────────────────────
 
 export function MyBoard({
-  tasks, boards, currentUser, myProfileId, onOpenTask, onStatusChange,
+  tasks, boards, currentUser, myProfileId, onOpenTask,
   isTechnicalSupport = false, activeProfileIds, canEditTask, allProfiles, onTaskSaved, canMoveTask,
 }: {
   tasks: Task[]
@@ -215,7 +211,6 @@ export function MyBoard({
   /** The authenticated user's profile UUID — authoritative once a task has assigneeId set. */
   myProfileId?: string
   onOpenTask: (id: string) => void
-  onStatusChange: (id: string, status: string) => void
   isTechnicalSupport?: boolean
   /** Active profile UUIDs — an inactive status owner is treated as no owner at all (see statusOwnerIdOf). */
   activeProfileIds?: Set<string>
@@ -324,7 +319,6 @@ export function MyBoard({
     return () => clearInterval(interval)
   }, [])
 
-  const inProgress   = displayTasks.filter(t => t.status === 'in_progress')
   const overdueTasks = displayTasks.filter(t => isOverdue(t.dueDate) && t.status !== 'done' && t.status !== 'archived')
   const pendingClose = displayTasks.filter(t => t.status === 'done')
 

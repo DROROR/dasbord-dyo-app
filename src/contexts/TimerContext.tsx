@@ -51,7 +51,9 @@ function readStorage(): TimerState | null {
     if (!raw) return null
     const p: TimerState = JSON.parse(raw)
     if (p.taskId && p.startTime) return p
-  } catch {}
+  } catch {
+    // Treat unreadable or malformed persisted state as no active timer.
+  }
   return null
 }
 

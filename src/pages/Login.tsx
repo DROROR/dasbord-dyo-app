@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Loader2, AlertCircle } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { useAuth } from '../hooks/useAuth'
 import logoFull from '../assets/logo.png'
 
 export function Login() {
+  const { signIn } = useAuth()
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading]   = useState(false)
@@ -13,8 +14,9 @@ export function Login() {
     e.preventDefault()
     setError(null)
     setLoading(true)
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password })
-    if (err) {
+    try {
+      await signIn(email, password)
+    } catch {
       setError('אימייל או סיסמה שגויים. אנא נסה שוב.')
       setLoading(false)
     }

@@ -845,29 +845,6 @@ export function Work() {
     setOpenId(null)
   }
 
-  function changeStatus(taskId: string, newStatus: string) {
-    if (!canEdit) return
-    const now      = new Date().toISOString()
-    const newEntry = { status: newStatus, timestamp: now, changedBy: currentUser }
-    const task     = tasks.find(t => t.id === taskId)
-    const newHistory = task ? [...task.statusHistory, newEntry] : [newEntry]
-    setTasks(prev => prev.map(t => t.id !== taskId ? t : { ...t, status: newStatus, statusHistory: newHistory }))
-    void dbUpdateTask(taskId, { status: newStatus, statusHistory: newHistory })
-      .catch(err => console.error('Status sync failed:', err))
-
-    if (task) {
-      if (newStatus === 'done') {
-        if (task.assigneeId) addNotification({
-          type: 'task_done_return',
-          message: `המשימה "${task.title}" הושלמה — אנא סגור את המשימה סופית`,
-          taskId,
-          taskTitle: task.title,
-          recipientId: task.assigneeId,
-        })
-      }
-    }
-  }
-
   async function createTask(partial: Omit<Task, 'id' | 'createdAt' | 'statusHistory' | 'comments'>) {
     if (!canEdit) return
     const now = new Date().toISOString()
@@ -1007,7 +984,12 @@ export function Work() {
   }
 
   return (
-    <div dir="ltr" className="flex flex-col -m-6 w-full max-w-full min-w-0" style={{ height: 'calc(100vh - 64px)' }}>
+    <div
+      dir="ltr"
+      translate="no"
+      className="notranslate flex flex-col -m-6 w-full max-w-full min-w-0"
+      style={{ height: 'calc(100vh - 64px)' }}
+    >
 
       {/* Tab bar */}
       <nav className="flex items-center gap-0 border-b border-gray-200 bg-white px-6 shrink-0 overflow-x-auto">
@@ -1043,7 +1025,6 @@ export function Work() {
             currentUser={currentUser}
             myProfileId={profile?.id}
             onOpenTask={setOpenId}
-            onStatusChange={changeStatus}
             isTechnicalSupport={isTechnicalSupport}
             activeProfileIds={activeProfileIds}
             canEditTask={canEditTask}
@@ -1107,7 +1088,6 @@ export function Work() {
               boards={visibleBoards}
               activeBoardId={activeBoard}
               onOpenTask={setOpenId}
-              onStatusChange={changeStatus}
               onAddTask={addTaskWithStatus}
               assignees={assignees}
               readonly={!canEdit || !canCreateInBoard(activeBoard)}

@@ -96,18 +96,14 @@ function RichEditor({ content, onChange, readOnly }: { content: string; onChange
 
   function exec(cmd: string, value?: string) {
     editorRef.current?.focus()
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     document.execCommand(cmd, false, value)
     updateActiveFormats()
   }
 
   function updateActiveFormats() {
     setActiveFormats({
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
       bold:      document.queryCommandState('bold'),
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
       italic:    document.queryCommandState('italic'),
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
       underline: document.queryCommandState('underline'),
     })
   }
@@ -126,7 +122,6 @@ function RichEditor({ content, onChange, readOnly }: { content: string; onChange
       }
     }
     editorRef.current?.focus()
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     document.execCommand('insertHTML', false, tbl.outerHTML)
   }
 

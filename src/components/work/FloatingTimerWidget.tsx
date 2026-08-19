@@ -18,7 +18,9 @@ function getSavedPos(): { x: number; y: number } {
       const p = JSON.parse(raw)
       if (typeof p.x === 'number' && typeof p.y === 'number') return p
     }
-  } catch {}
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts.
+  }
   return { x: 24, y: Math.max(0, window.innerHeight - 130) }
 }
 

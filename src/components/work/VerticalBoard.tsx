@@ -197,7 +197,7 @@ function StatusSection({
 // ─── VerticalBoard ────────────────────────────────────────────────────────────
 
 export function VerticalBoard({
-  tasks, boards, activeBoardId, onOpenTask, onStatusChange, onAddTask, assignees, readonly,
+  tasks, boards, activeBoardId, onOpenTask, onAddTask, assignees, readonly,
   canEditTask, eligibleAssigneesFor, onTaskSaved, onBoardFilterChange,
   canMoveTask, profiles,
 }: {
@@ -208,7 +208,6 @@ export function VerticalBoard({
   /** The board currently selected via the outer board tabs — the Board filter starts synced to this and reports specific-board selections back via onBoardFilterChange, so the tabs and this dropdown are one coherent source of truth, never two independent filters. */
   activeBoardId: string
   onOpenTask: (id: string) => void
-  onStatusChange: (id: string, status: string) => void
   onAddTask: (statusId: string) => void
   assignees: string[]
   readonly?: boolean
