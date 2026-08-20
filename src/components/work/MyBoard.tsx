@@ -503,16 +503,15 @@ export function MyBoard({
 
         </div>
       )}
-      {/* Summary cards stay pinned first so the personal overview is always
-          the first content below the Work tabs. Alerts and the full-width
-          task workspace follow in a stable order. */}
-      <div className="grid grid-cols-3 gap-3 shrink-0 order-first">
+      {/* Real personal metrics stay first; alerts and the responsive
+          task workspace follow in a stable dashboard hierarchy. */}
+      <div className="grid grid-cols-1 gap-3 shrink-0 order-first sm:grid-cols-3">
         {([
-          { label: tr('המשימות שלי', 'My Tasks'),   value: displayTasks.length, sub: tr('משויכות אליך', 'assigned to you'), cls: 'text-primary' },
-          { label: tr('באיחור', 'Overdue'),          value: overdueTasks.length, sub: tr('עבר תאריך היעד', 'past due date'), cls: overdueTasks.length > 0 ? 'text-red-600' : 'text-gray-300', bg: overdueTasks.length > 0 ? 'bg-red-50 border-red-200' : undefined },
-          { label: tr('זמן העבודה שלי', 'My Working Time'), value: hoursThisMonth, sub: tr('סה״כ שעות החודש', 'Total hours this month'), cls: 'text-primary', isHours: true },
+          { label: tr('המשימות שלי', 'My Tasks'),   value: displayTasks.length, sub: tr('משויכות אליך', 'assigned to you'), cls: 'text-primary', bg: 'bg-gradient-to-br from-primary/10 to-white border-primary/20' },
+          { label: tr('באיחור', 'Overdue'),          value: overdueTasks.length, sub: tr('עבר תאריך היעד', 'past due date'), cls: overdueTasks.length > 0 ? 'text-red-600' : 'text-gray-300', bg: overdueTasks.length > 0 ? 'bg-gradient-to-br from-red-50 to-white border-red-200' : 'bg-gradient-to-br from-gray-50 to-white border-gray-200' },
+          { label: tr('זמן העבודה שלי', 'My Working Time'), value: hoursThisMonth, sub: tr('סה״כ שעות החודש', 'Total hours this month'), cls: 'text-secondary-dark', bg: 'bg-gradient-to-br from-secondary/15 to-white border-secondary/30', isHours: true },
         ] as const).map(({ label, value, sub, cls, bg, isHours }) => (
-          <div key={label} className={`border rounded-xl px-4 py-3 shadow-sm transition-shadow hover:shadow-md ${bg ?? 'bg-white border-gray-100'}`}>
+          <div key={label} className={`relative overflow-hidden border rounded-2xl px-4 py-3.5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${bg ?? 'bg-white border-gray-100'}`}>
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{label}</p>
             <p className={`text-2xl font-bold ${cls}`}>{isHours ? fmtHours(value as number) : value}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
@@ -530,7 +529,7 @@ export function MyBoard({
         </div>
       ) : (
         <div className="grid flex-1 min-h-0 gap-4 overflow-y-auto pb-3 xl:grid-cols-12 xl:overflow-hidden">
-          <aside className="flex min-h-0 flex-col gap-3 xl:order-2 xl:col-span-4 xl:overflow-y-auto xl:ps-1">
+          <aside className="flex min-h-0 flex-col gap-3 rounded-2xl border border-gray-200/70 bg-gray-50/70 p-3 xl:order-2 xl:col-span-4 xl:overflow-y-auto">
           {statusResponsibilityGroups.length > 0 && (
             <section className="rounded-xl border border-primary/25 bg-gradient-to-br from-primary/10 via-white to-purple-50 p-3 shadow-sm">
               <div className="flex items-start justify-between gap-3 mb-2">
@@ -569,7 +568,7 @@ export function MyBoard({
           )}
 
           {actionGroups.length > 0 && (
-            <section className="flex flex-col gap-2">
+            <section className="flex flex-col gap-2 rounded-xl border border-gray-200/70 bg-white p-3 shadow-sm">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{tr('נדרש טיפול', 'Needs Action')}</p>
               <div className="grid grid-cols-2 gap-2">
                 {actionGroups.map(group => {
@@ -614,7 +613,7 @@ export function MyBoard({
           )}
 
           </aside>
-          <main className="min-h-[260px] xl:order-1 xl:col-span-8 xl:min-h-0 xl:overflow-hidden">
+          <main className="min-h-[260px] rounded-2xl border border-gray-200/70 bg-white shadow-sm xl:order-1 xl:col-span-8 xl:min-h-0 xl:overflow-hidden">
           {selectedGroup && (
             <MyStatusSection
               key={selectedGroup.id}
