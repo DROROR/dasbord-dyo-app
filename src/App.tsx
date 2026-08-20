@@ -38,7 +38,9 @@ const buildPages = (navigate: (page: string) => void): Record<string, () => Reac
 })
 
 export default function App() {
-  const [activePage, setActivePage] = useState('dashboard')
+  const [activePage, setActivePage] = useState(() =>
+    new URLSearchParams(window.location.search).has('task') ? 'work' : 'dashboard',
+  )
   const { user, profile, loading, canViewPage, isDeactivated, signOut } = useAuth()
   const landingSelectedRef = useRef(false)
 
@@ -56,7 +58,10 @@ export default function App() {
 
     landingSelectedRef.current = true
     const firstAllowed = Object.keys(PAGE_MODULE).find(canViewPage)
-    const landingPage = !profile.is_owner && canViewPage('work') ? 'work' : firstAllowed
+    const hasTaskDeepLink = new URLSearchParams(window.location.search).has('task')
+    const landingPage = hasTaskDeepLink && canViewPage('work')
+      ? 'work'
+      : !profile.is_owner && canViewPage('work') ? 'work' : firstAllowed
     if (!landingPage) return
 
     const timer = window.setTimeout(() => setActivePage(landingPage), 0)

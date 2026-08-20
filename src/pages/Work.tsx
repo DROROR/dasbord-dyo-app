@@ -52,6 +52,21 @@ const WORK_TABS: { id: WorkTab; label: string; labelHe?: string; labelEn?: strin
 
 function newId() { return Math.random().toString(36).slice(2, 10) }
 
+async function loadWithRetry<T>(load: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await load()
+    } catch (error) {
+      lastError = error
+      if (attempt < attempts - 1) {
+        await new Promise(resolve => window.setTimeout(resolve, 300 * (attempt + 1)))
+      }
+    }
+  }
+  throw lastError
+}
+
 // ─── AddBoardModal ────────────────────────────────────────────────────────────
 
 function AddBoardModal({ onSave, onClose }: {
@@ -590,6 +605,7 @@ export function Work() {
 
   const alertsRunRef = useRef(false)
   const tasksRef     = useRef<Task[]>([])
+  const deepLinkHandledRef = useRef(false)
 
   // `profiles` is already filtered to is_active at the source (see the
   // clients/team-members load effect below) — this Set lets MyBoard
@@ -675,7 +691,7 @@ export function Work() {
   useEffect(() => {
     void (async () => {
       try {
-        const data = await getTasks()
+        const data = await loadWithRetry(() => getTasks())
         setTasks(data)
         if (!alertsRunRef.current) {
           alertsRunRef.current = true
@@ -712,7 +728,7 @@ export function Work() {
   useEffect(() => {
     void (async () => {
       try {
-        const dbBoards = await getBoards()
+        const dbBoards = await loadWithRetry(() => getBoards())
         if (dbBoards.length > 0) {
           setBoards(dbBoards)
           setActiveBoard(prev => dbBoards.some(b => b.id === prev) ? prev : dbBoards[0].id)
@@ -725,17 +741,23 @@ export function Work() {
     })()
   }, [])
 
-  // Arriving from a notification link: open that ticket straight away. Reads
-  // `tasks` rather than the ref, which is only refreshed by a later effect.
+  // Open notification targets and durable ?task= deep links after the
+  // authenticated task list has loaded. The URL survives login and refresh.
   useEffect(() => {
-    if (tasksLoading || tasks.length === 0) return
-    const focusId = takeTaskFocus()
+    if (tasksLoading) return
+    const urlTaskId = new URLSearchParams(window.location.search).get('task')
+    if (urlTaskId && deepLinkHandledRef.current) return
+    const focusId = urlTaskId || takeTaskFocus()
     if (!focusId) return
     const target = tasks.find(t => t.id === focusId)
+    if (urlTaskId) deepLinkHandledRef.current = true
     if (!target) return
-    setTab('tasks')
-    setActiveBoard(target.board)
-    setOpenId(focusId)
+    const timer = window.setTimeout(() => {
+      setTab('tasks')
+      setActiveBoard(target.board)
+      setOpenId(focusId)
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [tasksLoading, tasks])
 
   // Clicking a task notification while already on Work (no navigation, so
