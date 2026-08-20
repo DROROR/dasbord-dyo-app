@@ -124,7 +124,7 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange: () => void 
   return (
     <button
       type="button"
-      dir={workDir}
+      dir="ltr"
       onClick={onChange}
       className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
         enabled ? 'bg-primary' : 'bg-gray-200'
@@ -543,7 +543,7 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
 export function Work() {
   const { profile, hasPermission, canManagePermissions, isOwner }  = useAuth()
   const { addNotification }   = useNotifications()
-  const { t: tr, dir: workDir } = useWorkLang()
+  const { t: tr } = useWorkLang()
   const currentUser           = profile?.name ?? 'Dror'
   const canViewWork  = hasPermission('work', 'view')
   const canEdit      = hasPermission('work', 'edit')
@@ -1007,7 +1007,7 @@ export function Work() {
 
   return (
     <div
-      dir={workDir}
+      dir="ltr"
       translate="no"
       className="notranslate flex flex-col -m-6 w-full max-w-full min-w-0"
       style={{ height: 'calc(100vh - 64px)' }}
