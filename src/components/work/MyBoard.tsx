@@ -431,12 +431,12 @@ export function MyBoard({
   const hasAnyTasks = displayTasks.length > 0
 
   return (
-    <div className="flex flex-col gap-5 flex-1 min-h-0">
+    <div className="flex flex-col gap-3 flex-1 min-h-0">
       {/* Active timer banner */}
       {activeTimer && (
         <button
           onClick={() => onOpenTask(activeTimer.taskId)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-primary/10 border border-primary/20 rounded-xl text-sm font-medium text-primary hover:bg-primary/20 transition-colors animate-pulse shrink-0 text-right"
+          className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl text-sm font-medium text-primary hover:bg-primary/20 transition-colors animate-pulse shrink-0 text-right"
         >
           <Clock size={14} className="shrink-0 animate-none" />
           <span>{tr('שעון פעיל', 'Active timer')}: {activeTimer.taskTitle}</span>
@@ -445,7 +445,7 @@ export function MyBoard({
 
       {/* Alerts */}
       {(pendingClose.length > 0 || overdueTasks.length > 0 || unclaimed.length > 0) && (
-        <div className="flex flex-col gap-2 shrink-0">
+        <div className="flex max-h-28 flex-col gap-1.5 overflow-y-auto rounded-xl shrink-0">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{tr('התראות', 'Alerts')}</p>
 
           {/* Urgent work and support tickets are always the first actionable
@@ -454,7 +454,7 @@ export function MyBoard({
             const urgent = !unclaimedSupportBoard.has(t.board)
             return (
               <button key={t.id} onClick={() => onOpenTask(t.id)}
-                className="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5 hover:bg-orange-100 transition-colors text-left w-full"
+                className="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 hover:bg-orange-100 transition-colors text-left w-full"
               >
                 {urgent
                   ? <AlertCircle size={14} className="text-red-500 shrink-0" />
@@ -474,7 +474,7 @@ export function MyBoard({
 
           {pendingClose.map(t => (
             <button key={t.id} onClick={() => onOpenTask(t.id)}
-              className="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5 hover:bg-orange-100 transition-colors text-left w-full"
+              className="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 hover:bg-orange-100 transition-colors text-left w-full"
             >
               <CheckCircle2 size={14} className="text-orange-500 shrink-0" />
               <span className="text-[10px] font-mono text-orange-400 shrink-0">{t.id}</span>
@@ -488,7 +488,7 @@ export function MyBoard({
 
           {overdueTasks.map(t => (
             <button key={t.id} onClick={() => onOpenTask(t.id)}
-              className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 hover:bg-red-100 transition-colors text-left w-full"
+              className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 hover:bg-red-100 transition-colors text-left w-full"
             >
               <AlertCircle size={14} className="text-red-500 shrink-0" />
               <span className="text-[10px] font-mono text-red-400 shrink-0">{t.id}</span>
@@ -510,15 +510,15 @@ export function MyBoard({
           reordered beneath it (that's what the removed order-first classes
           on the alerts/dashboard blocks used to cause — DOM order alone now
           matches the intended visual order, so no CSS ordering is needed). */}
-      <div className="grid grid-cols-3 gap-3 shrink-0">
+      <div className="grid grid-cols-3 gap-2 shrink-0">
         {([
           { label: tr('המשימות שלי', 'My Tasks'),   value: displayTasks.length, sub: tr('משויכות אליך', 'assigned to you'), cls: 'text-primary' },
           { label: tr('באיחור', 'Overdue'),          value: overdueTasks.length, sub: tr('עבר תאריך היעד', 'past due date'), cls: overdueTasks.length > 0 ? 'text-red-600' : 'text-gray-300', bg: overdueTasks.length > 0 ? 'bg-red-50 border-red-200' : undefined },
           { label: tr('זמן העבודה שלי', 'My Working Time'), value: hoursThisMonth, sub: tr('סה״כ שעות החודש', 'Total hours this month'), cls: 'text-primary', isHours: true },
         ] as const).map(({ label, value, sub, cls, bg, isHours }) => (
-          <div key={label} className={`border rounded-xl p-4 shadow-sm ${bg ?? 'bg-white border-gray-100'}`}>
+          <div key={label} className={`border rounded-xl px-3 py-2.5 shadow-sm ${bg ?? 'bg-white border-gray-100'}`}>
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{label}</p>
-            <p className={`text-2xl font-bold ${cls}`}>{isHours ? fmtHours(value as number) : value}</p>
+            <p className={`text-xl font-bold ${cls}`}>{isHours ? fmtHours(value as number) : value}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
           </div>
         ))}
@@ -533,10 +533,11 @@ export function MyBoard({
           <p className="text-sm font-semibold text-gray-500">{tr('אין משימות המשויכות אליך', 'No tasks assigned to you')}</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-5 flex-1 min-h-0 overflow-y-auto pb-4">
+        <div className="grid flex-1 min-h-0 gap-3 overflow-y-auto pb-3 xl:grid-cols-[minmax(300px,0.85fr)_minmax(0,2fr)] xl:overflow-hidden">
+          <div className="flex min-h-0 flex-col gap-3 xl:overflow-y-auto xl:pe-1">
           {statusResponsibilityGroups.length > 0 && (
-            <section className="rounded-2xl border-2 border-primary/30 bg-gradient-to-br from-primary/10 via-white to-purple-50 p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-3 mb-3">
+            <section className="rounded-xl border border-primary/25 bg-gradient-to-br from-primary/10 via-white to-purple-50/70 p-3 shadow-sm">
+              <div className="flex items-start justify-between gap-3 mb-2">
                 <div>
                   <p className="text-sm font-bold text-primary">{tr('התורים באחריותך', 'Your Status Queues')}</p>
                   <p className="text-[11px] text-gray-500 mt-0.5">
@@ -547,16 +548,16 @@ export function MyBoard({
                   {statusResponsibilityTasks.length}
                 </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-2">
                 {statusResponsibilityGroups.map(group => {
                   const selected = activeGroupId === group.id
                   return (
                     <button
                       key={group.id}
                       onClick={() => setSelectedGroupId(group.id)}
-                      className={`flex items-center gap-3 rounded-xl border p-4 text-left transition-all ${selected ? 'border-primary bg-white shadow-md ring-2 ring-primary/15' : 'border-primary/20 bg-white/80 hover:border-primary/50 hover:shadow-sm'}`}
+                      className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${selected ? 'border-primary bg-white shadow-md ring-2 ring-primary/15' : 'border-primary/20 bg-white/80 hover:border-primary/50 hover:shadow-sm'}`}
                     >
-                      <span className={`min-w-12 h-12 px-2 rounded-xl flex items-center justify-center text-xl font-bold ${selected ? 'bg-primary text-white' : 'bg-primary/10 text-primary'}`}>
+                      <span className={`min-w-10 h-10 px-2 rounded-xl flex items-center justify-center text-xl font-bold ${selected ? 'bg-primary text-white' : 'bg-primary/10 text-primary'}`}>
                         {group.tasks.length}
                       </span>
                       <span className="min-w-0 flex-1">
@@ -574,7 +575,7 @@ export function MyBoard({
           {actionGroups.length > 0 && (
             <section className="flex flex-col gap-2">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{tr('נדרש טיפול', 'Needs Action')}</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {actionGroups.map(group => {
                   const selected = activeGroupId === group.id
                   return (
@@ -616,6 +617,8 @@ export function MyBoard({
             </section>
           )}
 
+          </div>
+          <div className="min-h-0 xl:overflow-y-auto xl:ps-1">
           {selectedGroup && (
             <MyStatusSection
               key={selectedGroup.id}
@@ -631,6 +634,7 @@ export function MyBoard({
               onMoveClick={setMovingTask}
             />
           )}
+          </div>
         </div>
       )}
 
