@@ -575,7 +575,7 @@ export function TaskDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6" onClick={onClose}>
-      <div className="relative bg-white rounded-3xl shadow-2xl ring-1 ring-black/5 w-full max-w-5xl flex flex-col overflow-hidden" style={{ maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
+      <div className="relative bg-white rounded-3xl shadow-2xl ring-1 ring-black/5 w-full max-w-6xl flex flex-col overflow-hidden" style={{ maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex items-center gap-3 px-5 sm:px-6 py-4 border-b border-gray-100 bg-white/95 shrink-0">
@@ -969,7 +969,7 @@ export function TaskDetailModal({
           </div>
 
           {/* Right sidebar */}
-          <div className="w-full lg:w-[336px] shrink-0 border-t lg:border-t-0 lg:border-l border-gray-100 bg-gray-50/40 overflow-visible lg:overflow-y-auto px-5 py-5 flex flex-col gap-4">
+          <div className="w-full lg:w-[384px] shrink-0 border-t lg:border-t-0 lg:border-l border-gray-100 bg-gray-50/40 overflow-visible lg:overflow-y-auto px-5 py-5 flex flex-col gap-4">
 
             {/* Status */}
             <div>
@@ -1191,7 +1191,7 @@ export function TaskDetailModal({
                   <div className="flex items-center justify-between"><p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Time entries</p><span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">{timeEntries.length}</span></div>
                   {[...timeEntries].reverse().map(entry => (
                     editingId === entry.id ? (
-                      <div key={entry.id} className="flex items-center gap-1.5 text-[10px] p-2 rounded-xl bg-white border border-primary/20 shadow-sm">
+                      <div key={entry.id} className="grid min-w-0 grid-cols-[auto_auto_2.25rem_2.25rem] items-center gap-1.5 rounded-xl border border-primary/20 bg-white p-2 text-[10px] shadow-sm">
                         <span className="text-gray-500 font-mono shrink-0 w-9">{entry.date.slice(5)}</span>
                         <Avatar name={entry.loggedBy} size="xs" />
                         <input
@@ -1208,16 +1208,16 @@ export function TaskDetailModal({
                           value={editNote} onChange={e => setEditNote(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter') void saveEdit(entry.id); if (e.key === 'Escape') cancelEdit() }}
                           disabled={timeSaving}
-                          className="flex-1 min-w-0 text-[10px] border border-primary/40 rounded px-1 py-0.5 bg-white focus:outline-none focus:border-primary disabled:bg-gray-50"
+                          className="col-span-4 min-w-0 w-full text-[10px] border border-primary/40 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-primary disabled:bg-gray-50"
                           placeholder="note"
                         />
-                        <button onClick={() => void saveEdit(entry.id)} disabled={timeSaving} className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white shrink-0 px-2 py-1 rounded-lg font-semibold disabled:opacity-40">
+                        <button onClick={() => void saveEdit(entry.id)} disabled={timeSaving} className="col-span-2 flex min-w-0 items-center justify-center gap-1 rounded-lg bg-green-600 px-2 py-1.5 font-semibold text-white hover:bg-green-700 disabled:opacity-40">
                           {timeSaving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}<span>Save</span>
                         </button>
-                        <button onClick={cancelEdit} disabled={timeSaving} className="flex items-center gap-1 text-gray-600 bg-gray-100 hover:bg-gray-200 shrink-0 px-2 py-1 rounded-lg font-semibold disabled:opacity-40"><X size={10} /><span>Cancel</span></button>
+                        <button onClick={cancelEdit} disabled={timeSaving} className="col-span-2 flex min-w-0 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2 py-1.5 font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40"><X size={10} /><span>Cancel</span></button>
                       </div>
                     ) : (
-                      <div key={entry.id} className="flex items-center gap-2 text-[10px] group p-2 rounded-xl bg-white border border-gray-100 hover:border-primary/20 hover:shadow-sm transition-all">
+                      <div key={entry.id} className="group grid min-w-0 grid-cols-[auto_auto_auto_minmax(0,1fr)_auto_auto] items-center gap-2 rounded-xl border border-gray-100 bg-white p-2 text-[10px] transition-all hover:border-primary/20 hover:shadow-sm">
                         {entry.isLocked
                           ? <Lock size={9} className="text-gray-400 shrink-0" />
                           : <div className="w-[9px] shrink-0" />
