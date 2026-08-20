@@ -127,7 +127,7 @@ const AGENT_STATUS = {
 
 function SectionHeader({ title, action }: { title: string; action?: string }) {
   return (
-    <div className="flex items-center justify-between mb-4">
+    <div className="flex items-center justify-between mb-2">
       <h2 className="text-base font-semibold text-primary">{title}</h2>
       {action && (
         <button className="text-xs text-secondary-dark hover:text-secondary font-medium transition-colors">
@@ -140,7 +140,7 @@ function SectionHeader({ title, action }: { title: string; action?: string }) {
 
 function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`bg-surface rounded-2xl border border-gray-100 shadow-sm ${className}`}>
+    <div className={`bg-gradient-to-br from-white to-gray-50/40 rounded-xl border border-gray-200/70 shadow-[0_1px_3px_rgba(31,50,114,0.06)] ${className}`}>
       {children}
     </div>
   )
@@ -227,7 +227,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void 
   ]
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="flex min-h-full w-full max-w-[1600px] flex-col gap-4 mx-auto">
 
       {/* ── Team Overview modal ── */}
       {showTeam && (
@@ -248,19 +248,19 @@ export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void 
       )}
 
       {/* ── Stats row ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {STAT_CARDS.map(({ label, value, icon: Icon, iconColor, iconBg, trend, trendUp }) => (
-          <Card key={label} className="p-5">
-            <div className="flex items-start justify-between mb-3">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${iconBg}`}>
+          <Card key={label} className="group relative overflow-hidden p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${iconBg}`}>
                 {loading ? <Loader2 size={18} className={`${iconColor} animate-spin`} /> : <Icon size={18} className={iconColor} />}
               </div>
-              <span className={`flex items-center gap-1 text-xs font-medium ${trendUp ? 'text-green-600' : 'text-accent'}`}>
+              <span className={`flex max-w-[58%] items-center justify-end gap-1 text-right text-[11px] leading-tight font-medium ${trendUp ? 'text-green-600' : 'text-accent'}`}>
                 {trendUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                 {trend}
               </span>
             </div>
-            <p className="text-2xl font-bold text-primary">{value}</p>
+            <p className="text-xl lg:text-2xl font-bold tracking-tight text-primary">{value}</p>
             <p className="text-xs text-gray-500 mt-0.5">{label}</p>
           </Card>
         ))}
@@ -272,13 +272,14 @@ export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void 
       {/* ── Customer updates waiting for someone to send ── */}
       <PendingWhatsAppMessages currentUser={profile?.name ?? ''} onNavigate={onNavigate} />
 
+      <div className="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-12 xl:items-start">
       {/* ── Middle row: Alerts + Activity ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 xl:col-span-5 xl:order-1">
 
         {/* Alerts — takes 2 of 3 columns */}
         <div className="lg:col-span-2">
           <SectionHeader title={t('התראות פעילות', 'Active alerts')} action={t('הצג הכל', 'View all')} />
-          <div className="space-y-3">
+          <div className="space-y-2">
             {[...ALERTS, ...((stats?.inactiveClients ?? 0) > 0 ? [{
               severity: 'warning' as const,
               icon: AlertTriangle,
@@ -290,7 +291,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void 
               return (
                 <div
                   key={title}
-                  className={`flex items-center gap-4 p-4 rounded-2xl border ${s.wrap}`}
+                  className={`flex items-center gap-3 p-3 rounded-xl border ${s.wrap}`}
                 >
                   <Icon size={18} className={`${s.icon} shrink-0`} />
                   <div className="flex-1 min-w-0">
@@ -308,7 +309,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void 
             {agentErrors.map(log => (
               <div
                 key={log.id}
-                className="flex items-center gap-4 p-4 rounded-2xl border border-red-200 bg-red-50"
+                className="flex items-center gap-3 p-3 rounded-xl border border-red-200 bg-red-50"
               >
                 <AlertCircle size={18} className="text-red-500 shrink-0" />
                 <div className="flex-1 min-w-0">
@@ -317,13 +318,22 @@ export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void 
                 </div>
               </div>
             ))}
+            {agentErrors.length === 0 && (stats?.inactiveClients ?? 0) === 0 && (
+              <div className="flex items-center gap-3 rounded-xl border border-green-100 bg-green-50/70 p-3">
+                <CheckCircle2 size={18} className="shrink-0 text-green-600" />
+                <div>
+                  <p className="text-sm font-semibold text-green-800">{t('הכל תקין', 'All systems clear')}</p>
+                  <p className="text-xs text-green-700/60">{t('אין התראות פעילות כרגע', 'No active alerts right now')}</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Recent Activity — takes 1 of 3 columns */}
         <div>
           <SectionHeader title={t('פעילות אחרונה', 'Recent activity')} />
-          <Card className="divide-y divide-gray-50">
+          <Card className="max-h-[300px] overflow-y-auto divide-y divide-gray-50">
             {activity.length === 0 ? (
               <div className="p-4 text-xs text-gray-400">{t('אין פעילות אחרונה עדיין', 'No activity yet')}</div>
             ) : activity.map(log => {
@@ -331,7 +341,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void 
               const Icon  = isErr ? AlertCircle : CheckCircle2
               const color = isErr ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
               return (
-                <div key={log.id} className="flex items-start gap-3 p-4">
+                <div key={log.id} className="flex items-start gap-3 p-3">
                   <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${color}`}>
                     <Icon size={14} />
                   </div>
@@ -349,13 +359,13 @@ export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void 
 
       {/* ── Team Overview card (admin only) ── */}
       {isAdmin && (
-        <div>
+        <div className="xl:col-span-12 xl:order-3">
           <SectionHeader title={t('צוות פיתוח', 'Development team')} />
           <button
             onClick={() => setShowTeam(true)}
-            className="w-full flex items-center gap-4 p-5 bg-surface rounded-2xl border border-gray-100 shadow-sm hover:border-primary/30 hover:shadow-md transition-all text-right"
+            className="w-full flex items-center gap-3 p-4 bg-gradient-to-br from-white to-gray-50/40 rounded-xl border border-gray-200/70 shadow-[0_1px_3px_rgba(31,50,114,0.06)] hover:border-primary/30 hover:shadow-md transition-all text-right"
           >
-            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
               <BarChart2 size={20} className="text-primary" />
             </div>
             <div className="flex-1 min-w-0">
@@ -368,17 +378,17 @@ export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void 
       )}
 
       {/* ── Agents status ── */}
-      <div>
+      <div className="xl:col-span-7 xl:order-2">
         <SectionHeader title={t('סטטוס סוכנים', 'Agent status')} action={t('לוח בקרה מלא', 'Full control panel')} />
-        <Card className="overflow-hidden">
+        <Card className="overflow-auto max-h-[min(38vh,360px)]">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-10 bg-gray-50">
               <tr className="border-b border-gray-100 bg-gray-50/60">
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">{t('סוכן', 'Agent')}</th>
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">{t('תיאור', 'Description')}</th>
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">{t('סטטוס', 'Status')}</th>
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden md:table-cell">{t('ריצה אחרונה', 'Last run')}</th>
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden md:table-cell">{t('ריצה הבאה', 'Next run')}</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-4 py-2.5">{t('סוכן', 'Agent')}</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-4 py-2.5 hidden sm:table-cell">{t('תיאור', 'Description')}</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-4 py-2.5">{t('סטטוס', 'Status')}</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-4 py-2.5 hidden md:table-cell">{t('ריצה אחרונה', 'Last run')}</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-4 py-2.5 hidden md:table-cell">{t('ריצה הבאה', 'Next run')}</th>
                 <th className="px-5 py-3" />
               </tr>
             </thead>
@@ -393,19 +403,19 @@ export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void 
                 const nextRun = t(meta.schedule, meta.scheduleEn)
                 return (
                   <tr key={meta.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-2.5">
                       <span className="font-medium text-gray-800">{name}</span>
                     </td>
-                    <td className="px-5 py-3.5 text-gray-400 text-xs hidden sm:table-cell">{desc}</td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-2.5 text-gray-400 text-xs hidden sm:table-cell">{desc}</td>
+                    <td className="px-4 py-2.5">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${status === 'active' ? 'animate-pulse' : ''}`} />
                         {t(s.label, s.labelEn)}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 text-gray-400 text-xs hidden md:table-cell">{lastRun}</td>
-                    <td className="px-5 py-3.5 text-gray-400 text-xs hidden md:table-cell">{nextRun}</td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-2.5 text-gray-400 text-xs hidden md:table-cell">{lastRun}</td>
+                    <td className="px-4 py-2.5 text-gray-400 text-xs hidden md:table-cell">{nextRun}</td>
+                    <td className="px-4 py-2.5">
                       <button className="p-1.5 text-gray-300 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors">
                         <RefreshCw size={13} />
                       </button>
@@ -416,6 +426,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (page: string) => void 
             </tbody>
           </table>
         </Card>
+      </div>
       </div>
 
     </div>
