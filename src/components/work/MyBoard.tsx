@@ -159,7 +159,7 @@ function MyStatusSection({
   // safe UI localization, not touching user/admin content.
   const label = tr(STATUS_LABEL_HE[col.id] ?? col.label, col.label)
   return (
-    <div className={`h-full flex flex-col border-l-2 rounded-xl overflow-hidden shadow-sm ${STATUS_LEFT[col.id] ?? 'border-l-gray-300'} bg-white`}>
+    <div className={`h-full flex flex-col border-l-2 rounded-xl overflow-hidden ${STATUS_LEFT[col.id] ?? 'border-l-gray-300'} bg-white`}>
       <button
         onClick={() => setOpen(o => !o)}
         className="flex items-center gap-2.5 w-full px-4 py-2.5 bg-gray-50/80 hover:bg-gray-100/60 transition-colors text-left border-b border-gray-100"
@@ -443,6 +443,33 @@ export function MyBoard({
         </button>
       )}
 
+      {/* Real personal metrics stay first; alerts and the responsive
+          task workspace follow in a stable dashboard hierarchy. */}
+      <div className="grid grid-cols-1 gap-3 shrink-0 order-first sm:grid-cols-3">
+        {([
+          { label: tr('המשימות שלי', 'My Tasks'),   value: displayTasks.length, sub: tr('משויכות אליך', 'assigned to you'), cls: 'text-primary', bg: 'bg-gradient-to-br from-primary/10 to-white border-primary/20' },
+          { label: tr('באיחור', 'Overdue'),          value: overdueTasks.length, sub: tr('עבר תאריך היעד', 'past due date'), cls: overdueTasks.length > 0 ? 'text-red-600' : 'text-gray-300', bg: overdueTasks.length > 0 ? 'bg-gradient-to-br from-red-50 to-white border-red-200' : 'bg-gradient-to-br from-gray-50 to-white border-gray-200' },
+          { label: tr('זמן העבודה שלי', 'My Working Time'), value: hoursThisMonth, sub: tr('סה״כ שעות החודש', 'Total hours this month'), cls: 'text-secondary-dark', bg: 'bg-gradient-to-br from-secondary/15 to-white border-secondary/30', isHours: true },
+        ] as const).map(({ label, value, sub, cls, bg, isHours }) => (
+          <div key={label} className={`relative overflow-hidden border rounded-2xl px-4 py-3.5 transition-all hover:-translate-y-0.5 ${bg ?? 'bg-white border-gray-100'}`}>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{label}</p>
+            <p className={`text-2xl font-bold ${cls}`}>{isHours ? fmtHours(value as number) : value}</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Personal board status dashboard */}
+      {!hasAnyTasks ? (
+        <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
+            <User size={26} className="text-gray-300" />
+          </div>
+          <p className="text-sm font-semibold text-gray-500">{tr('אין משימות המשויכות אליך', 'No tasks assigned to you')}</p>
+        </div>
+      ) : (
+        <div className="grid flex-1 min-h-0 gap-4 overflow-y-auto pb-3 xl:grid-cols-12 xl:overflow-hidden">
+          <aside className="flex min-h-0 flex-col gap-3 rounded-2xl border border-gray-200/70 bg-gray-50/70 p-3 xl:order-2 xl:col-span-4 xl:overflow-y-auto">
       {/* Alerts */}
       {(pendingClose.length > 0 || overdueTasks.length > 0 || unclaimed.length > 0) && (
         <div className="flex max-h-32 flex-col gap-2 overflow-y-auto rounded-xl shrink-0">
@@ -503,35 +530,15 @@ export function MyBoard({
 
         </div>
       )}
-      {/* Real personal metrics stay first; alerts and the responsive
-          task workspace follow in a stable dashboard hierarchy. */}
-      <div className="grid grid-cols-1 gap-3 shrink-0 order-first sm:grid-cols-3">
-        {([
-          { label: tr('המשימות שלי', 'My Tasks'),   value: displayTasks.length, sub: tr('משויכות אליך', 'assigned to you'), cls: 'text-primary', bg: 'bg-gradient-to-br from-primary/10 to-white border-primary/20' },
-          { label: tr('באיחור', 'Overdue'),          value: overdueTasks.length, sub: tr('עבר תאריך היעד', 'past due date'), cls: overdueTasks.length > 0 ? 'text-red-600' : 'text-gray-300', bg: overdueTasks.length > 0 ? 'bg-gradient-to-br from-red-50 to-white border-red-200' : 'bg-gradient-to-br from-gray-50 to-white border-gray-200' },
-          { label: tr('זמן העבודה שלי', 'My Working Time'), value: hoursThisMonth, sub: tr('סה״כ שעות החודש', 'Total hours this month'), cls: 'text-secondary-dark', bg: 'bg-gradient-to-br from-secondary/15 to-white border-secondary/30', isHours: true },
-        ] as const).map(({ label, value, sub, cls, bg, isHours }) => (
-          <div key={label} className={`relative overflow-hidden border rounded-2xl px-4 py-3.5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${bg ?? 'bg-white border-gray-100'}`}>
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{label}</p>
-            <p className={`text-2xl font-bold ${cls}`}>{isHours ? fmtHours(value as number) : value}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Personal board status dashboard */}
-      {!hasAnyTasks ? (
-        <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
-            <User size={26} className="text-gray-300" />
-          </div>
-          <p className="text-sm font-semibold text-gray-500">{tr('אין משימות המשויכות אליך', 'No tasks assigned to you')}</p>
-        </div>
-      ) : (
-        <div className="grid flex-1 min-h-0 gap-4 overflow-y-auto pb-3 xl:grid-cols-12 xl:overflow-hidden">
-          <aside className="flex min-h-0 flex-col gap-3 rounded-2xl border border-gray-200/70 bg-gray-50/70 p-3 xl:order-2 xl:col-span-4 xl:overflow-y-auto">
+          {pendingClose.length === 0 && overdueTasks.length === 0 && unclaimed.length === 0 && statusResponsibilityGroups.length === 0 && actionGroups.length === 0 && trackingGroups.length === 0 && (
+            <div className="flex flex-col items-center justify-center rounded-xl border border-green-100 bg-green-50/70 px-4 py-8 text-center">
+              <CheckCircle2 size={20} className="mb-2 text-green-600" />
+              <p className="text-xs font-semibold text-green-800">{tr('הכל מעודכן', 'Everything is up to date')}</p>
+              <p className="mt-0.5 text-[10px] text-green-700/60">{tr('אין התראות או פעולות ממתינות', 'No alerts or pending actions')}</p>
+            </div>
+          )}
           {statusResponsibilityGroups.length > 0 && (
-            <section className="rounded-xl border border-primary/25 bg-gradient-to-br from-primary/10 via-white to-purple-50 p-3 shadow-sm">
+            <section className="rounded-xl border border-primary/25 bg-gradient-to-br from-primary/10 via-white to-purple-50 p-3">
               <div className="flex items-start justify-between gap-3 mb-2">
                 <div>
                   <p className="text-sm font-bold text-primary">{tr('התורים באחריותך', 'Your Status Queues')}</p>
@@ -539,7 +546,7 @@ export function MyBoard({
                     {tr('המשימות האלה ממתינות עכשיו לטיפול שלך', 'These tasks are waiting for your action now')}
                   </p>
                 </div>
-                <span className="min-w-9 h-9 px-2 rounded-xl bg-primary text-white flex items-center justify-center text-base font-bold shadow-sm">
+                <span className="min-w-9 h-9 px-2 rounded-xl bg-primary text-white flex items-center justify-center text-base font-bold">
                   {statusResponsibilityTasks.length}
                 </span>
               </div>
@@ -550,7 +557,7 @@ export function MyBoard({
                     <button
                       key={group.id}
                       onClick={() => setSelectedGroupId(group.id)}
-                      className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${selected ? 'border-primary bg-white shadow-md ring-2 ring-primary/15' : 'border-primary/20 bg-white/80 hover:border-primary/50 hover:shadow-sm'}`}
+                      className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${selected ? 'border-primary bg-white ring-2 ring-primary/15' : 'border-primary/20 bg-white/80 hover:border-primary/50'}`}
                     >
                       <span className={`min-w-10 h-10 px-2 rounded-xl flex items-center justify-center text-xl font-bold ${selected ? 'bg-primary text-white' : 'bg-primary/10 text-primary'}`}>
                         {group.tasks.length}
@@ -568,7 +575,7 @@ export function MyBoard({
           )}
 
           {actionGroups.length > 0 && (
-            <section className="flex flex-col gap-2 rounded-xl border border-gray-200/70 bg-white p-3 shadow-sm">
+            <section className="flex flex-col gap-2 rounded-xl border border-gray-200/70 bg-white p-3">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{tr('נדרש טיפול', 'Needs Action')}</p>
               <div className="grid grid-cols-2 gap-2">
                 {actionGroups.map(group => {
@@ -577,7 +584,7 @@ export function MyBoard({
                     <button
                       key={group.id}
                       onClick={() => setSelectedGroupId(group.id)}
-                      className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${selected ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/10' : 'border-gray-100 bg-white hover:border-primary/30 hover:bg-gray-50'}`}
+                      className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${selected ? 'border-primary bg-primary/5 ring-1 ring-primary/10' : 'border-gray-100 bg-white hover:border-primary/30 hover:bg-gray-50'}`}
                     >
                       <span className={`text-xs font-semibold truncate ${selected ? 'text-primary' : 'text-gray-600'}`}>{group.label}</span>
                       <span className={`min-w-6 h-6 px-1.5 rounded-full flex items-center justify-center text-xs font-bold ${selected ? 'bg-primary text-white' : 'bg-gray-100 text-gray-500'}`}>{group.tasks.length}</span>
@@ -598,7 +605,7 @@ export function MyBoard({
                     <button
                       key={group.id}
                       onClick={() => setSelectedGroupId(group.id)}
-                      className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${selected ? 'border-purple-300 bg-white shadow-sm' : 'border-gray-100 bg-white/70 hover:border-purple-200'}`}
+                      className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${selected ? 'border-purple-300 bg-white' : 'border-gray-100 bg-white/70 hover:border-purple-200'}`}
                     >
                       <span className={`text-xs font-semibold truncate ${selected ? 'text-purple-700' : 'text-gray-500'}`}>{group.label}</span>
                       <span className="flex items-center gap-2 shrink-0">
@@ -613,7 +620,7 @@ export function MyBoard({
           )}
 
           </aside>
-          <main className="min-h-[260px] rounded-2xl border border-gray-200/70 bg-white shadow-sm xl:order-1 xl:col-span-8 xl:min-h-0 xl:overflow-hidden">
+          <main className="min-h-[260px] rounded-2xl border border-gray-200/70 bg-white xl:order-1 xl:col-span-8 xl:min-h-0 xl:overflow-hidden">
           {selectedGroup && (
             <MyStatusSection
               key={selectedGroup.id}
