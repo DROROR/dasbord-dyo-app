@@ -86,7 +86,7 @@ function TaskCard({
           <button
             onClick={e => { e.stopPropagation(); onMoveClick(task) }}
             title="Move to another board"
-            className="p-1 rounded-lg text-gray-300 hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
+            className="p-1 rounded-lg text-gray-400 hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
           >
             <ArrowRightLeft size={13} />
           </button>
@@ -102,16 +102,16 @@ function TaskCard({
           </span>
         )}
         <PriorityQuickEdit task={task} priorityDefs={priorityDefs} canEdit={canEdit} onSaved={onTaskSaved} />
-        <span className="text-[10px] font-mono text-gray-300 shrink-0">{task.id}</span>
+        <span className="text-[10px] font-mono text-gray-400 shrink-0">{task.id}</span>
         <div className="flex-1" />
         {task.dueDate && (
-          <span className={`text-[10px] flex items-center gap-0.5 shrink-0 ${overdue ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+          <span className={`text-[10px] flex items-center gap-0.5 shrink-0 ${overdue ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
             <Calendar size={9} />
             {fmtDate(task.dueDate)}
           </span>
         )}
         {entryTotal(task.timeEntries) > 0 && (
-          <span className="text-[10px] text-gray-300 flex items-center gap-0.5 shrink-0">
+          <span className="text-[10px] text-gray-400 flex items-center gap-0.5 shrink-0">
             <Clock size={9} />
             {fmtHours(entryTotal(task.timeEntries))}
           </span>
@@ -149,11 +149,11 @@ function StatusSection({
         onClick={() => setOpen(o => !o)}
         className="flex items-center gap-2.5 w-full px-4 py-2.5 bg-gray-50/80 hover:bg-gray-100/60 transition-colors text-left border-b border-gray-100 rounded-t-lg"
       >
-        <ChevronDown size={13} className={`text-gray-400 transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} />
+        <ChevronDown size={13} className={`text-gray-500 transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} />
         <span className={`text-xs font-bold px-3 py-1 rounded-full ${col.pillCls}`}>
           {col.label}
         </span>
-        <span className="text-xs font-bold text-gray-400 bg-white border border-gray-200 rounded-full px-1.5 min-w-[20px] text-center">
+        <span className="text-xs font-bold text-gray-500 bg-white border border-gray-200 rounded-full px-1.5 min-w-[20px] text-center">
           {tasks.length}
         </span>
       </button>
@@ -161,7 +161,7 @@ function StatusSection({
       {open && (
         <div className="flex flex-col gap-2 p-2 pb-2" style={{ minHeight: '100px' }}>
           {tasks.length === 0 && (
-            <div className="flex-1 flex items-center justify-center text-[11px] text-gray-300 select-none py-2">
+            <div className="flex-1 flex items-center justify-center text-[11px] text-gray-400 select-none py-2">
               No tasks
             </div>
           )}
@@ -183,7 +183,7 @@ function StatusSection({
             <button
               onClick={() => onAddTask(col.id)}
               style={{ minHeight: '40px', marginBottom: '8px' }}
-              className="flex items-center justify-center gap-1.5 w-full px-4 py-2 text-[13px] text-gray-400 border border-dashed border-gray-200 rounded-lg bg-transparent hover:text-primary hover:bg-primary/5 hover:border-primary/40 transition-colors mt-1"
+              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-[13px] font-bold text-primary border border-primary/30 rounded-xl bg-primary/5 hover:bg-primary/10 hover:border-primary/60 transition-all mt-1"
             >
               <Plus size={14} /> Add task
             </button>
@@ -319,15 +319,15 @@ export function VerticalBoard({
       {/* Filter bar */}
       <div className="flex items-center gap-2 flex-wrap shrink-0">
         <div className="relative flex-1 min-w-[180px] max-w-xs">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search tasks..."
-            className="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-300"
+            className="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-400"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
+            <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-500">
               <X size={12} />
             </button>
           )}
@@ -372,17 +372,17 @@ export function VerticalBoard({
         </select>
         <button
           onClick={() => setShowArchived(s => !s)}
-          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${showArchived ? 'bg-gray-200 text-gray-700 border-gray-300' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'}`}
+          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${showArchived ? 'bg-gray-200 text-gray-700 border-gray-300' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}
         >
           {showArchived ? 'Hide Archived' : 'Show Archived'}
         </button>
         {anyFilterActive && (
-          <button onClick={() => { setSearch(''); setAssignee(''); setPriority(''); setClient(''); changeBoardFilter('') }} className="flex items-center gap-1 text-sm text-gray-400 hover:text-primary transition-colors">
+          <button onClick={() => { setSearch(''); setAssignee(''); setPriority(''); setClient(''); changeBoardFilter('') }} className="flex items-center gap-1 text-sm text-gray-500 hover:text-primary transition-colors">
             <X size={12} /> Clear
           </button>
         )}
         <div className="flex-1" />
-        <span className="text-xs text-gray-400 shrink-0">{filtered.length} task{filtered.length !== 1 ? 's' : ''}</span>
+        <span className="text-xs text-gray-500 shrink-0">{filtered.length} task{filtered.length !== 1 ? 's' : ''}</span>
       </div>
 
       {/* Vertical sections */}

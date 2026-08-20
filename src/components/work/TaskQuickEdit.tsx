@@ -60,7 +60,7 @@ export function PriorityQuickEdit({
         onClick={() => setOpen(o => !o)}
         disabled={saving}
         className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-60 ${
-          current ? `${current.textCls} ${current.bgCls} ${current.borderCls} hover:brightness-95` : 'text-gray-400 bg-white border-gray-200 hover:border-gray-300'
+          current ? `${current.textCls} ${current.bgCls} ${current.borderCls} hover:brightness-95` : 'text-gray-500 bg-white border-gray-200 hover:border-gray-300'
         }`}
       >
         {saving
@@ -140,7 +140,7 @@ export function AssigneeQuickEdit({
   return (
     <div className="relative shrink-0" onClick={e => e.stopPropagation()}>
       <button onClick={() => setOpen(o => !o)} disabled={saving} className="rounded-full disabled:opacity-60 hover:ring-2 hover:ring-primary/30 transition-all">
-        {saving ? <Loader2 size={size === 'xs' ? 16 : 20} className="animate-spin text-gray-400" /> : <Avatar name={task.assignee} size={size} />}
+        {saving ? <Loader2 size={size === 'xs' ? 16 : 20} className="animate-spin text-gray-500" /> : <Avatar name={task.assignee} size={size} />}
       </button>
 
       {open && (
@@ -150,7 +150,7 @@ export function AssigneeQuickEdit({
             <button
               onClick={() => void choose(null)}
               disabled={saving}
-              className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-50 transition-colors disabled:opacity-50 ${!task.assigneeId ? 'bg-gray-50 font-semibold text-gray-700' : 'text-gray-400'}`}
+              className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-50 transition-colors disabled:opacity-50 ${!task.assigneeId ? 'bg-gray-50 font-semibold text-gray-700' : 'text-gray-500'}`}
             >
               Unassigned
             </button>

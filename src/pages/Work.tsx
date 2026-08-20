@@ -99,7 +99,7 @@ function AddBoardModal({ onSave, onClose }: {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold text-gray-800">New Board</p>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100"><X size={14} /></button>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100"><X size={14} /></button>
         </div>
         <input
           autoFocus value={name} onChange={e => setName(e.target.value)}
@@ -308,16 +308,16 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
             />
           ) : (
             <button onClick={() => setEditingName(true)} className="flex items-center gap-1.5 flex-1 text-sm font-semibold text-gray-800 hover:text-primary transition-colors text-left">
-              {name} <Pencil size={11} className="text-gray-400" />
+              {name} <Pencil size={11} className="text-gray-500" />
             </button>
           )}
-          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100"><X size={14} /></button>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100"><X size={14} /></button>
         </div>
 
         {/* Sub-tabs */}
         <div className="flex border-b border-gray-100 px-5">
           {(canManagePermissions ? (['access', 'priorities', 'statuses'] as const) : (['priorities', 'statuses'] as const)).map(t => (
-            <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-colors ${tab === t ? 'border-primary text-primary' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+            <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-colors ${tab === t ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-600'}`}>
               {t === 'access' ? 'Access Control' : t === 'priorities' ? 'Priorities' : 'Statuses'}
             </button>
           ))}
@@ -344,7 +344,7 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
                       <span className="ml-1.5 text-[9px] text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5">אחראי סטטוס</span>
                     )}
                   </span>
-                  {savingAccessFor === p.id && <Loader2 size={12} className="text-gray-400 animate-spin" />}
+                  {savingAccessFor === p.id && <Loader2 size={12} className="text-gray-500 animate-spin" />}
                   <select
                     value={(access[p.id] ?? 'none') as AL}
                     disabled={savingAccessFor === p.id}
@@ -407,11 +407,11 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
                         <button key={c.label} title={c.label} onClick={() => changePriorityColor(idx, c)} className={`w-4 h-4 rounded-full border-2 ${c.dot} ${p.dotCls === c.dot ? 'border-gray-600' : 'border-transparent'}`} />
                       ))}
                     </div>
-                    <button onClick={() => startEditPriority(idx)} className="p-1 text-gray-300 hover:text-primary transition-colors"><Pencil size={11} /></button>
-                    <button onClick={() => deletePriority(idx)} className="p-1 text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={11} /></button>
+                    <button onClick={() => startEditPriority(idx)} className="p-1 text-gray-400 hover:text-primary transition-colors"><Pencil size={11} /></button>
+                    <button onClick={() => deletePriority(idx)} className="p-1 text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={11} /></button>
                   </div>
                 ))}
-                <p className="text-[10px] text-gray-400">המתג ליד כל עדיפות: הצג בתור התמיכה המשותף</p>
+                <p className="text-[10px] text-gray-500">המתג ליד כל עדיפות: הצג בתור התמיכה המשותף</p>
                 <div className="flex gap-2 mt-1 pt-2 border-t border-gray-100">
                   <input value={newPLabel} onChange={e => setNewPLabel(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addPriority() }} placeholder="New priority..." className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-primary" />
                   <button onClick={addPriority} disabled={!newPLabel.trim()} className="px-2.5 py-1.5 bg-primary text-white text-xs rounded-lg hover:bg-primary/90 disabled:opacity-40"><Plus size={11} /></button>
@@ -446,7 +446,7 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
                         ))}
                       </div>
                       <div className="flex gap-2 justify-end pt-1">
-                        <button onClick={() => setEditSIdx(null)} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded transition-colors">Cancel</button>
+                        <button onClick={() => setEditSIdx(null)} className="text-xs text-gray-500 hover:text-gray-600 px-2 py-1 rounded transition-colors">Cancel</button>
                         <button onClick={() => saveStatusEdit(idx)} className="text-xs font-semibold text-white bg-primary hover:bg-primary/90 px-3 py-1 rounded-lg transition-colors">Save</button>
                       </div>
                     </div>
@@ -454,8 +454,8 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
                     /* View mode */
                     <div className="flex items-center gap-2 px-3 py-2">
                       <div className="flex flex-col gap-0.5 shrink-0">
-                        <button onClick={() => moveStatus(idx, -1)} disabled={idx === 0} className="p-0.5 text-gray-300 hover:text-gray-600 disabled:opacity-20 transition-colors"><ChevronDown size={10} className="rotate-180" /></button>
-                        <button onClick={() => moveStatus(idx, 1)} disabled={idx === statuses.length - 1} className="p-0.5 text-gray-300 hover:text-gray-600 disabled:opacity-20 transition-colors"><ChevronDown size={10} /></button>
+                        <button onClick={() => moveStatus(idx, -1)} disabled={idx === 0} className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-20 transition-colors"><ChevronDown size={10} className="rotate-180" /></button>
+                        <button onClick={() => moveStatus(idx, 1)} disabled={idx === statuses.length - 1} className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-20 transition-colors"><ChevronDown size={10} /></button>
                       </div>
                       <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap shrink-0 ${s.pillCls}`}>{s.label}</span>
                       <span className="text-xs text-gray-600 flex-1 truncate min-w-0">{s.label}</span>
@@ -472,9 +472,9 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
                         <option value="">Unassigned</option>
                         {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
-                      <button onClick={() => startEditStatus(idx)} className="p-1 text-gray-300 hover:text-primary transition-colors shrink-0" title="Edit"><Pencil size={11} /></button>
+                      <button onClick={() => startEditStatus(idx)} className="p-1 text-gray-400 hover:text-primary transition-colors shrink-0" title="Edit"><Pencil size={11} /></button>
                       {s.canDelete ? (
-                        <button onClick={() => deleteStatus(idx)} className="p-1 text-gray-300 hover:text-red-500 transition-colors shrink-0" title="Delete"><Trash2 size={11} /></button>
+                        <button onClick={() => deleteStatus(idx)} className="p-1 text-gray-400 hover:text-red-500 transition-colors shrink-0" title="Delete"><Trash2 size={11} /></button>
                       ) : (
                         <span className="text-[10px] text-gray-200 shrink-0 w-5 text-center select-none" title="Protected">🔒</span>
                       )}
@@ -997,10 +997,10 @@ export function Work() {
 
   if (!canViewWork) {
     return (
-      <div className="flex flex-col items-center justify-center h-96 gap-4 text-gray-400">
+      <div className="flex flex-col items-center justify-center h-96 gap-4 text-gray-500">
         <Briefcase size={48} className="opacity-20" />
         <p className="text-base font-medium">אין לך גישה למודול העבודה</p>
-        <p className="text-sm text-gray-300">צור קשר עם מנהל המערכת לקבלת הרשאות</p>
+        <p className="text-sm text-gray-400">צור קשר עם מנהל המערכת לקבלת הרשאות</p>
       </div>
     )
   }
@@ -1073,7 +1073,7 @@ export function Work() {
                       <span className={`text-xs px-1.5 py-px rounded-full font-bold leading-none ${active ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>{count}</span>
                     </button>
                     {canManageWork && (
-                      <button onClick={() => setSettingsBoard(b)} className={`p-1.5 rounded-lg transition-colors ${active ? 'text-primary hover:bg-primary/10' : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'}`} title="Board settings">
+                      <button onClick={() => setSettingsBoard(b)} className={`p-1.5 rounded-lg transition-colors ${active ? 'text-primary hover:bg-primary/10' : 'text-gray-400 hover:text-gray-500 hover:bg-gray-100'}`} title="Board settings">
                         <Settings size={12} />
                       </button>
                     )}
@@ -1081,7 +1081,7 @@ export function Work() {
                 )
               })}
               {canManageWork && (
-                <button onClick={() => setShowAddBoard(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-dashed border-gray-300 text-gray-400 hover:border-primary hover:text-primary transition-colors whitespace-nowrap">
+                <button onClick={() => setShowAddBoard(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-dashed border-gray-300 text-gray-500 hover:border-primary hover:text-primary transition-colors whitespace-nowrap">
                   <Plus size={13} /> Add Board
                 </button>
               )}
@@ -1091,7 +1091,7 @@ export function Work() {
                   onClick={() => addTaskWithStatus('not_started')}
                   disabled={!canCreateInBoard(activeBoard)}
                   title={canCreateInBoard(activeBoard) ? undefined : 'אין לך גישה מלאה ללוח הזה — פנה למנהל כדי לקבל הרשאת Full לפני יצירת משימות כאן'}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90 transition-colors shadow-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-primary"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-primary text-white hover:bg-primary/90 transition-all shadow-[0_5px_16px_rgba(31,50,114,0.22)] hover:-translate-y-0.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-primary"
                 >
                   <Plus size={14} /> New Task
                 </button>
