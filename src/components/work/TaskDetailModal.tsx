@@ -574,11 +574,11 @@ export function TaskDetailModal({
   const myOpenSubtasks = subtasks.filter(s => s.assigneeId === currentUserId && s.status !== 'done')
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col overflow-hidden" style={{ maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 bg-gray-950/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6" onClick={onClose}>
+      <div className="relative bg-white rounded-3xl shadow-2xl ring-1 ring-black/5 w-full max-w-5xl flex flex-col overflow-hidden" style={{ maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div className="flex items-center gap-2.5 px-6 py-4 border-b border-gray-100 shrink-0">
+        <div className="flex items-center gap-3 px-5 sm:px-6 py-4 border-b border-gray-100 bg-white/95 shrink-0">
           <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-1 rounded-lg whitespace-nowrap shrink-0">{boardLabel}</span>
           <span className="text-[10px] text-gray-400 font-mono shrink-0">{task.id}</span>
           <div className="flex-1 min-w-0">
@@ -969,7 +969,7 @@ export function TaskDetailModal({
           </div>
 
           {/* Right sidebar */}
-          <div className="w-full lg:w-[272px] shrink-0 border-t lg:border-t-0 lg:border-l border-gray-100 overflow-visible lg:overflow-y-auto px-5 py-5 flex flex-col gap-4">
+          <div className="w-full lg:w-[336px] shrink-0 border-t lg:border-t-0 lg:border-l border-gray-100 bg-gray-50/40 overflow-visible lg:overflow-y-auto px-5 py-5 flex flex-col gap-4">
 
             {/* Status */}
             <div>
@@ -1100,8 +1100,8 @@ export function TaskDetailModal({
             </div>
 
             {/* Time tracker */}
-            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 flex flex-col gap-2.5">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Time tracker</p>
+            <div className="bg-gradient-to-b from-primary/[0.06] to-white rounded-2xl p-4 border border-primary/15 shadow-sm flex flex-col gap-3">
+              <div className="flex items-center justify-between"><div className="flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-lg bg-primary/10 text-primary"><Clock size={14} /></span><div><p className="text-xs font-bold text-gray-800">Time tracker</p><p className="text-[10px] text-gray-400">Track or add work manually</p></div></div></div>
 
               {/* Total + progress */}
               <div className="flex items-baseline justify-between">
@@ -1131,13 +1131,14 @@ export function TaskDetailModal({
               <button
                 onClick={isThisTaskRunning ? () => void stopTimer() : startTimer}
                 disabled={!canLogTime || timeSaving}
-                className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-40 ${isThisTaskRunning ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-primary text-white hover:bg-primary/90'}`}
+                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold shadow-sm transition-all disabled:opacity-40 disabled:shadow-none ${isThisTaskRunning ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-primary text-white hover:bg-primary/90'}`}
               >
                 {timeSaving ? <Loader2 size={12} className="animate-spin" /> : isThisTaskRunning ? <><Square size={12} /> Stop</> : <><Play size={12} /> Start</>}
               </button>
 
               {/* Manual entry form */}
-              <div className="pt-2 border-t border-gray-200 flex flex-col gap-1.5">
+              <div className="mt-1 rounded-xl border border-gray-200 bg-white p-3 flex flex-col gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Manual entry</p>
                 {myOpenSubtasks.length > 0 && (
                   <select
                     value={timeSubtaskId}
@@ -1171,7 +1172,7 @@ export function TaskDetailModal({
                   <button
                     onClick={() => void addManualEntry()}
                     disabled={!canLogTime || timeSaving || ((!manualHours && !manualMins) || (parseInt(manualHours) === 0 && parseInt(manualMins) === 0))}
-                    className="flex-1 px-2 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs rounded-lg transition-colors disabled:opacity-40 font-semibold"
+                    className="flex-1 px-3 py-1.5 bg-primary/10 hover:bg-primary/15 text-primary border border-primary/20 text-xs rounded-lg transition-colors disabled:opacity-40 font-bold"
                   >
                     Add
                   </button>
@@ -1186,10 +1187,11 @@ export function TaskDetailModal({
 
               {/* Entry list */}
               {timeEntries.length > 0 && (
-                <div className="pt-2 border-t border-gray-200 flex flex-col gap-1 max-h-52 overflow-y-auto">
+                <div className="mt-1 pt-3 border-t border-primary/10 flex flex-col gap-2 max-h-56 overflow-y-auto pr-0.5">
+                  <div className="flex items-center justify-between"><p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Time entries</p><span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">{timeEntries.length}</span></div>
                   {[...timeEntries].reverse().map(entry => (
                     editingId === entry.id ? (
-                      <div key={entry.id} className="flex items-center gap-1 text-[10px] py-0.5">
+                      <div key={entry.id} className="flex items-center gap-1.5 text-[10px] p-2 rounded-xl bg-white border border-primary/20 shadow-sm">
                         <span className="text-gray-400 font-mono shrink-0 w-9">{entry.date.slice(5)}</span>
                         <Avatar name={entry.loggedBy} size="xs" />
                         <input
@@ -1209,13 +1211,13 @@ export function TaskDetailModal({
                           className="flex-1 min-w-0 text-[10px] border border-primary/40 rounded px-1 py-0.5 bg-white focus:outline-none focus:border-primary disabled:bg-gray-50"
                           placeholder="note"
                         />
-                        <button onClick={() => void saveEdit(entry.id)} disabled={timeSaving} className="text-green-500 hover:text-green-600 shrink-0 p-0.5 disabled:opacity-40">
-                          {timeSaving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                        <button onClick={() => void saveEdit(entry.id)} disabled={timeSaving} className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white shrink-0 px-2 py-1 rounded-lg font-semibold disabled:opacity-40">
+                          {timeSaving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}<span>Save</span>
                         </button>
-                        <button onClick={cancelEdit} disabled={timeSaving} className="text-gray-300 hover:text-gray-500 shrink-0 p-0.5 disabled:opacity-40"><X size={10} /></button>
+                        <button onClick={cancelEdit} disabled={timeSaving} className="flex items-center gap-1 text-gray-600 bg-gray-100 hover:bg-gray-200 shrink-0 px-2 py-1 rounded-lg font-semibold disabled:opacity-40"><X size={10} /><span>Cancel</span></button>
                       </div>
                     ) : (
-                      <div key={entry.id} className="flex items-center gap-1.5 text-[10px] group py-0.5">
+                      <div key={entry.id} className="flex items-center gap-2 text-[10px] group p-2 rounded-xl bg-white border border-gray-100 hover:border-primary/20 hover:shadow-sm transition-all">
                         {entry.isLocked
                           ? <Lock size={9} className="text-gray-300 shrink-0" />
                           : <div className="w-[9px] shrink-0" />
@@ -1232,9 +1234,9 @@ export function TaskDetailModal({
                         {canEditTimeEntry(entry) && (
                           <button
                             onClick={() => startEdit(entry)}
-                            className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-primary transition-all shrink-0 p-0.5"
+                            className="flex items-center gap-1 text-primary bg-primary/10 hover:bg-primary/15 border border-primary/15 transition-colors shrink-0 px-2 py-1 rounded-lg font-semibold"
                           >
-                            <Pencil size={9} />
+                            <Pencil size={10} /><span>Edit</span>
                           </button>
                         )}
                         {!readonly && (
