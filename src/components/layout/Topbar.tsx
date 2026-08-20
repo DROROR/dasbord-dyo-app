@@ -154,7 +154,7 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
   }
 
   return (
-    <header className="relative h-16 md:h-28 lg:h-32 xl:h-36 2xl:h-44 min-[1800px]:h-48 bg-surface border-b border-gray-200 flex items-center justify-between px-5 shrink-0 gap-4">
+    <header className="relative h-16 md:h-14 lg:h-16 xl:h-20 2xl:h-32 min-[1800px]:h-36 bg-surface border-b border-gray-200 flex items-center justify-between px-5 shrink-0 gap-4">
       {/* Right: Toggle + Page title — z-10 so it always paints above the
           decorative banner below, regardless of any incidental overlap. */}
       <div className="relative z-10 flex items-center gap-3">
@@ -191,16 +191,8 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
           min-[1800px]) specifically because 720px is not safe yet at the
           bottom of the plain 2xl bucket (1536px) with the sidebar
           expanded. */}
-      {/* Header heights (h-28/h-32/h-36/h-44/h-48) are sized off the
-          approved widths above times this image's own aspect ratio, with
-          headroom to spare at every tier — never solved by cropping. At
-          the current ~4.99:1 source ratio that works out to roughly:
-          md 40px in 112px, lg 60px in 128px, xl 80px in 144px,
-          2xl 124px in 176px, ≥1800px 144px in 192px. Whenever the source
-          artwork is replaced with a different aspect ratio, recompute
-          this table (rendered height = approved width × new-height /
-          new-width) and raise whichever header tier no longer has
-          reasonable margin — the widths themselves stay fixed. */}
+      {/* Keep the header close to the banner rendered height at each tier,
+          while preserving enough room for the 36px controls. */}
       <div className="hidden md:flex absolute inset-y-0 left-1/2 -translate-x-1/2 items-center justify-center pointer-events-none z-0">
         <img
           src="/topbar-prosperity-banner.webp"
