@@ -7,6 +7,24 @@ import type { Task, PriorityDef, Board, Attachment } from '../../types/work'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type LanguageMode = 'auto' | 'en' | 'he'
+type ActiveLanguage = 'en' | 'he'
+
+const HEBREW_RE = /[א-ת]/
+
+function detectLanguage(text: string): ActiveLanguage {
+  return HEBREW_RE.test(text) ? 'he' : 'en'
+}
+
+function initialMessage(language: ActiveLanguage): Message {
+  return {
+    role: 'assistant',
+    content: language === 'he'
+      ? 'שלום! אני כאן כדי לעזור לך להגדיר משימת פיתוח. ספר לי מה צריך לעשות.'
+      : 'Hi! I can help you define a development task. Tell me what needs to be done.',
+  }
+}
+
 type Phase = 'chat' | 'preview'
 
 interface ImageBlock { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
@@ -98,7 +116,7 @@ function MarkdownMessage({ text }: { text: string }) {
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 
-async function callClaude(msgs: Message[], systemPrompt: string): Promise<string> {
+async function callClaude(msgs: Message[], systemPrompt: string, language: ActiveLanguage): Promise<string> {
   const res = await fetch('/api/claude/v1/messages', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -110,10 +128,10 @@ async function callClaude(msgs: Message[], systemPrompt: string): Promise<string
     }),
   })
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) throw new Error('מפתח API לא תקין. בדוק VITE_ANTHROPIC_API_KEY בקובץ .env והפעל מחדש.')
-    if (res.status === 529 || res.status === 503) throw new Error('שרת Claude עמוס. נסה שנית בעוד כמה שניות.')
+    if (res.status === 401 || res.status === 403) throw new Error(language === 'he' ? 'מפתח ה-API אינו תקין.' : 'The API key is invalid.')
+    if (res.status === 529 || res.status === 503) throw new Error(language === 'he' ? 'שרת Claude עמוס. נסה שוב בעוד כמה שניות.' : 'Claude is busy. Try again in a few seconds.')
     const err = await res.json().catch(() => ({}))
-    throw new Error((err as { error?: { message?: string } }).error?.message ?? `שגיאת API (${res.status})`)
+    throw new Error((err as { error?: { message?: string } }).error?.message ?? (language === 'he' ? `שגיאת API (${res.status})` : `API error (${res.status})`))
   }
   const data = await res.json()
   return (data.content[0] as { text: string }).text
@@ -136,10 +154,6 @@ function getMsgText(m: Message): string {
   return t?.text ?? ''
 }
 
-const INITIAL_MSG: Message = {
-  role: 'assistant',
-  content: 'שלום! אני כאן לעזור לך להגדיר משימה פיתוח. ספר לי מה צריך לעשות.',
-}
 
 // ─── SelectField ──────────────────────────────────────────────────────────────
 
@@ -188,7 +202,7 @@ export function AiTaskCreator({
   clients?: Client[]
   onCreateTask: (task: Omit<Task, 'id' | 'createdAt' | 'statusHistory' | 'comments'>) => void
 }) {
-  const [messages,      setMessages]      = useState<Message[]>([INITIAL_MSG])
+  const [messages,      setMessages]      = useState<Message[]>([initialMessage('en')])
   const [input,         setInput]         = useState('')
   const [loading,       setLoading]       = useState(false)
   const [phase,         setPhase]         = useState<Phase>('chat')
@@ -201,6 +215,7 @@ export function AiTaskCreator({
   const [isListening,    setIsListening]    = useState(false)
   const [voiceTranscript, setVoiceTranscript] = useState('') // live interim text shown in textarea
   const [patterns,       setPatterns]       = useState<TaskPattern[]>(() => loadPatterns())
+  const [languageMode,  setLanguageMode]  = useState<LanguageMode>('auto')
 
   const bottomRef           = useRef<HTMLDivElement>(null)
   const textareaRef         = useRef<HTMLTextAreaElement>(null)
@@ -221,6 +236,19 @@ export function AiTaskCreator({
     el.style.height = Math.min(el.scrollHeight, 400) + 'px'
   }, [input, voiceTranscript])
 
+  const latestUserText = [...messages].reverse().find(message => message.role === 'user')
+  const detectedLanguage = detectLanguage(input.trim() || (latestUserText ? getMsgText(latestUserText) : ''))
+  const activeLanguage: ActiveLanguage = languageMode === 'auto' ? detectedLanguage : languageMode
+  const ui = (english: string, hebrew: string) => activeLanguage === 'he' ? hebrew : english
+
+  function changeLanguage(mode: LanguageMode) {
+    setLanguageMode(mode)
+    const nextLanguage: ActiveLanguage = mode === 'auto' ? detectedLanguage : mode
+    setMessages(current => current.length === 1 && current[0].role === 'assistant'
+      ? [initialMessage(nextLanguage)]
+      : current)
+  }
+
   // Dynamic system prompt
   const systemPrompt = useMemo(() => {
     const learningCtx = patterns.length > 0
@@ -239,10 +267,10 @@ You are not a developer, project manager, QA engineer, or designer.
 The development team already knows the product, architecture, tools, and integrations. Do not explain technologies or existing components.
 
 ## Language Rules
-- Always converse in Hebrew
-- Generate all task output (title, description) in English only
-- Translations (buttons, labels, UI text) are provided in Hebrew, English, Spanish, Arabic
-
+- The active conversation language is ${activeLanguage === 'he' ? 'Hebrew' : 'English'}.
+- Always respond in that language, including clarification questions, summaries, confirmations, errors, title, and description.
+- Never switch languages unless the user explicitly asks for a translation.
+- If user-facing copy needs translation, offer Hebrew, English, Spanish, and Arabic after task approval.
 ## Core Principles
 
 ### Never Assume
@@ -253,12 +281,7 @@ If any information is unclear, missing, or open to interpretation:
 Instead: Stop. Ask focused clarification questions.
 
 ### Confirm Understanding Before Writing
-Before creating any task, summarize in Hebrew:
-"מה שהבנתי:
-1. ...
-2. ...
-3. ...
-האם זה נכון?"
+Before creating any task, summarize what you understood in the active conversation language and ask the user to confirm it.
 Do not generate the final task until the user confirms.
 
 ### Be Direct
@@ -280,9 +303,9 @@ Steps:
 1. Gather information
 2. Identify missing details
 3. Ask clarification questions if needed
-4. Summarize understanding in Hebrew
+4. Summarize understanding in the active conversation language
 5. Wait for approval
-6. Generate task in English
+6. Generate the task in the active conversation language
 
 ## Task Structure
 Generate tasks using ONLY title and description. Do not add priority, story points, sprint, dependencies, estimates, or acceptance criteria unless explicitly requested.
@@ -299,17 +322,17 @@ Incorrect: "The issue is caused by..."
 If the user attaches an image, analyze it as part of the requirement. Describe what you see that is relevant to the task.
 
 ## Translation Rules
-If the task includes user-facing text: after task approval, ask "האם תרצה גם תרגומים?" If yes, provide Hebrew, English, Spanish, Arabic.
+If the task includes user-facing text: after task approval, ask in the active conversation language whether translations are needed. If yes, provide Hebrew, English, Spanish, Arabic.
 
 ## Default Flow
-1. Understand → 2. Clarify → 3. Summarize in Hebrew → 4. Receive approval → 5. Generate task in English → 6. Offer translations if needed
+1. Understand → 2. Clarify → 3. Summarize in the active conversation language → 4. Receive approval → 5. Generate the task in the active conversation language → 6. Offer translations if needed
 
 Never skip the approval step. Never guess. Never assume.
 
 ## Technical Output
 When generating a task (after the user confirms), output ONLY this JSON — no other text:
-{"title":"English concise title","description":"English detailed description ready for developers"}${learningCtx}`
-  }, [patterns])
+{"title":"Concise title in the active conversation language","description":"Detailed description in the active conversation language, ready for developers"}${learningCtx}`
+  }, [patterns, activeLanguage])
 
   function parseTaskJson(reply: string): Pick<TaskPreview, 'title' | 'description'> | null {
     const match = reply.match(/\{[\s\S]*?\}/)
@@ -369,7 +392,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
 
     try {
-      const reply = await callClaude(newMessages, systemPrompt)
+      const reply = await callClaude(newMessages, systemPrompt, activeLanguage)
       const parsed = parseTaskJson(reply)
       if (parsed) {
         openPreview(parsed)
@@ -377,7 +400,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
         setMessages(prev => [...prev, { role: 'assistant', content: reply }])
       }
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', content: `שגיאה: ${err instanceof Error ? err.message : 'Unknown error'}` }])
+      setMessages(prev => [...prev, { role: 'assistant', content: `${ui('Error', 'שגיאה')}: ${err instanceof Error ? err.message : ui('Unknown error', 'שגיאה לא ידועה')}` }])
     } finally {
       setLoading(false)
       isSendingRef.current = false
@@ -389,17 +412,17 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
     isSendingRef.current = true
     setLoading(true)
 
-    const genMsg: Message = { role: 'user', content: 'כן, אני מאשר. אנא אפיין את המשימה עכשיו — פלט JSON בלבד.' }
+    const genMsg: Message = { role: 'user', content: activeLanguage === 'he' ? 'כן, אני מאשר. צור את המשימה עכשיו — פלט JSON בלבד.' : 'Yes, I confirm. Create the task now — JSON output only.' }
     const newMessages = [...messages, genMsg]
     setMessages(newMessages)
 
     try {
-      const reply = await callClaude(newMessages, systemPrompt)
+      const reply = await callClaude(newMessages, systemPrompt, activeLanguage)
       const parsed = parseTaskJson(reply)
       if (parsed) openPreview(parsed)
       else setMessages(prev => [...prev, { role: 'assistant', content: reply }])
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', content: `שגיאה: ${err instanceof Error ? err.message : 'Unknown error'}` }])
+      setMessages(prev => [...prev, { role: 'assistant', content: `${ui('Error', 'שגיאה')}: ${err instanceof Error ? err.message : ui('Unknown error', 'שגיאה לא ידועה')}` }])
     } finally {
       setLoading(false)
       isSendingRef.current = false
@@ -437,7 +460,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
     setVoiceTranscript('')
 
     const rec = new SRClass()
-    rec.lang           = 'he-IL'
+    rec.lang           = activeLanguage === 'he' ? 'he-IL' : 'en-US'
     rec.continuous     = true
     rec.interimResults = true   // show live interim text in real-time
 
@@ -521,7 +544,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
 
     setCreated(true)
     setTimeout(() => {
-      setMessages([INITIAL_MSG])
+      setMessages([initialMessage(activeLanguage)])
       setPhase('chat')
       setPreview(null)
       setLastSentImage(null)
@@ -536,21 +559,21 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
     const canCreate = !!preview.board
 
     return (
-      <div className="flex flex-col gap-5 max-w-2xl mx-auto w-full flex-1 min-h-0 overflow-y-auto pb-6">
+      <div className="flex flex-col gap-5 max-w-2xl mx-auto w-full flex-1 min-h-0 overflow-y-auto pb-6" dir={activeLanguage === 'he' ? 'rtl' : 'ltr'}>
         <div className="flex items-center justify-between shrink-0">
-          <p className="text-sm font-semibold text-gray-700">Review Generated Task</p>
-          <button onClick={() => setPhase('chat')} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">← Back to chat</button>
+          <p className="text-sm font-semibold text-gray-700">{ui('Review generated task', 'בדיקת המשימה שנוצרה')}</p>
+          <button onClick={() => setPhase('chat')} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">{ui('← Back to chat', 'חזרה לצ׳אט →')}</button>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 flex flex-col gap-4">
           <div>
-            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Title</label>
+            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{ui('Title', 'כותרת')}</label>
             <input value={preview.title} onChange={e => setPreview(p => p ? { ...p, title: e.target.value } : p)}
               className="mt-1 w-full text-sm font-medium text-gray-800 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
             />
           </div>
           <div>
-            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Description</label>
+            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{ui('Description', 'תיאור')}</label>
             <textarea value={preview.description} onChange={e => setPreview(p => p ? { ...p, description: e.target.value } : p)}
               rows={6}
               className="mt-1 w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
@@ -558,36 +581,36 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <SelectField label="Board" value={preview.board} onChange={v => setPreview(p => p ? { ...p, board: v } : p)} required>
-              <option value="">— Select board —</option>
+            <SelectField label={ui('Board', 'לוח')} value={preview.board} onChange={v => setPreview(p => p ? { ...p, board: v } : p)} required>
+              <option value="">{ui('— Select board —', '— בחר לוח —')}</option>
               {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </SelectField>
-            <SelectField label="Priority" value={preview.priority} onChange={v => setPreview(p => p ? { ...p, priority: v } : p)}>
+            <SelectField label={ui('Priority', 'עדיפות')} value={preview.priority} onChange={v => setPreview(p => p ? { ...p, priority: v } : p)}>
               {priorityDefs.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
             </SelectField>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <SelectField label="Assignee" value={preview.assignee} onChange={v => setPreview(p => p ? { ...p, assignee: v } : p)}>
-              <option value="">— Unassigned —</option>
+            <SelectField label={ui('Assignee', 'אחראי')} value={preview.assignee} onChange={v => setPreview(p => p ? { ...p, assignee: v } : p)}>
+              <option value="">{ui('— Unassigned —', '— ללא אחראי —')}</option>
               {assignees.map(a => <option key={a} value={a}>{a}</option>)}
             </SelectField>
-            <SelectField label="Client (optional)" value={preview.clientId} onChange={handleClientChange}>
-              <option value="">— No client —</option>
+            <SelectField label={ui('Client (optional)', 'לקוח (אופציונלי)')} value={preview.clientId} onChange={handleClientChange}>
+              <option value="">{ui('— No client —', '— ללא לקוח —')}</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </SelectField>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Start Date</label>
+              <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{ui('Start date', 'תאריך התחלה')}</label>
               <input type="date" value={preview.startDate}
                 onChange={e => setPreview(p => p ? { ...p, startDate: e.target.value } : p)}
                 className="mt-1 w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-primary bg-white"
               />
             </div>
             <div>
-              <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Due Date</label>
+              <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{ui('Due date', 'תאריך יעד')}</label>
               <input type="date" value={preview.dueDate}
                 onChange={e => setPreview(p => p ? { ...p, dueDate: e.target.value } : p)}
                 className="mt-1 w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-primary bg-white"
@@ -598,7 +621,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
           {/* Attached image preview */}
           {lastSentImage && (
             <div>
-              <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Attachments</label>
+              <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{ui('Attachments', 'קבצים מצורפים')}</label>
               <img
                 src={lastSentImage.dataUrl}
                 alt=""
@@ -610,13 +633,13 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
         </div>
 
         {!canCreate && (
-          <p className="text-xs text-red-400 text-center shrink-0">יש לבחור בורד לפני יצירת המשימה</p>
+          <p className="text-xs text-red-400 text-center shrink-0">{ui('Select a board before creating the task', 'יש לבחור לוח לפני יצירת המשימה')}</p>
         )}
         {canCreate && (
           <button onClick={createTask} disabled={creating || created}
             className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all shrink-0 ${created ? 'bg-green-500 text-white' : 'bg-primary text-white hover:bg-primary/90 disabled:opacity-60'}`}
           >
-            {created ? <><Check size={16} /> Task Created!</> : creating ? <><Loader2 size={16} className="animate-spin" /> Creating...</> : 'Create Task →'}
+            {created ? <><Check size={16} /> {ui('Task created!', 'המשימה נוצרה!')}</> : creating ? <><Loader2 size={16} className="animate-spin" /> {ui('Creating...', 'יוצר...')}</> : ui('Create task →', 'יצירת משימה ←')}
           </button>
         )}
       </div>
@@ -626,12 +649,31 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
   // ── Chat phase ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col max-w-2xl mx-auto w-full flex-1 min-h-0 overflow-hidden" dir="rtl">
+    <div className="flex flex-col max-w-2xl mx-auto w-full flex-1 min-h-0 overflow-hidden" dir={activeLanguage === 'he' ? 'rtl' : 'ltr'}>
+
+      <div className="mb-3 flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm shrink-0">
+        <div>
+          <p className="text-xs font-semibold text-gray-700">{ui('Conversation language', 'שפת השיחה')}</p>
+          <p className="text-[10px] text-gray-400">{ui('Auto follows your message', 'אוטומטי לפי ההודעה שלך')}</p>
+        </div>
+        <div className="relative">
+          <select
+            value={languageMode}
+            onChange={event => changeLanguage(event.target.value as LanguageMode)}
+            className="appearance-none rounded-lg border border-gray-200 bg-gray-50 py-1.5 pl-3 pr-8 text-xs font-semibold text-gray-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+          >
+            <option value="auto">Auto</option>
+            <option value="en">English</option>
+            <option value="he">עברית</option>
+          </select>
+          <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+        </div>
+      </div>
 
       {patterns.length >= 3 && (
         <div className="flex items-center gap-1.5 mb-2 px-1 shrink-0">
           <Brain size={11} className="text-purple-400" />
-          <span className="text-[10px] text-purple-400 font-medium">AI לומד את סגנון העבודה שלך ({patterns.length} משימות)</span>
+          <span className="text-[10px] text-purple-400 font-medium">{ui(`AI is learning your workflow (${patterns.length} tasks)`, `ה-AI לומד את סגנון העבודה שלך (${patterns.length} משימות)`)}</span>
         </div>
       )}
 
@@ -674,7 +716,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
       {attachedImage && (
         <div className="flex items-center gap-2 mb-2 shrink-0 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
           <img src={attachedImage.preview} alt="" className="w-10 h-10 rounded-lg object-cover" />
-          <span className="text-xs text-gray-500 flex-1">תמונה מצורפת</span>
+          <span className="text-xs text-gray-500 flex-1">{ui('Image attached', 'תמונה מצורפת')}</span>
           <button onClick={() => setAttachedImage(null)} className="p-1 text-gray-400 hover:text-gray-600 transition-colors"><X size={14} /></button>
         </div>
       )}
@@ -683,7 +725,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
       {isListening && (
         <div className="flex items-center gap-2 mb-1.5 px-1 shrink-0">
           <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-          <span className="text-[11px] text-red-500 font-medium">מקליט...</span>
+          <span className="text-[11px] text-red-500 font-medium">{ui('Recording...', 'מקליט...')}</span>
         </div>
       )}
 
@@ -705,9 +747,9 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
             t.style.height = Math.min(t.scrollHeight, 400) + 'px'
           }}
           onKeyDown={e => { if (!isListening && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
-          placeholder={isListening ? '' : 'כתוב כאן... (Enter לשליחה, Shift+Enter לשורה חדשה)'}
+          placeholder={isListening ? '' : ui('Type here... (Enter to send, Shift+Enter for a new line)', 'כתוב כאן... (Enter לשליחה, Shift+Enter לשורה חדשה)')}
           style={{ minHeight: '40px', maxHeight: '400px', overflowY: 'auto', resize: 'none' }}
-          className={`flex-1 text-sm border rounded-xl px-4 py-2.5 focus:outline-none transition text-right leading-relaxed ${
+          className={`flex-1 text-sm border rounded-xl px-4 py-2.5 focus:outline-none transition leading-relaxed ${activeLanguage === 'he' ? 'text-right' : 'text-left'} ${
             isListening
               ? 'bg-red-50 border-red-200 text-gray-500 italic cursor-default'
               : 'bg-white border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/10 placeholder:text-gray-300'
@@ -716,7 +758,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
 
         {/* Send */}
         <button onClick={() => void send()} disabled={loading || isListening || (!input.trim() && !attachedImage)}
-          title="שלח" className="p-2.5 bg-primary text-white rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40 shrink-0 mb-0.5">
+          title={ui('Send', 'שלח')} className="p-2.5 bg-primary text-white rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40 shrink-0 mb-0.5">
           {loading ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
         </button>
 
@@ -725,7 +767,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
           <button
             onClick={isListening ? stopListening : startListening}
             disabled={loading}
-            title={isListening ? 'עצור הקלטה' : 'הקלטה קולית בעברית'}
+            title={isListening ? ui('Stop recording', 'עצור הקלטה') : ui('Voice input', 'קלט קולי')}
             className={`relative p-2.5 rounded-xl transition-colors disabled:opacity-40 shrink-0 mb-0.5 ${
               isListening
                 ? 'bg-red-500 text-white hover:bg-red-600'
@@ -738,17 +780,16 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
 
         {/* Attach image */}
         <button onClick={() => fileInputRef.current?.click()} disabled={loading}
-          title="צרף תמונה" className="p-2.5 bg-gray-100 text-gray-500 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-40 shrink-0 mb-0.5">
+          title={ui('Attach image', 'צרף תמונה')} className="p-2.5 bg-gray-100 text-gray-500 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-40 shrink-0 mb-0.5">
           <Paperclip size={15} />
         </button>
 
         {/* Generate Task */}
         <button onClick={() => void generate()} disabled={loading}
-          title="Generate Task"
+          title={ui('Generate task', 'יצירת משימה')}
           className="flex items-center gap-1.5 px-3 py-2.5 bg-secondary/20 text-primary rounded-xl hover:bg-secondary/30 transition-colors disabled:opacity-40 text-xs font-bold shrink-0 mb-0.5 whitespace-nowrap">
           <Sparkles size={13} />
-          <span>Generate Task</span>
-          <span className="text-[10px] opacity-60">גנרט</span>
+          <span>{ui('Generate task', 'יצירת משימה')}</span>
         </button>
       </div>
 
