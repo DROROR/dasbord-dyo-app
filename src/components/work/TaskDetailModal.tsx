@@ -7,7 +7,7 @@ import {
 import { Avatar } from '../Avatar'
 import { useNotifications } from '../../contexts/NotificationContext'
 import { useTimer, TIMER_ENTRY_SAVED_EVENT, type TimerEntrySavedDetail } from '../../contexts/TimerContext'
-import { useLang } from '../../contexts/LanguageContext'
+import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import type { Task, TaskSubtask, TaskSubtaskStatus, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption, Board } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
 import {
@@ -102,7 +102,7 @@ export function TaskDetailModal({
   onTimeEntriesChanged?: (taskId: string, entries: TimeEntry[]) => void
 }) {
   const { addNotification } = useNotifications()
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
 
   const [title,     setTitle]     = useState(task.title)
   const [editTitle, setEditTitle] = useState(false)

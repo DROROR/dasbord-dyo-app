@@ -18,6 +18,7 @@ import { useAuth } from './hooks/useAuth'
 import { NotificationProvider } from './contexts/NotificationContext'
 import { TimerProvider } from './contexts/TimerContext'
 import { LanguageProvider } from './contexts/LanguageContext'
+import { WorkLanguageProvider } from './contexts/WorkLanguageContext'
 import { FloatingTimerWidget } from './components/work/FloatingTimerWidget'
 import { PAGE_MODULE } from './lib/permissions'
 
@@ -110,23 +111,25 @@ export default function App() {
 
   return (
     <LanguageProvider>
-      <NotificationProvider>
-        <TimerProvider>
-          <Layout
-            activePage={activePage}
-            onNavigate={navigate}
-            profile={profile}
-            onSignOut={signOut}
-          >
-            <ErrorBoundary key={activePage}>
-              {allowed
-                ? buildPages(navigate)[activePage]?.()
-                : <AccessDenied onBack={landing ? () => navigate(landing) : undefined} />}
-            </ErrorBoundary>
-          </Layout>
-          <FloatingTimerWidget onNavigate={navigate} />
-        </TimerProvider>
-      </NotificationProvider>
+      <WorkLanguageProvider>
+        <NotificationProvider>
+          <TimerProvider>
+            <Layout
+              activePage={activePage}
+              onNavigate={navigate}
+              profile={profile}
+              onSignOut={signOut}
+            >
+              <ErrorBoundary key={activePage}>
+                {allowed
+                  ? buildPages(navigate)[activePage]?.()
+                  : <AccessDenied onBack={landing ? () => navigate(landing) : undefined} />}
+              </ErrorBoundary>
+            </Layout>
+            <FloatingTimerWidget onNavigate={navigate} />
+          </TimerProvider>
+        </NotificationProvider>
+      </WorkLanguageProvider>
     </LanguageProvider>
   )
 }

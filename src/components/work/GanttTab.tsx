@@ -3,7 +3,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Check, GripVertical } from 'luc
 import { Avatar } from '../Avatar'
 import type { Task, Board } from '../../types/work'
 import { resolveTaskPriority, priorityDefsForBoard, statusesForBoard } from '../../data/workConstants'
-import { useLang } from '../../contexts/LanguageContext'
+import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import { ClientBadge } from './ClientBadge'
 
 // Sentinel key for the synthetic "Unassigned" bucket in the Users
@@ -314,7 +314,7 @@ export function GanttTab({
   onUpdateTask: (t: Task) => Promise<Task>
   readonly?: boolean
 }) {
-  const { t } = useLang()
+  const { t } = useWorkLang()
 
   const [mode,   setMode]   = useState<RangeMode>('week2')
   const [anchor, setAnchor] = useState<Date>(() => startOfDay(new Date()))

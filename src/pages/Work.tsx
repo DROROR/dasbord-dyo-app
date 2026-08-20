@@ -34,7 +34,7 @@ import { GanttTab }         from '../components/work/GanttTab'
 import { WorkReportTab }    from '../components/work/WorkReportTab'
 import { useAuth }          from '../hooks/useAuth'
 import { useNotifications } from '../contexts/NotificationContext'
-import { useLang }          from '../contexts/LanguageContext'
+import { useWorkLang }          from '../contexts/WorkLanguageContext'
 import { AccessDenied }     from '../components/AccessDenied'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -42,11 +42,11 @@ import { AccessDenied }     from '../components/AccessDenied'
 type WorkTab = 'myboard' | 'tasks' | 'gantt' | 'docs' | 'ai' | 'report'
 
 const WORK_TABS: { id: WorkTab; label: string; labelHe?: string; labelEn?: string; icon: LucideIcon }[] = [
-  { id: 'myboard', label: 'My Board',      icon: User       },
-  { id: 'tasks',   label: 'Tasks',         icon: LayoutGrid },
-  { id: 'gantt',   label: 'Gantt',         icon: BarChart2  },
+  { id: 'myboard', label: 'My Board', labelHe: 'הלוח שלי', labelEn: 'My Board', icon: User },
+  { id: 'tasks',   label: 'Tasks', labelHe: 'משימות', labelEn: 'Tasks', icon: LayoutGrid },
+  { id: 'gantt',   label: 'Gantt', labelHe: 'גאנט', labelEn: 'Gantt', icon: BarChart2 },
   { id: 'docs',    label: 'Documentation', labelHe: 'דוקומנטציה', labelEn: 'Documentation', icon: FileText },
-  { id: 'ai',      label: 'New Task (AI)', icon: Bot        },
+  { id: 'ai',      label: 'New Task (AI)', labelHe: 'משימה חדשה (AI)', labelEn: 'New Task (AI)', icon: Bot },
   { id: 'report',  label: 'Work Report',   labelHe: 'דוח עבודה', labelEn: 'Work Report', icon: TrendingUp },
 ]
 
@@ -124,7 +124,7 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange: () => void 
   return (
     <button
       type="button"
-      dir="ltr"
+      dir={workDir}
       onClick={onChange}
       className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
         enabled ? 'bg-primary' : 'bg-gray-200'
@@ -543,7 +543,7 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
 export function Work() {
   const { profile, hasPermission, canManagePermissions, isOwner }  = useAuth()
   const { addNotification }   = useNotifications()
-  const { t: tr }             = useLang()
+  const { t: tr, dir: workDir } = useWorkLang()
   const currentUser           = profile?.name ?? 'Dror'
   const canViewWork  = hasPermission('work', 'view')
   const canEdit      = hasPermission('work', 'edit')
@@ -1007,7 +1007,7 @@ export function Work() {
 
   return (
     <div
-      dir="ltr"
+      dir={workDir}
       translate="no"
       className="notranslate flex flex-col -m-6 w-full max-w-full min-w-0"
       style={{ height: 'calc(100vh - 64px)' }}

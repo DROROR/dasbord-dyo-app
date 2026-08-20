@@ -1,4 +1,5 @@
 import { LogOut } from 'lucide-react'
+import { useWorkLang, type WorkLang } from '../../contexts/WorkLanguageContext'
 import logoFull from '../../assets/logo.png'
 import logoSymbol from '../../assets/logo-symbol.png'
 import type { UserProfile } from '../../hooks/useAuth'
@@ -21,6 +22,7 @@ interface Props {
 
 export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: Props) {
   const { t } = useLang()
+  const { lang: workLang, setLang: setWorkLang } = useWorkLang()
   const { hasPermission, canManagePermissions } = useAuth()
   const initial = profile?.name?.charAt(0).toUpperCase() ?? '?'
 
@@ -31,11 +33,23 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
       }`}
     >
       {/* Logo */}
-      <div className="h-16 flex items-center px-4 border-b border-white/10 shrink-0">
+      <div className="h-16 flex items-center gap-2 px-3 border-b border-white/10 shrink-0">
         {collapsed ? (
           <img src={logoSymbol} alt="Logo" className="h-8 w-auto mx-auto" />
         ) : (
-          <img src={logoFull} alt="Admin Platform" className="h-8 w-auto" />
+          <>
+            <img src={logoFull} alt="Admin Platform" className="h-7 w-auto min-w-0 max-w-[124px] object-contain" />
+            <select
+              value={workLang}
+              onChange={event => setWorkLang(event.target.value as WorkLang)}
+              aria-label="Work language"
+              title="Work language"
+              className="ms-auto w-[76px] rounded-lg border border-white/15 bg-white/10 px-2 py-1.5 text-[11px] font-semibold text-white outline-none focus:border-secondary/60"
+            >
+              <option value="en" className="text-gray-800">English</option>
+              <option value="he" className="text-gray-800">עברית</option>
+            </select>
+          </>
         )}
       </div>
 

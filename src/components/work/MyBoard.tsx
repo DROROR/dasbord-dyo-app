@@ -3,7 +3,7 @@ import { AlertCircle, Ticket, User, Calendar, Clock, ChevronDown, CheckCircle2, 
 import type { Task, Board, TimeEntry, AssigneeOption } from '../../types/work'
 import { eligibleAssigneesForBoard } from '../../types/work'
 import { STATUS_PILL, STATUS_LABEL, STATUS_LABEL_HE, STATUS_LEFT, resolveTaskPriority, priorityDefsForBoard } from '../../data/workConstants'
-import { useLang } from '../../contexts/LanguageContext'
+import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import { PriorityQuickEdit, AssigneeQuickEdit } from './TaskQuickEdit'
 import { ClientBadge } from './ClientBadge'
 import { MoveTaskModal } from './MoveTaskModal'
@@ -151,7 +151,7 @@ function MyStatusSection({
   canMoveTask: (task: Task) => boolean
   onMoveClick: (task: Task) => void
 }) {
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
   const [open, setOpen] = useState(col.id !== 'done' && col.id !== 'archived')
   // col.label is always one of MyBoard's own fixed built-in status-group
   // headers (see MY_COLS = COLUMNS.filter(...) below) — never a specific
@@ -222,7 +222,7 @@ export function MyBoard({
   /** Mirrors "tasks: delete"'s formula (work:'full' AND board:'full' on the task's current board) — gates the "Move to another board" quick action. */
   canMoveTask: (task: Task) => boolean
 }) {
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
   const [movingTask, setMovingTask] = useState<Task | null>(null)
 
   // Status routing is additive: the task always stays visible to its original

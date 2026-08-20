@@ -5,7 +5,7 @@ import {
   Folder, FolderPlus, ChevronLeft, ChevronRight, Pencil, Trash2, FolderInput,
 } from 'lucide-react'
 import { Avatar } from '../Avatar'
-import { useLang } from '../../contexts/LanguageContext'
+import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import type { WorkDoc, WorkDocFolder, DocAccessLevel } from '../../types/work'
 import {
   getWorkDocs, createWorkDoc, updateWorkDoc, moveWorkDocToFolder,
@@ -45,7 +45,7 @@ function ToolbarBtn({
 // ─── Table Insert Dialog ──────────────────────────────────────────────────────
 
 function TableDialog({ onInsert, onClose }: { onInsert: (rows: number, cols: number) => void; onClose: () => void }) {
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
   const [rows, setRows] = useState(3)
   const [cols, setCols] = useState(3)
   return (
@@ -200,7 +200,7 @@ function AccessPanel({
   resourceId: string
   profiles: { id: string; name: string }[]
 }) {
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
   const [access, setAccess]   = useState<Record<string, string> | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -295,7 +295,7 @@ function DocEditor({
   onMoved: (d: DocRow) => void
   onBack: () => void
 }) {
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
   // Switching to a different doc always remounts this component (the
   // caller keys it by doc.id), so initial state below is all the reset
   // a doc switch needs — no effect required. A save (same doc.id)
@@ -427,7 +427,7 @@ export function DocsTab({
   canManagePermissions: boolean
   canCreate: boolean
 }) {
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
   const [docs, setDocs]         = useState<DocRow[]>([])
   const [folders, setFolders]   = useState<WorkDocFolder[]>([])
   const [loading, setLoading]   = useState(true)

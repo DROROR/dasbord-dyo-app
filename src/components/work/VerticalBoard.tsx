@@ -5,7 +5,7 @@ import { DEFAULT_BOARD_STATUSES, priorityDefsForBoard } from '../../data/workCon
 import { PriorityQuickEdit, AssigneeQuickEdit } from './TaskQuickEdit'
 import { ClientBadge } from './ClientBadge'
 import { MoveTaskModal } from './MoveTaskModal'
-import { useLang } from '../../contexts/LanguageContext'
+import { useWorkLang } from '../../contexts/WorkLanguageContext'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -222,7 +222,7 @@ export function VerticalBoard({
   /** Active profiles + isOwner flag, used by the move modal to resolve assignee eligibility on whichever destination board is picked. */
   profiles: { id: string; name: string; isOwner: boolean }[]
 }) {
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
   const [movingTask, setMovingTask] = useState<Task | null>(null)
   const [search,       setSearch]       = useState('')
   const [assignee,     setAssignee]     = useState('')

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ArrowRightLeft, AlertCircle, Loader2, X } from 'lucide-react'
-import { useLang } from '../../contexts/LanguageContext'
+import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import type { Task, Board } from '../../types/work'
 import { eligibleAssigneesForBoard } from '../../types/work'
 import { priorityDefsForBoard } from '../../data/workConstants'
@@ -23,7 +23,7 @@ export function MoveTaskModal({
   onClose: () => void
   onMoved: (t: Task) => void
 }) {
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
   // Captured once, at mount — the board the caller actually saw when
   // they opened this dialog, independent of whatever the `task` prop
   // does afterward (e.g. a background refresh while the modal stays

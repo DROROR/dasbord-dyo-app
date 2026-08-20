@@ -154,7 +154,7 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
   }
 
   return (
-    <header className="relative h-14 bg-surface border-b border-gray-200 flex items-center justify-between px-5 shrink-0 gap-4">
+    <header className="relative h-16 bg-surface border-b border-gray-200 flex items-center justify-between px-5 shrink-0 gap-4">
       {/* Right: Toggle + Page title — z-10 so it always paints above the
           decorative banner below, regardless of any incidental overlap. */}
       <div className="relative z-10 flex items-center gap-3">
@@ -197,7 +197,7 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
         <img
           src="/topbar-prosperity-banner.webp"
           alt={t('באנר: שגשוג והתרחבות', 'Banner: Prosperity and expansion')}
-          className="h-10 lg:h-11 xl:h-12 w-auto max-w-[280px] aspect-[1023/205] object-contain"
+          className="h-12 w-auto max-w-[280px] aspect-[1023/205] object-contain"
         />
       </div>
 

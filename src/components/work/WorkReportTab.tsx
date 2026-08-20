@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { TrendingUp, Ticket, Clock, Loader2, AlertCircle, Lock, ArrowLeft, X, ExternalLink, UserX, CheckCircle2, Check } from 'lucide-react'
 import { Avatar } from '../Avatar'
-import { useLang } from '../../contexts/LanguageContext'
+import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import type { Task, WorkReport, WorkReportEmployee, WorkReportEvent, WorkReportTimeEntryRef } from '../../types/work'
 import {
   getWorkReport, getWorkReportAccessList, grantWorkReportAccess, revokeWorkReportAccess, getProfiles,
@@ -49,7 +49,7 @@ function AccessPanel({
   myProfileId?: string
   onClose: () => void
 }) {
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
   const [candidates, setCandidates] = useState<GrantableProfile[] | null>(null)
   const [grantedIds, setGrantedIds] = useState<Set<string> | null>(null)
   const [loading, setLoading] = useState(true)
@@ -196,7 +196,7 @@ function EventRow({
   tasks: Task[]
   onOpenTask: (id: string) => void
 }) {
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
   const openable = tasks.some(t => t.id === event.taskId)
   return (
     <div className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-4 py-2.5">
@@ -250,7 +250,7 @@ function EmployeeDetail({
   onOpenTask: (id: string) => void
   onBack: () => void
 }) {
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
   return (
     <div className="flex flex-col gap-4 flex-1 min-h-0">
       <div className="flex items-center gap-3 shrink-0">
@@ -304,7 +304,7 @@ export function WorkReportTab({
   tasks: Task[]
   onOpenTask: (id: string) => void
 }) {
-  const { t: tr } = useLang()
+  const { t: tr } = useWorkLang()
   const [date, setDate] = useState(todayInIsrael)
   const [report, setReport] = useState<WorkReport | null>(null)
   const [loading, setLoading] = useState(true)
