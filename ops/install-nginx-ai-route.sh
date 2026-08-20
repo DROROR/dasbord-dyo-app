@@ -33,16 +33,16 @@ fi
 backup="$CONF.backup.$(date +%Y%m%d%H%M%S)"
 cp -a "$CONF" "$backup"
 
-CONF="$CONF" MARKER="$MARKER" BLOCK="$BLOCK" python3 <<'PY'
-import os
+python3 - "$CONF" "$MARKER" "$BLOCK" <<'PY'
+import sys
 from pathlib import Path
 
-path = Path(os.environ['CONF'])
+path = Path(sys.argv[1])
 text = path.read_text()
-marker = os.environ['MARKER']
+marker = sys.argv[2]
 if marker not in text:
     raise SystemExit(f'Nginx insertion marker not found in {path}')
-path.write_text(text.replace(marker, os.environ['BLOCK'] + marker, 1))
+path.write_text(text.replace(marker, sys.argv[3] + marker, 1))
 PY
 
 if ! nginx -t; then
