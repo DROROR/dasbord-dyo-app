@@ -102,7 +102,7 @@ function CompactTaskRow({
       <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_PILL[task.status] ?? 'bg-gray-100 text-gray-600'}`}>
         {STATUS_LABEL[task.status] ?? task.status}
       </span>
-      <span className="text-[10px] font-mono text-gray-300 shrink-0 w-16 truncate">{task.id}</span>
+      <span className="text-[10px] font-mono text-gray-400 shrink-0 w-16 truncate">{task.id}</span>
       <span className="flex-1 text-sm text-gray-800 truncate min-w-0">{task.title}</span>
       <ClientBadge name={task.clientName} />
       {badge && (
@@ -112,12 +112,12 @@ function CompactTaskRow({
       )}
       <PriorityQuickEdit task={task} priorityDefs={priorityDefs} canEdit={canEdit} onSaved={onTaskSaved} />
       {task.dueDate && (
-        <span className={`text-[10px] flex items-center gap-0.5 shrink-0 ${overdue ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+        <span className={`text-[10px] flex items-center gap-0.5 shrink-0 ${overdue ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
           <Calendar size={9} />{fmtDate(task.dueDate)}
         </span>
       )}
       {entryTotal(task.timeEntries) > 0 && (
-        <span className="text-[10px] text-gray-300 flex items-center gap-0.5 shrink-0">
+        <span className="text-[10px] text-gray-400 flex items-center gap-0.5 shrink-0">
           <Clock size={9} />{fmtHours(entryTotal(task.timeEntries))}
         </span>
       )}
@@ -126,7 +126,7 @@ function CompactTaskRow({
         <button
           onClick={e => { e.stopPropagation(); onMoveClick(task) }}
           title="Move to another board"
-          className="p-1 rounded-lg text-gray-300 hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
+          className="p-1 rounded-lg text-gray-400 hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
         >
           <ArrowRightLeft size={12} />
         </button>
@@ -164,18 +164,18 @@ function MyStatusSection({
         onClick={() => setOpen(o => !o)}
         className="flex items-center gap-2.5 w-full px-4 py-2.5 bg-gray-50/80 hover:bg-gray-100/60 transition-colors text-left border-b border-gray-100"
       >
-        <ChevronDown size={13} className={`text-gray-400 transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} />
+        <ChevronDown size={13} className={`text-gray-500 transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} />
         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_PILL[col.id] ?? 'bg-gray-100 text-gray-600'}`}>
           {label}
         </span>
-        <span className="text-xs font-bold text-gray-400 bg-white border border-gray-200 rounded-full px-1.5 min-w-[20px] text-center">
+        <span className="text-xs font-bold text-gray-500 bg-white border border-gray-200 rounded-full px-1.5 min-w-[20px] text-center">
           {tasks.length}
         </span>
       </button>
       {open && (
         <div className="flex-1 min-h-0 overflow-y-auto">
           {tasks.length === 0 ? (
-            <div className="text-[11px] text-gray-300 text-center py-4 select-none">{tr('אין משימות', 'No tasks')}</div>
+            <div className="text-[11px] text-gray-400 text-center py-4 select-none">{tr('אין משימות', 'No tasks')}</div>
           ) : (
             tasks.map(task => (
               <CompactTaskRow
@@ -448,13 +448,13 @@ export function MyBoard({
       <div className="grid grid-cols-1 gap-3 shrink-0 order-first sm:grid-cols-3">
         {([
           { label: tr('המשימות שלי', 'My Tasks'),   value: displayTasks.length, sub: tr('משויכות אליך', 'assigned to you'), cls: 'text-primary', bg: 'bg-gradient-to-br from-primary/10 to-white border-primary/20' },
-          { label: tr('באיחור', 'Overdue'),          value: overdueTasks.length, sub: tr('עבר תאריך היעד', 'past due date'), cls: overdueTasks.length > 0 ? 'text-red-600' : 'text-gray-300', bg: overdueTasks.length > 0 ? 'bg-gradient-to-br from-red-50 to-white border-red-200' : 'bg-gradient-to-br from-gray-50 to-white border-gray-200' },
+          { label: tr('באיחור', 'Overdue'),          value: overdueTasks.length, sub: tr('עבר תאריך היעד', 'past due date'), cls: overdueTasks.length > 0 ? 'text-red-600' : 'text-gray-400', bg: overdueTasks.length > 0 ? 'bg-gradient-to-br from-red-50 to-white border-red-200' : 'bg-gradient-to-br from-gray-50 to-white border-gray-200' },
           { label: tr('זמן העבודה שלי', 'My Working Time'), value: hoursThisMonth, sub: tr('סה״כ שעות החודש', 'Total hours this month'), cls: 'text-secondary-dark', bg: 'bg-gradient-to-br from-secondary/15 to-white border-secondary/30', isHours: true },
         ] as const).map(({ label, value, sub, cls, bg, isHours }) => (
-          <div key={label} className={`relative overflow-hidden border rounded-2xl px-4 py-3.5 transition-all hover:-translate-y-0.5 ${bg ?? 'bg-white border-gray-100'}`}>
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{label}</p>
+          <div key={label} className={`relative overflow-hidden border rounded-2xl px-4 py-3.5 shadow-[0_4px_18px_rgba(31,50,114,0.06)] transition-all hover:-translate-y-0.5 ${bg ?? 'bg-white border-gray-100'}`}>
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
             <p className={`text-2xl font-bold ${cls}`}>{isHours ? fmtHours(value as number) : value}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
+            <p className="text-[10px] text-gray-500 mt-0.5">{sub}</p>
           </div>
         ))}
       </div>
@@ -463,17 +463,17 @@ export function MyBoard({
       {!hasAnyTasks ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center">
           <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
-            <User size={26} className="text-gray-300" />
+            <User size={26} className="text-gray-400" />
           </div>
           <p className="text-sm font-semibold text-gray-500">{tr('אין משימות המשויכות אליך', 'No tasks assigned to you')}</p>
         </div>
       ) : (
         <div className="grid flex-1 min-h-0 gap-4 overflow-y-auto pb-3 xl:grid-cols-12 xl:overflow-hidden">
-          <aside className="flex min-h-0 flex-col gap-3 rounded-2xl border border-gray-200/70 bg-gray-50/70 p-3 xl:order-2 xl:col-span-4 xl:overflow-y-auto">
+          <aside className="flex min-h-0 flex-col gap-3 rounded-2xl border border-gray-200/70 bg-gray-50/70 p-3 shadow-[0_4px_18px_rgba(31,50,114,0.06)] xl:order-2 xl:col-span-4 xl:overflow-hidden">
       {/* Alerts */}
       {(pendingClose.length > 0 || overdueTasks.length > 0 || unclaimed.length > 0) && (
-        <div className="flex max-h-32 flex-col gap-2 overflow-y-auto rounded-xl shrink-0">
-          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{tr('התראות', 'Alerts')}</p>
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-3 shadow-[0_4px_18px_rgba(31,50,114,0.05)]">
+          <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{tr('התראות', 'Alerts')}</p>
 
           {/* Urgent work and support tickets are always the first actionable
               items on the personal board. */}
@@ -530,8 +530,9 @@ export function MyBoard({
 
         </div>
       )}
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-3 shadow-[0_4px_18px_rgba(31,50,114,0.05)]">
           {pendingClose.length === 0 && overdueTasks.length === 0 && unclaimed.length === 0 && statusResponsibilityGroups.length === 0 && actionGroups.length === 0 && trackingGroups.length === 0 && (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-green-100 bg-green-50/70 px-4 py-8 text-center">
+            <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-green-100 bg-green-50/70 px-4 py-8 text-center">
               <CheckCircle2 size={20} className="mb-2 text-green-600" />
               <p className="text-xs font-semibold text-green-800">{tr('הכל מעודכן', 'Everything is up to date')}</p>
               <p className="mt-0.5 text-[10px] text-green-700/60">{tr('אין התראות או פעולות ממתינות', 'No alerts or pending actions')}</p>
@@ -564,7 +565,7 @@ export function MyBoard({
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-bold text-gray-800 truncate">{group.label}</span>
-                        <span className="block text-[10px] text-gray-400 truncate mt-0.5">{group.boardLabel}</span>
+                        <span className="block text-[10px] text-gray-500 truncate mt-0.5">{group.boardLabel}</span>
                         <span className="block text-[10px] font-semibold text-primary mt-1">{tr('נדרש הטיפול שלך', 'Needs your action')}</span>
                       </span>
                     </button>
@@ -576,7 +577,7 @@ export function MyBoard({
 
           {actionGroups.length > 0 && (
             <section className="flex flex-col gap-2 rounded-xl border border-gray-200/70 bg-white p-3">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{tr('נדרש טיפול', 'Needs Action')}</p>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{tr('נדרש טיפול', 'Needs Action')}</p>
               <div className="grid grid-cols-2 gap-2">
                 {actionGroups.map(group => {
                   const selected = activeGroupId === group.id
@@ -597,7 +598,7 @@ export function MyBoard({
 
           {trackingGroups.length > 0 && (
             <section className="flex flex-col gap-2 rounded-xl border border-gray-100 bg-gray-50/70 p-3">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{tr('משימות בבדיקה', 'Under Review')}</p>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{tr('משימות בבדיקה', 'Under Review')}</p>
               <div className="grid grid-cols-1 gap-2">
                 {trackingGroups.map(group => {
                   const selected = activeGroupId === group.id
@@ -609,7 +610,7 @@ export function MyBoard({
                     >
                       <span className={`text-xs font-semibold truncate ${selected ? 'text-purple-700' : 'text-gray-500'}`}>{group.label}</span>
                       <span className="flex items-center gap-2 shrink-0">
-                        {group.boardLabel && <span className="hidden sm:inline text-[9px] text-gray-400 max-w-28 truncate">{group.boardLabel}</span>}
+                        {group.boardLabel && <span className="hidden sm:inline text-[9px] text-gray-500 max-w-28 truncate">{group.boardLabel}</span>}
                         <span className="min-w-6 h-6 px-1.5 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">{group.tasks.length}</span>
                       </span>
                     </button>
@@ -619,8 +620,9 @@ export function MyBoard({
             </section>
           )}
 
+          </div>
           </aside>
-          <main className="min-h-[260px] rounded-2xl border border-gray-200/70 bg-white xl:order-1 xl:col-span-8 xl:min-h-0 xl:overflow-hidden">
+          <main className="min-h-[260px] rounded-2xl border border-gray-200/70 bg-white shadow-[0_4px_18px_rgba(31,50,114,0.06)] xl:order-1 xl:col-span-8 xl:min-h-0 xl:overflow-hidden">
           {selectedGroup && (
             <MyStatusSection
               key={selectedGroup.id}
