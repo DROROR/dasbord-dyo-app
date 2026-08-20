@@ -154,7 +154,7 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
   }
 
   return (
-    <header className="relative h-16 md:h-14 lg:h-16 xl:h-20 2xl:h-32 min-[1800px]:h-36 bg-surface border-b border-gray-200 flex items-center justify-between px-5 shrink-0 gap-4">
+    <header className="relative h-14 bg-surface border-b border-gray-200 flex items-center justify-between px-5 shrink-0 gap-4">
       {/* Right: Toggle + Page title — z-10 so it always paints above the
           decorative banner below, regardless of any incidental overlap. */}
       <div className="relative z-10 flex items-center gap-3">
@@ -191,13 +191,13 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
           min-[1800px]) specifically because 720px is not safe yet at the
           bottom of the plain 2xl bucket (1536px) with the sidebar
           expanded. */}
-      {/* Keep the header close to the banner rendered height at each tier,
+      {/* Keep the header compact at every breakpoint and cap the banner height,
           while preserving enough room for the 36px controls. */}
       <div className="hidden md:flex absolute inset-y-0 left-1/2 -translate-x-1/2 items-center justify-center pointer-events-none z-0">
         <img
           src="/topbar-prosperity-banner.webp"
           alt={t('באנר: שגשוג והתרחבות', 'Banner: Prosperity and expansion')}
-          className="w-[200px] lg:w-[300px] xl:w-[400px] 2xl:w-[620px] min-[1800px]:w-[720px] aspect-[1023/205] object-contain"
+          className="h-10 lg:h-11 xl:h-12 w-auto max-w-[280px] aspect-[1023/205] object-contain"
         />
       </div>
 
