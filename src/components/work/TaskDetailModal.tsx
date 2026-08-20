@@ -1217,7 +1217,7 @@ export function TaskDetailModal({
                         <button onClick={cancelEdit} disabled={timeSaving} className="col-span-2 flex min-w-0 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2 py-1.5 font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40"><X size={10} /><span>Cancel</span></button>
                       </div>
                     ) : (
-                      <div key={entry.id} className="group grid min-w-0 grid-cols-[auto_auto_auto_minmax(0,1fr)_auto_auto] items-center gap-2 rounded-xl border border-gray-100 bg-white p-2 text-[10px] transition-all hover:border-primary/20 hover:shadow-sm">
+                      <div key={entry.id} className="group grid min-w-0 grid-cols-[auto_auto_auto_auto_minmax(0,1fr)_auto_auto] items-center gap-2 rounded-xl border border-gray-100 bg-white p-2 text-[10px] transition-all hover:border-primary/20 hover:shadow-sm">
                         {entry.isLocked
                           ? <Lock size={9} className="text-gray-400 shrink-0" />
                           : <div className="w-[9px] shrink-0" />
@@ -1234,7 +1234,7 @@ export function TaskDetailModal({
                         {canEditTimeEntry(entry) && (
                           <button
                             onClick={() => startEdit(entry)}
-                            className="flex items-center gap-1 text-primary bg-primary/10 hover:bg-primary/15 border border-primary/15 transition-colors shrink-0 px-2 py-1 rounded-lg font-semibold"
+                            className="flex shrink-0 items-center gap-1 rounded-lg border border-primary/40 bg-white px-2.5 py-1.5 font-bold text-primary transition-colors hover:border-primary hover:bg-primary/10"
                           >
                             <Pencil size={10} /><span>Edit</span>
                           </button>
@@ -1242,7 +1242,7 @@ export function TaskDetailModal({
                         {!readonly && (
                           <button
                             onClick={() => deleteEntry(entry.id)}
-                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 transition-all shrink-0 p-0.5"
+                            className="flex shrink-0 items-center justify-center rounded-lg border border-red-300 bg-white p-1.5 text-red-600 transition-colors hover:border-red-500 hover:bg-red-50"
                           >
                             <X size={10} />
                           </button>
