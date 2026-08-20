@@ -159,7 +159,7 @@ function MyStatusSection({
   // safe UI localization, not touching user/admin content.
   const label = tr(STATUS_LABEL_HE[col.id] ?? col.label, col.label)
   return (
-    <div className={`border-l-2 rounded-lg overflow-hidden shadow-sm ${STATUS_LEFT[col.id] ?? 'border-l-gray-300'} bg-white`}>
+    <div className={`h-full flex flex-col border-l-2 rounded-xl overflow-hidden shadow-sm ${STATUS_LEFT[col.id] ?? 'border-l-gray-300'} bg-white`}>
       <button
         onClick={() => setOpen(o => !o)}
         className="flex items-center gap-2.5 w-full px-4 py-2.5 bg-gray-50/80 hover:bg-gray-100/60 transition-colors text-left border-b border-gray-100"
@@ -173,7 +173,7 @@ function MyStatusSection({
         </span>
       </button>
       {open && (
-        <div>
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {tasks.length === 0 ? (
             <div className="text-[11px] text-gray-300 text-center py-4 select-none">{tr('אין משימות', 'No tasks')}</div>
           ) : (
@@ -529,7 +529,8 @@ export function MyBoard({
           <p className="text-sm font-semibold text-gray-500">{tr('אין משימות המשויכות אליך', 'No tasks assigned to you')}</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto pb-3">
+        <div className="grid flex-1 min-h-0 gap-4 overflow-y-auto pb-3 xl:grid-cols-12 xl:overflow-hidden">
+          <aside className="flex min-h-0 flex-col gap-3 xl:order-2 xl:col-span-4 xl:overflow-y-auto xl:ps-1">
           {statusResponsibilityGroups.length > 0 && (
             <section className="rounded-xl border border-primary/25 bg-gradient-to-br from-primary/10 via-white to-purple-50 p-3 shadow-sm">
               <div className="flex items-start justify-between gap-3 mb-2">
@@ -543,7 +544,7 @@ export function MyBoard({
                   {statusResponsibilityTasks.length}
                 </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-2">
                 {statusResponsibilityGroups.map(group => {
                   const selected = activeGroupId === group.id
                   return (
@@ -570,7 +571,7 @@ export function MyBoard({
           {actionGroups.length > 0 && (
             <section className="flex flex-col gap-2">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{tr('נדרש טיפול', 'Needs Action')}</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {actionGroups.map(group => {
                   const selected = activeGroupId === group.id
                   return (
@@ -591,7 +592,7 @@ export function MyBoard({
           {trackingGroups.length > 0 && (
             <section className="flex flex-col gap-2 rounded-xl border border-gray-100 bg-gray-50/70 p-3">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{tr('משימות בבדיקה', 'Under Review')}</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2">
                 {trackingGroups.map(group => {
                   const selected = activeGroupId === group.id
                   return (
@@ -612,6 +613,8 @@ export function MyBoard({
             </section>
           )}
 
+          </aside>
+          <main className="min-h-[260px] xl:order-1 xl:col-span-8 xl:min-h-0 xl:overflow-hidden">
           {selectedGroup && (
             <MyStatusSection
               key={selectedGroup.id}
@@ -627,6 +630,7 @@ export function MyBoard({
               onMoveClick={setMovingTask}
             />
           )}
+          </main>
         </div>
       )}
 
