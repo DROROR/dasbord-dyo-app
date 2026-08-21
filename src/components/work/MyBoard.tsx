@@ -361,6 +361,13 @@ export function MyBoard({
     .filter(e => e.loggedById ? e.loggedById === myProfileId : e.loggedBy === currentUser)
     .reduce((sum, e) => sum + e.hours + e.minutes / 60, 0)
 
+  const timeLoggedTasksThisMonth = tasks.filter(task =>
+    task.timeEntries.some(entry =>
+      entry.date.startsWith(thisMonth)
+      && (entry.loggedById ? entry.loggedById === myProfileId : entry.loggedBy === currentUser),
+    ),
+  )
+
   const statusResponsibilityGroups: TaskGroup[] = boards.flatMap(board =>
     board.statuses
       .filter(status => !!myProfileId && !!status.ownerId && status.ownerId === myProfileId && (!activeProfileIds || activeProfileIds.has(status.ownerId)))
@@ -417,9 +424,14 @@ export function MyBoard({
     ...delegatedTrackingGroups,
   ].filter(group => group.tasks.length > 0)
 
+  const summaryGroups: TaskGroup[] = [
+    { id: 'summary:my-tasks', label: tr('המשימות שלי', 'My Tasks'), tasks: displayTasks },
+    { id: 'summary:overdue', label: tr('משימות באיחור', 'Overdue Tasks'), tasks: overdueTasks },
+    { id: 'summary:working-time', label: tr('משימות עם זמן עבודה החודש', 'Tasks worked on this month'), tasks: timeLoggedTasksThisMonth },
+  ]
   const allGroups = [...statusResponsibilityGroups, ...actionGroups, ...trackingGroups]
   const [selectedGroupId, setSelectedGroupId] = useState('')
-  const selectedGroup = allGroups.find(g => g.id === selectedGroupId) ?? allGroups[0]
+  const selectedGroup = [...summaryGroups, ...allGroups].find(g => g.id === selectedGroupId) ?? allGroups[0] ?? summaryGroups[0]
   const activeGroupId = selectedGroup?.id ?? ''
 
   function assignedBadge(task: Task): TaskBadge {
@@ -447,15 +459,15 @@ export function MyBoard({
           task workspace follow in a stable dashboard hierarchy. */}
       <div className="grid grid-cols-1 gap-3 shrink-0 order-first sm:grid-cols-3">
         {([
-          { label: tr('המשימות שלי', 'My Tasks'),   value: displayTasks.length, sub: tr('משויכות אליך', 'assigned to you'), cls: 'text-primary', bg: 'bg-gradient-to-br from-primary/10 to-white border-primary/20' },
-          { label: tr('באיחור', 'Overdue'),          value: overdueTasks.length, sub: tr('עבר תאריך היעד', 'past due date'), cls: overdueTasks.length > 0 ? 'text-red-600' : 'text-gray-400', bg: overdueTasks.length > 0 ? 'bg-gradient-to-br from-red-50 to-white border-red-200' : 'bg-gradient-to-br from-gray-50 to-white border-gray-200' },
-          { label: tr('זמן העבודה שלי', 'My Working Time'), value: hoursThisMonth, sub: tr('סה״כ שעות החודש', 'Total hours this month'), cls: 'text-secondary-dark', bg: 'bg-gradient-to-br from-secondary/15 to-white border-secondary/30', isHours: true },
-        ] as const).map(({ label, value, sub, cls, bg, isHours }) => (
-          <div key={label} className={`relative overflow-hidden border rounded-2xl px-4 py-3.5 shadow-[0_4px_18px_rgba(31,50,114,0.06)] transition-all hover:-translate-y-0.5 ${bg ?? 'bg-white border-gray-100'}`}>
+          { id: 'summary:my-tasks', label: tr('המשימות שלי', 'My Tasks'),   value: displayTasks.length, sub: tr('משויכות אליך', 'assigned to you'), cls: 'text-primary', bg: 'bg-gradient-to-br from-primary/10 to-white border-primary/20' },
+          { id: 'summary:overdue', label: tr('באיחור', 'Overdue'),          value: overdueTasks.length, sub: tr('עבר תאריך היעד', 'past due date'), cls: overdueTasks.length > 0 ? 'text-red-600' : 'text-gray-400', bg: overdueTasks.length > 0 ? 'bg-gradient-to-br from-red-50 to-white border-red-200' : 'bg-gradient-to-br from-gray-50 to-white border-gray-200' },
+          { id: 'summary:working-time', label: tr('זמן העבודה שלי', 'My Working Time'), value: hoursThisMonth, sub: tr('סה״כ שעות החודש', 'Total hours this month'), cls: 'text-secondary-dark', bg: 'bg-gradient-to-br from-secondary/15 to-white border-secondary/30', isHours: true },
+        ] as const).map(({ id, label, value, sub, cls, bg, isHours }) => (
+          <button type="button" key={id} onClick={() => setSelectedGroupId(id)} className={'relative overflow-hidden border rounded-2xl px-4 py-3.5 text-left shadow-[0_4px_18px_rgba(31,50,114,0.06)] transition-all hover:-translate-y-0.5 hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 ' + (activeGroupId === id ? 'ring-2 ring-primary/25 border-primary/40 ' : '') + (bg ?? 'bg-white border-gray-100')}>
             <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
             <p className={`text-2xl font-bold ${cls}`}>{isHours ? fmtHours(value as number) : value}</p>
             <p className="text-[10px] text-gray-500 mt-0.5">{sub}</p>
-          </div>
+          </button>
         ))}
       </div>
 
