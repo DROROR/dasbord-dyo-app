@@ -50,6 +50,17 @@ const WORK_TABS: { id: WorkTab; label: string; labelHe?: string; labelEn?: strin
   { id: 'report',  label: 'Work Report',   labelHe: 'דוח עבודה', labelEn: 'Work Report', icon: TrendingUp },
 ]
 
+const WORK_TAB_STORAGE_KEY = 'dyo-work-selected-tab'
+
+function initialWorkTab(): WorkTab {
+  try {
+    const stored = window.sessionStorage.getItem(WORK_TAB_STORAGE_KEY)
+    return WORK_TABS.some(tab => tab.id === stored) ? stored as WorkTab : 'myboard'
+  } catch {
+    return 'myboard'
+  }
+}
+
 function newId() { return Math.random().toString(36).slice(2, 10) }
 
 async function loadWithRetry<T>(load: () => Promise<T>, attempts = 3): Promise<T> {
@@ -572,7 +583,10 @@ export function Work() {
     return () => { cancelled = true }
   }, [isOwner, profile?.id])
 
-  const [tab,          setTab]          = useState<WorkTab>('myboard')
+  const [tab,          setTab]          = useState<WorkTab>(() => {
+    const initial = initialWorkTab()
+    return (initial === 'ai' && !canEdit) || (initial === 'docs' && !canViewDocs) ? 'myboard' : initial
+  })
   const [boards,       setBoards]       = useState<Board[]>(INITIAL_BOARDS)
   const [activeBoard,  setActiveBoard]  = useState(INITIAL_BOARDS[0].id)
   const [tasks,        setTasks]        = useState<Task[]>([])
@@ -602,6 +616,14 @@ export function Work() {
   const [assignees, setAssignees] = useState<string[]>([])
   const [profiles,  setProfiles]  = useState<{ id: string; name: string; isOwner: boolean }[]>([])
   const [isTechnicalSupport, setIsTechnicalSupport] = useState(false)
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(WORK_TAB_STORAGE_KEY, tab)
+    } catch {
+      // Storage can be unavailable in privacy-restricted browsers.
+    }
+  }, [tab])
 
   const alertsRunRef = useRef(false)
   const tasksRef     = useRef<Task[]>([])
