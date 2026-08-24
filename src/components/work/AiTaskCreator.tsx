@@ -563,7 +563,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
     const canCreate = !!preview.board
 
     return (
-      <div className="flex flex-col gap-5 max-w-2xl mx-auto w-full flex-1 min-h-0 overflow-y-auto pb-6" dir={activeLanguage === 'he' ? 'rtl' : 'ltr'}>
+      <div className="task-editor flex flex-col gap-5 max-w-2xl mx-auto w-full flex-1 min-h-0 overflow-y-auto pb-6" dir={activeLanguage === 'he' ? 'rtl' : 'ltr'}>
         <div className="flex items-center justify-between shrink-0">
           <p className="text-sm font-semibold text-gray-700">{ui('Review generated task', 'בדיקת המשימה שנוצרה')}</p>
           <button onClick={() => setPhase('chat')} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">{ui('← Back to chat', 'חזרה לצ׳אט →')}</button>

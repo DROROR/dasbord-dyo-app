@@ -70,6 +70,7 @@ html.dark body { background: var(--brand-background); color: var(--brand-text); 
 .dark .bg-gray-100\/60 { background-color: rgb(30 41 59 / 0.88); }
 .dark .bg-primary { background-color: #23408e; }
 .dark .text-primary { color: #7dd3fc; }
+.dark .text-gray-950 { color: #f8fafc; }
 .dark .text-gray-900 { color: #f8fafc; }
 .dark .text-gray-800 { color: #e5e7eb; }
 .dark .text-gray-700 { color: #d1d5db; }
@@ -95,6 +96,8 @@ html.dark body { background: var(--brand-background); color: var(--brand-text); 
 .dark input, .dark textarea, .dark select { background-color: #111827; color: #e5e7eb; border-color: #37465d; }
 .dark input::placeholder, .dark textarea::placeholder { color: #718096; }
 .dark option { background-color: #111827; color: #e5e7eb; }
+.dark .task-editor label { color: #f8fafc; }
+.dark .task-editor input, .dark .task-editor textarea, .dark .task-editor select { color: #f8fafc; }
 
 /* Bright, high-contrast semantic colors on dark surfaces. */
 .dark .bg-red-50, .dark .bg-red-100 { background-color: #451a24; }

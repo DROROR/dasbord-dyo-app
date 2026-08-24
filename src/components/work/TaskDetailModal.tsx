@@ -577,7 +577,7 @@ export function TaskDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6" onClick={onClose}>
-      <div className="relative bg-white rounded-3xl shadow-2xl ring-1 ring-black/5 w-full max-w-6xl flex flex-col overflow-hidden" style={{ maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
+      <div className="task-editor relative bg-white rounded-3xl shadow-2xl ring-1 ring-black/5 w-full max-w-6xl flex flex-col overflow-hidden" style={{ maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex items-center gap-3 px-5 sm:px-6 py-4 border-b border-gray-100 bg-white/95 shrink-0">
