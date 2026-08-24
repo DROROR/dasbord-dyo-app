@@ -484,7 +484,7 @@ export function MyBoard({
           <aside className="flex min-h-0 flex-col gap-3 xl:order-2 xl:col-span-5 xl:overflow-hidden">
       {/* Alerts */}
       {(pendingClose.length > 0 || overdueTasks.length > 0 || unclaimed.length > 0) && (
-        <div className="flex min-h-0 flex-[1.35] basis-0 flex-col gap-2 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-3">
+        <div className="flex min-h-0 flex-[1.55] basis-0 flex-col gap-2 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-3">
           <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{tr('התראות', 'Alerts')}</p>
 
           {/* Urgent work and support tickets are always the first actionable
