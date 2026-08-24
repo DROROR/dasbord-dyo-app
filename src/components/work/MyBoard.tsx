@@ -481,10 +481,10 @@ export function MyBoard({
         </div>
       ) : (
         <div className="grid flex-1 min-h-0 gap-4 overflow-y-auto pb-3 xl:grid-cols-12 xl:overflow-hidden">
-          <aside className="flex min-h-0 flex-col gap-3 rounded-2xl border border-gray-200/70 bg-gray-50/70 p-3 shadow-[0_4px_18px_rgba(31,50,114,0.06)] xl:order-2 xl:col-span-4 xl:overflow-hidden">
+          <aside className="flex min-h-0 flex-col gap-3 xl:order-2 xl:col-span-5 xl:overflow-hidden">
       {/* Alerts */}
       {(pendingClose.length > 0 || overdueTasks.length > 0 || unclaimed.length > 0) && (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-3 shadow-[0_4px_18px_rgba(31,50,114,0.05)]">
+        <div className="flex min-h-0 flex-[1.35] basis-0 flex-col gap-2 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-3">
           <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{tr('התראות', 'Alerts')}</p>
 
           {/* Urgent work and support tickets are always the first actionable
@@ -538,7 +538,7 @@ export function MyBoard({
 
         </div>
       )}
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-3 shadow-[0_4px_18px_rgba(31,50,114,0.05)]">
+          <div className="flex min-h-0 flex-1 basis-0 flex-col gap-3 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-3">
           {pendingClose.length === 0 && overdueTasks.length === 0 && unclaimed.length === 0 && statusResponsibilityGroups.length === 0 && actionGroups.length === 0 && trackingGroups.length === 0 && (
             <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-green-100 bg-green-50/70 px-4 py-8 text-center">
               <CheckCircle2 size={20} className="mb-2 text-green-600" />
@@ -630,7 +630,7 @@ export function MyBoard({
 
           </div>
           </aside>
-          <main className="min-h-[260px] rounded-2xl border border-gray-200/70 bg-white shadow-[0_4px_18px_rgba(31,50,114,0.06)] xl:order-1 xl:col-span-8 xl:min-h-0 xl:overflow-hidden">
+          <main className="min-h-[260px] rounded-2xl border border-gray-200/70 bg-white shadow-[0_4px_18px_rgba(31,50,114,0.06)] xl:order-1 xl:col-span-7 xl:min-h-0 xl:overflow-hidden">
           {selectedGroup && (
             <MyStatusSection
               key={selectedGroup.id}
