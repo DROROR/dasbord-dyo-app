@@ -52,6 +52,7 @@ const WORK_TABS: { id: WorkTab; label: string; labelHe?: string; labelEn?: strin
 
 const WORK_TAB_STORAGE_KEY = 'dyo-work-selected-tab'
 const WORK_BOARD_STORAGE_KEY = 'dyo-work-selected-board'
+const WORK_OPEN_TASK_STORAGE_KEY = 'dyo-work-open-task'
 
 function initialWorkTab(): WorkTab {
   try {
@@ -59,6 +60,15 @@ function initialWorkTab(): WorkTab {
     return WORK_TABS.some(tab => tab.id === stored) ? stored as WorkTab : 'myboard'
   } catch {
     return 'myboard'
+  }
+}
+
+function initialOpenTaskId(): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get('task')
+      ?? window.sessionStorage.getItem(WORK_OPEN_TASK_STORAGE_KEY)
+  } catch {
+    return null
   }
 }
 
@@ -606,7 +616,7 @@ export function Work() {
   // (or, if the boards fetch failed silently, indefinitely) still show up
   // for its original assignee. Gate on both.
   const [boardsLoading, setBoardsLoading] = useState(true)
-  const [openId,       setOpenId]       = useState<string | null>(null)
+  const [openId,       setOpenId]       = useState<string | null>(initialOpenTaskId)
   const [showAddBoard, setShowAddBoard] = useState(false)
   const [settingsBoard, setSettingsBoard] = useState<Board | null>(null)
   // Surfaced visibly next to the New Task buttons — a failed creation
@@ -629,6 +639,15 @@ export function Work() {
       // Storage can be unavailable in privacy-restricted browsers.
     }
   }, [tab, activeBoard])
+
+  useEffect(() => {
+    try {
+      if (openId) window.sessionStorage.setItem(WORK_OPEN_TASK_STORAGE_KEY, openId)
+      else window.sessionStorage.removeItem(WORK_OPEN_TASK_STORAGE_KEY)
+    } catch {
+      // Dialog persistence is best-effort when browser storage is restricted.
+    }
+  }, [openId])
 
   const alertsRunRef = useRef(false)
   const tasksRef     = useRef<Task[]>([])
