@@ -489,7 +489,7 @@ export function MyBoard({
           <aside className="flex min-h-0 flex-col gap-3 min-[1500px]:order-2 min-[1500px]:col-span-5 min-[1500px]:overflow-hidden">
       {/* Alerts */}
       {(pendingClose.length > 0 || overdueTasks.length > 0 || unclaimed.length > 0) && (
-        <div className="flex flex-none flex-col gap-2 overflow-visible rounded-xl border border-gray-200/70 bg-white p-3 min-[1500px]:min-h-0 min-[1500px]:flex-[1.55] min-[1500px]:basis-0 min-[1500px]:overflow-y-auto">
+        <div className="alerts-scroll flex max-h-[45vh] min-h-[144px] flex-none flex-col gap-2 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-3 min-[1500px]:min-h-0 min-[1500px]:max-h-none min-[1500px]:flex-[1.55] min-[1500px]:basis-0">
           <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{tr('התראות', 'Alerts')}</p>
 
           {/* Urgent work and support tickets are always the first actionable

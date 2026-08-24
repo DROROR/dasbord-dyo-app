@@ -134,3 +134,10 @@ html.dark body { background: var(--brand-background); color: var(--brand-text); 
 .dark .text-purple-500, .dark .text-purple-600, .dark .text-purple-700 { color: #c084fc; }
 .dark .text-pink-500, .dark .text-pink-600, .dark .text-pink-700 { color: #f472b6; }
 .dark .shadow-sm, .dark .shadow, .dark .shadow-md, .dark .shadow-lg, .dark .shadow-xl { --tw-shadow-color: rgb(0 0 0 / 0.35); }
+
+.alerts-scroll { scrollbar-width: thin; scrollbar-color: #94a3b8 transparent; }
+.alerts-scroll::-webkit-scrollbar { width: 7px; }
+.alerts-scroll::-webkit-scrollbar-track { background: transparent; }
+.alerts-scroll::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 8px; }
+.dark .alerts-scroll { scrollbar-color: #64748b transparent; }
+.dark .alerts-scroll::-webkit-scrollbar-thumb { background: #64748b; }
