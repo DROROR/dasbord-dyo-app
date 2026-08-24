@@ -98,24 +98,24 @@ function CompactTaskRow({
       tabIndex={0}
       onClick={onClick}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
-      className="flex items-center gap-3 w-full px-4 py-3 bg-white hover:bg-gray-50 border-b border-gray-100 text-left transition-colors last:border-b-0 cursor-pointer"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 w-full px-4 py-3 odd:bg-slate-50 even:bg-white hover:bg-blue-50/60 border border-gray-200 rounded-xl text-left transition-colors cursor-pointer shadow-sm"
     >
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
         <span className="block truncate text-sm font-bold text-gray-900">{task.title}</span>
-        <div className="mt-1 flex items-center gap-2">
+        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="text-[9px] font-mono text-gray-400 truncate">{task.id}</span>
           <TaskPlatformBadges platforms={task.platforms} />
+          {badge && (
+            <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 whitespace-nowrap ${badge.cls}`}>
+              {badge.label}
+            </span>
+          )}
         </div>
       </div>
       <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_PILL[task.status] ?? 'bg-gray-100 text-gray-600'}`}>
         {STATUS_LABEL[task.status] ?? task.status}
       </span>
       <ClientBadge name={task.clientName} />
-      {badge && (
-        <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 whitespace-nowrap ${badge.cls}`}>
-          {badge.label}
-        </span>
-      )}
       <PriorityQuickEdit task={task} priorityDefs={priorityDefs} canEdit={canEdit} onSaved={onTaskSaved} />
       {task.dueDate && (
         <span className={`text-[10px] flex items-center gap-0.5 shrink-0 ${overdue ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
@@ -179,7 +179,7 @@ function MyStatusSection({
         </span>
       </button>
       {open && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex flex-1 min-h-0 flex-col gap-2 overflow-y-auto p-2">
           {tasks.length === 0 ? (
             <div className="text-[11px] text-gray-400 text-center py-4 select-none">{tr('אין משימות', 'No tasks')}</div>
           ) : (
