@@ -498,7 +498,7 @@ export function MyBoard({
             const urgent = !unclaimedSupportBoard.has(t.board)
             return (
               <button key={t.id} onClick={() => onOpenTask(t.id)}
-                className="grid h-12 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 overflow-hidden rounded-lg border border-orange-200 bg-orange-50 px-3 text-left transition-colors hover:bg-orange-100"
+                className="grid h-12 w-full min-w-0 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 overflow-hidden rounded-lg border border-orange-200 bg-orange-50 px-3 text-left transition-colors hover:bg-orange-100"
               >
                 {urgent
                   ? <AlertCircle size={14} className="text-red-500 shrink-0" />
@@ -512,7 +512,7 @@ export function MyBoard({
 
           {pendingClose.map(t => (
             <button key={t.id} onClick={() => onOpenTask(t.id)}
-              className="grid h-12 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 overflow-hidden rounded-lg border border-orange-200 bg-orange-50 px-3 text-left transition-colors hover:bg-orange-100"
+              className="grid h-12 w-full min-w-0 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 overflow-hidden rounded-lg border border-orange-200 bg-orange-50 px-3 text-left transition-colors hover:bg-orange-100"
             >
               <CheckCircle2 size={14} className="text-orange-500 shrink-0" />
               <span className="min-w-0 truncate text-sm font-semibold text-orange-900">{t.title}</span>
@@ -525,7 +525,7 @@ export function MyBoard({
 
           {overdueTasks.map(t => (
             <button key={t.id} onClick={() => onOpenTask(t.id)}
-              className="grid h-12 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 overflow-hidden rounded-lg border border-red-200 bg-red-50 px-3 text-left transition-colors hover:bg-red-100"
+              className="grid h-12 w-full min-w-0 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 overflow-hidden rounded-lg border border-red-200 bg-red-50 px-3 text-left transition-colors hover:bg-red-100"
             >
               <AlertCircle size={14} className="text-red-500 shrink-0" />
               <span className="min-w-0 truncate text-sm font-semibold text-red-900">{t.title}</span>
