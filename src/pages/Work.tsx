@@ -51,10 +51,11 @@ const WORK_TABS: { id: WorkTab; label: string; labelHe?: string; labelEn?: strin
 ]
 
 const WORK_TAB_STORAGE_KEY = 'dyo-work-selected-tab'
+const WORK_BOARD_STORAGE_KEY = 'dyo-work-selected-board'
 
 function initialWorkTab(): WorkTab {
   try {
-    const stored = window.sessionStorage.getItem(WORK_TAB_STORAGE_KEY)
+    const stored = window.localStorage.getItem(WORK_TAB_STORAGE_KEY)
     return WORK_TABS.some(tab => tab.id === stored) ? stored as WorkTab : 'myboard'
   } catch {
     return 'myboard'
@@ -588,7 +589,10 @@ export function Work() {
     return (initial === 'ai' && !canEdit) || (initial === 'docs' && !canViewDocs) ? 'myboard' : initial
   })
   const [boards,       setBoards]       = useState<Board[]>(INITIAL_BOARDS)
-  const [activeBoard,  setActiveBoard]  = useState(INITIAL_BOARDS[0].id)
+  const [activeBoard,  setActiveBoard]  = useState(() => {
+    try { return window.localStorage.getItem(WORK_BOARD_STORAGE_KEY) ?? INITIAL_BOARDS[0].id }
+    catch { return INITIAL_BOARDS[0].id }
+  })
   const [tasks,        setTasks]        = useState<Task[]>([])
   const [tasksLoading, setTasksLoading] = useState(true)
   // INITIAL_BOARDS (the seed constant `boards` starts as) never carries a
@@ -619,11 +623,12 @@ export function Work() {
 
   useEffect(() => {
     try {
-      window.sessionStorage.setItem(WORK_TAB_STORAGE_KEY, tab)
+      window.localStorage.setItem(WORK_TAB_STORAGE_KEY, tab)
+      window.localStorage.setItem(WORK_BOARD_STORAGE_KEY, activeBoard)
     } catch {
       // Storage can be unavailable in privacy-restricted browsers.
     }
-  }, [tab])
+  }, [tab, activeBoard])
 
   const alertsRunRef = useRef(false)
   const tasksRef     = useRef<Task[]>([])

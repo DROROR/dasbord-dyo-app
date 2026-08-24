@@ -12,6 +12,9 @@ import { useWorkLang } from '../../contexts/WorkLanguageContext'
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
 }
+function fmtCreatedAt(iso: string) {
+  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
 function fmtHours(h: number) {
   if (h === 0) return '0h'
   const hrs = Math.floor(h)
@@ -104,6 +107,9 @@ function TaskCard({
         <PriorityQuickEdit task={task} priorityDefs={priorityDefs} canEdit={canEdit} onSaved={onTaskSaved} />
         <span className="text-[10px] font-mono text-gray-400 shrink-0">{task.id}</span>
         <div className="flex-1" />
+        <span className="flex shrink-0 items-center gap-1 text-[10px] text-gray-500" title="Task creation date and time">
+          <Clock size={9} /> Created {fmtCreatedAt(task.createdAt)}
+        </span>
         {task.dueDate && (
           <span className={`text-[10px] flex items-center gap-0.5 shrink-0 ${overdue ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
             <Calendar size={9} />
