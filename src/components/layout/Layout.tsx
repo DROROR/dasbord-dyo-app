@@ -30,7 +30,9 @@ export function Layout({ children, activePage, onNavigate, profile, onSignOut }:
           onToggleSidebar={() => setCollapsed(c => !c)}
           onNavigate={onNavigate}
         />
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className={activePage === 'work'
+          ? 'min-h-0 min-w-0 flex-1 overflow-hidden p-0'
+          : 'min-h-0 min-w-0 flex-1 overflow-y-auto p-6'}>
           {children}
         </main>
       </div>

@@ -1055,12 +1055,11 @@ export function Work() {
     <div
       dir="ltr"
       translate="no"
-      className="notranslate -m-6 flex w-[calc(100%+3rem)] max-w-none min-w-0 flex-col"
-      style={{ height: 'calc(100vh - 64px)' }}
+      className="notranslate flex h-full w-full min-w-0 flex-col overflow-hidden"
     >
 
       {/* Tab bar */}
-      <nav className="flex items-center gap-0 border-b border-gray-200 bg-white px-6 shrink-0 overflow-x-auto">
+      <nav className="flex w-full min-w-0 shrink-0 items-center gap-0 overflow-x-auto border-b border-gray-200 bg-white px-6">
         {WORK_TABS.filter(t => (t.id !== 'ai' || canEdit) && (t.id !== 'docs' || canViewDocs) && (t.id !== 'report' || canViewReport)).map(t => {
           const Icon   = t.icon
           const active = tab === t.id
