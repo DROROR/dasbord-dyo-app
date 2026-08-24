@@ -67,6 +67,7 @@ function taskMatchesStatus(t: Task, boards: Board[], stableId: string, label: st
 
 type TaskBadge = { label: string; cls: string }
 type TaskGroup = { id: string; label: string; tasks: Task[]; boardLabel?: string }
+type TaskListFilter = 'active' | 'all' | 'archived'
 
 // ─── CompactTaskRow ───────────────────────────────────────────────────────────
 
@@ -111,7 +112,7 @@ function CompactTaskRow({
 // ─── MyStatusSection ──────────────────────────────────────────────────────────
 
 function MyStatusSection({
-  col, tasks, boards, onCardClick, getBadge, canEditTask, eligibleAssigneesFor, onTaskSaved, canMoveTask, onMoveClick,
+  col, tasks, boards, onCardClick, getBadge, canEditTask, eligibleAssigneesFor, onTaskSaved, canMoveTask, onMoveClick, taskFilter, onFilterChange,
 }: {
   col: { id: string; label: string }
   tasks: Task[]
@@ -123,6 +124,8 @@ function MyStatusSection({
   onTaskSaved: (updated: Task) => void
   canMoveTask: (task: Task) => boolean
   onMoveClick: (task: Task) => void
+  taskFilter: TaskListFilter
+  onFilterChange: (filter: TaskListFilter) => void
 }) {
   const { t: tr } = useWorkLang()
   const [open, setOpen] = useState(col.id !== 'done' && col.id !== 'archived')
@@ -133,18 +136,29 @@ function MyStatusSection({
   const label = tr(STATUS_LABEL_HE[col.id] ?? col.label, col.label)
   return (
     <div className={`h-full flex flex-col border-l-2 rounded-xl overflow-hidden ${STATUS_LEFT[col.id] ?? 'border-l-gray-300'} bg-white`}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2.5 w-full px-4 py-2.5 bg-gray-50/80 hover:bg-gray-100/60 transition-colors text-left border-b border-gray-100"
-      >
-        <ChevronDown size={13} className={`text-gray-500 transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} />
-        <span className={`rounded-sm px-2 py-1 text-xs font-bold ${STATUS_PILL[col.id] ?? 'bg-gray-100 text-gray-700'}`}>
-          {label}
+      <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 bg-gray-50/80 px-4 py-2.5">
+        <button type="button" onClick={() => setOpen(o => !o)} className="flex min-w-0 items-center gap-2.5 text-left transition-colors hover:text-primary">
+          <ChevronDown size={13} className={`text-gray-500 transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} />
+          <span className={`rounded-sm px-2 py-1 text-xs font-bold ${STATUS_PILL[col.id] ?? 'bg-gray-100 text-gray-700'}`}>
+            {label}
+          </span>
+          <span className="text-xs font-bold text-gray-500 bg-white border border-gray-200 rounded-full px-1.5 min-w-[20px] text-center">
+            {tasks.length}
+          </span>
+        </button>
+        <span className="ml-auto flex items-center gap-1">
+          {(['active', 'all', 'archived'] as TaskListFilter[]).map(filter => (
+            <button
+              key={filter}
+              type="button"
+              onClick={() => onFilterChange(filter)}
+              className={`rounded-sm border px-2 py-1 text-[10px] font-bold transition-colors ${taskFilter === filter ? 'border-primary bg-primary text-white' : 'border-gray-200 bg-white text-gray-500 hover:border-primary/40 hover:text-primary'}`}
+            >
+              {filter === 'active' ? tr('פעיל', 'Active') : filter === 'all' ? tr('הכל', 'All') : tr('ארכיון', 'Archived')}
+            </button>
+          ))}
         </span>
-        <span className="text-xs font-bold text-gray-500 bg-white border border-gray-200 rounded-full px-1.5 min-w-[20px] text-center">
-          {tasks.length}
-        </span>
-      </button>
+      </div>
       {open && (
         <div className="flex flex-1 min-h-0 flex-col overflow-auto">
           {tasks.length > 0 && (
@@ -412,8 +426,19 @@ export function MyBoard({
   ]
   const allGroups = [...statusResponsibilityGroups, ...actionGroups, ...trackingGroups]
   const [selectedGroupId, setSelectedGroupId] = useState('')
+  const [taskFilter, setTaskFilter] = useState<TaskListFilter>('active')
   const selectedGroup = [...summaryGroups, ...allGroups].find(g => g.id === selectedGroupId) ?? allGroups[0] ?? summaryGroups[0]
+  const selectedTasks = taskFilter === 'archived'
+    ? displayTasks.filter(task => task.status === 'archived')
+    : taskFilter === 'active'
+      ? (selectedGroup?.tasks ?? []).filter(task => task.status !== 'archived')
+      : selectedGroup?.tasks ?? []
   const activeGroupId = selectedGroup?.id ?? ''
+
+  function changeTaskFilter(filter: TaskListFilter) {
+    setTaskFilter(filter)
+    if (filter === 'archived') setSelectedGroupId('summary:my-tasks')
+  }
 
   function assignedBadge(task: Task): TaskBadge {
     if (task.status === 'done')
@@ -616,7 +641,7 @@ export function MyBoard({
             <MyStatusSection
               key={selectedGroup.id}
               col={{ id: selectedGroup.id, label: selectedGroup.label }}
-              tasks={selectedGroup.tasks}
+              tasks={selectedTasks}
               boards={boards}
               onCardClick={onOpenTask}
               getBadge={task => collaborationBadgeMap.get(task.id) ?? statusBadgeMap.get(task.id) ?? assignedBadge(task)}
@@ -625,6 +650,8 @@ export function MyBoard({
               onTaskSaved={onTaskSaved}
               canMoveTask={canMoveTask}
               onMoveClick={setMovingTask}
+              taskFilter={taskFilter}
+              onFilterChange={changeTaskFilter}
             />
           )}
           </main>
