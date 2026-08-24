@@ -587,10 +587,10 @@ export function TaskDetailModal({
             {editTitle ? (
               <input autoFocus value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
                 onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { setTitle(task.title); setEditTitle(false) } }}
-                className="w-full text-base font-bold text-gray-950 border-b-2 border-primary focus:outline-none bg-transparent py-0 leading-snug"
+                className="task-title-input w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base font-bold leading-snug text-gray-950 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
               />
             ) : (
-              <button onClick={() => !readonly && setEditTitle(true)} disabled={readonly} className="text-base font-bold text-gray-950 hover:text-primary transition-colors text-left leading-snug line-clamp-1 w-full disabled:hover:text-gray-900 disabled:cursor-default" title={readonly ? undefined : 'Click to edit'}>{title}</button>
+              <button onClick={() => !readonly && setEditTitle(true)} disabled={readonly} className="task-title-input line-clamp-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-left text-base font-bold leading-snug text-gray-950 transition-colors hover:border-primary hover:text-primary disabled:cursor-default disabled:hover:border-gray-300 disabled:hover:text-gray-900" title={readonly ? undefined : 'Click to edit'}>{title}</button>
             )}
           </div>
           {openTicketsForClient > 0 && (

@@ -573,7 +573,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
           <div>
             <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{ui('Title', 'כותרת')}</label>
             <input value={preview.title} onChange={e => setPreview(p => p ? { ...p, title: e.target.value } : p)}
-              className="mt-1 w-full text-sm font-medium text-gray-800 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+              className="task-title-input mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-800 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
             />
           </div>
           <div>
