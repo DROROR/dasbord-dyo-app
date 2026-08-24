@@ -1,9 +1,10 @@
 import { useRef, useState, useEffect } from 'react'
-import { Bell, Search, PanelRight, X, Check, AlertTriangle, MessageSquare, Code, Palette, RotateCcw, Clock, Send, Globe, ExternalLink, UserPlus, ListChecks } from 'lucide-react'
+import { Bell, Search, PanelRight, X, Check, AlertTriangle, MessageSquare, Code, Palette, RotateCcw, Clock, Send, Globe, ExternalLink, UserPlus, ListChecks, Moon, Sun } from 'lucide-react'
 import { useNotifications } from '../../contexts/NotificationContext'
 import { requestTaskFocus, requestClientFocus } from '../../lib/focusTarget'
 import { useLang } from '../../contexts/LanguageContext'
 import type { NotificationType, AppNotification } from '../../types/work'
+import { useTheme } from '../../contexts/theme'
 
 const PAGE_TITLES: Record<string, { he: string; en: string }> = {
   dashboard:   { he: 'לוח בקרה',    en: 'Dashboard' },
@@ -109,6 +110,7 @@ interface Props {
 export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications()
   const { t, lang, toggle } = useLang()
+  const { theme, toggleTheme } = useTheme()
   const pt = PAGE_TITLES[activePage]
   const pageTitle = pt ? t(pt.he, pt.en) : activePage
   const [panelOpen, setPanelOpen]   = useState(false)
@@ -205,6 +207,15 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
 
       {/* Left: Search + Notifications + Avatar */}
       <div className="relative z-10 flex items-center gap-2">
+        <button
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary"
+        >
+          {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+        </button>
+
         {/* Search */}
         <div className="relative hidden sm:block">
           <Search size={15} className="absolute top-1/2 -translate-y-1/2 end-3 text-gray-400 pointer-events-none" />

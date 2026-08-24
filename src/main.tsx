@@ -4,14 +4,17 @@ import './index.css'
 import App from './App.tsx'
 import { SettingsProvider } from './context/SettingsContext.tsx'
 import { AuthProvider } from './hooks/useAuth.tsx'
+import { ThemeProvider } from './contexts/ThemeContext.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AuthProvider>
-      <SettingsProvider>
-        <App />
-      </SettingsProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <SettingsProvider>
+          <App />
+        </SettingsProvider>
+      </AuthProvider>
+    </ThemeProvider>
   </StrictMode>,
 )
 

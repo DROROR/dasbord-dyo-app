@@ -42,3 +42,61 @@ body {
   color: var(--brand-text);
   -webkit-font-smoothing: antialiased;
 }
+
+/* Global dark palette. Existing screens use the shared Tailwind neutral
+   utilities, so remapping those tokens here keeps every module consistent
+   without maintaining separate page-specific themes. */
+html.dark {
+  color-scheme: dark;
+  --brand-primary: #60a5fa;
+  --brand-secondary: #5eead4;
+  --brand-accent: #fb923c;
+  --brand-background: #090e1a;
+  --brand-surface: #111827;
+  --brand-text: #f1f5f9;
+  --brand-text-muted: #94a3b8;
+  --brand-border: #293548;
+}
+
+html.dark body { background: var(--brand-background); color: var(--brand-text); }
+.dark .bg-background { background-color: #090e1a; }
+.dark .bg-surface, .dark .bg-white { background-color: #111827; }
+.dark .bg-gray-50 { background-color: #161f2f; }
+.dark .bg-gray-100 { background-color: #1e293b; }
+.dark .bg-gray-200 { background-color: #334155; }
+.dark .bg-slate-50 { background-color: #151e2d; }
+.dark .bg-primary { background-color: #23408e; }
+.dark .text-primary { color: #7dd3fc; }
+.dark .text-gray-900 { color: #f8fafc; }
+.dark .text-gray-800 { color: #e5e7eb; }
+.dark .text-gray-700 { color: #d1d5db; }
+.dark .text-gray-600 { color: #cbd5e1; }
+.dark .text-gray-500 { color: #a3b1c6; }
+.dark .text-gray-400 { color: #8291a8; }
+.dark .text-gray-300 { color: #718096; }
+.dark .border-gray-50, .dark .border-gray-100 { border-color: #202c3d; }
+.dark .border-gray-200 { border-color: #2c3a4f; }
+.dark .border-gray-300 { border-color: #40516a; }
+.dark input, .dark textarea, .dark select { background-color: #111827; color: #e5e7eb; border-color: #37465d; }
+.dark input::placeholder, .dark textarea::placeholder { color: #718096; }
+.dark option { background-color: #111827; color: #e5e7eb; }
+
+/* Bright, high-contrast semantic colors on dark surfaces. */
+.dark .bg-red-50, .dark .bg-red-100 { background-color: #451a24; }
+.dark .bg-orange-50, .dark .bg-orange-100 { background-color: #48200f; }
+.dark .bg-amber-50, .dark .bg-amber-100 { background-color: #422d0b; }
+.dark .bg-green-50, .dark .bg-green-100 { background-color: #103824; }
+.dark .bg-emerald-50, .dark .bg-emerald-100 { background-color: #0d392d; }
+.dark .bg-blue-50, .dark .bg-blue-100 { background-color: #172e59; }
+.dark .bg-cyan-50, .dark .bg-cyan-100 { background-color: #103845; }
+.dark .bg-purple-50, .dark .bg-purple-100 { background-color: #342052; }
+.dark .bg-pink-50, .dark .bg-pink-100 { background-color: #481b38; }
+.dark .text-red-500, .dark .text-red-600, .dark .text-red-700, .dark .text-red-800, .dark .text-red-900 { color: #fb7185; }
+.dark .text-orange-500, .dark .text-orange-600, .dark .text-orange-700, .dark .text-orange-800, .dark .text-orange-900 { color: #fb923c; }
+.dark .text-amber-600, .dark .text-amber-700, .dark .text-amber-800 { color: #fbbf24; }
+.dark .text-green-500, .dark .text-green-600, .dark .text-green-700, .dark .text-green-800, .dark .text-green-900 { color: #4ade80; }
+.dark .text-blue-500, .dark .text-blue-600, .dark .text-blue-700, .dark .text-blue-800 { color: #60a5fa; }
+.dark .text-cyan-600, .dark .text-cyan-700 { color: #22d3ee; }
+.dark .text-purple-500, .dark .text-purple-600, .dark .text-purple-700 { color: #c084fc; }
+.dark .text-pink-500, .dark .text-pink-600, .dark .text-pink-700 { color: #f472b6; }
+.dark .shadow-sm, .dark .shadow, .dark .shadow-md, .dark .shadow-lg, .dark .shadow-xl { --tw-shadow-color: rgb(0 0 0 / 0.35); }
