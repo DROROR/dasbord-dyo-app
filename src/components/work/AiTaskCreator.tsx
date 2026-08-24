@@ -3,7 +3,8 @@ import {
   Send, Loader2, Bot, User, Check, ChevronDown,
   Sparkles, Paperclip, X, Brain, Mic, Square,
 } from 'lucide-react'
-import type { Task, PriorityDef, Board, Attachment } from '../../types/work'
+import type { Task, TaskPlatform, PriorityDef, Board, Attachment } from '../../types/work'
+import { TaskPlatformPicker } from './TaskPlatforms'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ interface TaskPreview {
   dueDate: string
   clientId: string
   clientName: string
+  platforms: TaskPlatform[]
 }
 
 interface AttachedImage {
@@ -355,6 +357,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
       dueDate:     '',
       clientId:    '',
       clientName:  '',
+      platforms:   [],
     })
     setPhase('preview')
   }
@@ -534,6 +537,7 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
       priority:     preview.priority,
       assignee:     preview.assignee,
       status:       'not_started',
+      platforms:    preview.platforms,
       timeEntries:  [],
       timeEstimate: 4,
       attachments,
@@ -588,6 +592,11 @@ When generating a task (after the user confirms), output ONLY this JSON — no o
             <SelectField label={ui('Priority', 'עדיפות')} value={preview.priority} onChange={v => setPreview(p => p ? { ...p, priority: v } : p)}>
               {priorityDefs.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
             </SelectField>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{ui('Platform (multiple allowed)', 'פלטפורמה (ניתן לבחור מספר)')}</label>
+            <div className="mt-1.5"><TaskPlatformPicker value={preview.platforms} onChange={platforms => setPreview(p => p ? { ...p, platforms } : p)} /></div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

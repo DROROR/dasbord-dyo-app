@@ -669,6 +669,7 @@ interface DbTask {
   source_task_id: string | null
   assignee_id: string | null
   claimed_by_id: string | null
+  platforms: Task['platforms'] | null
   task_subtasks?: DbTaskSubtask[]
 }
 
@@ -711,6 +712,7 @@ function dbToTask(db: DbTask): Task {
     board:           db.board,
     priority:        db.priority ?? 'medium',
     status:          db.status,
+    platforms:       db.platforms ?? [],
     clientId:        db.client_id ?? undefined,
     clientName:      db.client_name ?? undefined,
     startDate:       db.start_date ?? undefined,
@@ -741,6 +743,7 @@ function taskToRow(t: Partial<Task>): Record<string, unknown> {
   if (t.description    !== undefined) r.description      = t.description
   if (t.board          !== undefined) r.board            = t.board
   if (t.status         !== undefined) r.status           = t.status
+  if (t.platforms      !== undefined) r.platforms        = t.platforms
   if (t.priority       !== undefined) r.priority         = t.priority
   if (t.assignee       !== undefined) r.assignee         = t.assignee || null
   if (t.clientId       !== undefined) r.client_id        = (t.clientId && UUID_RE.test(t.clientId)) ? t.clientId : null

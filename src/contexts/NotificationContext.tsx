@@ -26,6 +26,8 @@ interface NotificationCtx {
   addNotification: (n: AddPayload) => void
   markRead: (id: string) => void
   markAllRead: () => void
+  browserPermission: NotificationPermission | 'unsupported'
+  enableBrowserNotifications: () => Promise<void>
 }
 
 const Ctx = createContext<NotificationCtx | null>(null)
@@ -35,13 +37,23 @@ const POLL_MS = 30_000
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission | 'unsupported'>(() => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission)
   const pending = useRef(false)
+  const knownIds = useRef<Set<string> | null>(null)
 
   const refresh = useCallback(async () => {
     if (pending.current) return
     pending.current = true
     try {
-      setNotifications(await getNotifications())
+      const fresh = await getNotifications()
+      if (knownIds.current && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        fresh.filter(n => !n.read && !knownIds.current!.has(n.id)).forEach(n => {
+          const notification = new Notification(n.taskTitle || 'DYO Work', { body: n.message, icon: '/pwa-192.png', tag: n.id })
+          notification.onclick = () => { window.focus(); if (n.taskId) window.location.hash = `work/task/${n.taskId}`; notification.close() }
+        })
+      }
+      knownIds.current = new Set(fresh.map(n => n.id))
+      setNotifications(fresh)
     } catch (err) {
       console.warn('Notification refresh failed:', err)
     } finally {
@@ -77,6 +89,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const unreadCount = notifications.filter(n => !n.read).length
 
+  const enableBrowserNotifications = useCallback(async () => {
+    if (typeof Notification === 'undefined') return
+    setBrowserPermission(await Notification.requestPermission())
+  }, [])
+
   // Installed PWAs can surface the personal unread count directly on the app
   // icon. Unsupported browsers simply keep the in-app bell badge.
   useEffect(() => {
@@ -91,7 +108,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   }, [unreadCount])
 
   return (
-    <Ctx.Provider value={{ notifications, unreadCount, addNotification, markRead, markAllRead }}>
+    <Ctx.Provider value={{ notifications, unreadCount, addNotification, markRead, markAllRead, browserPermission, enableBrowserNotifications }}>
       {children}
     </Ctx.Provider>
   )

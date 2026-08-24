@@ -564,7 +564,7 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
 
 export function Work() {
   const { profile, hasPermission, canManagePermissions, isOwner }  = useAuth()
-  const { addNotification }   = useNotifications()
+  const { addNotification, browserPermission, enableBrowserNotifications } = useNotifications()
   const { t: tr } = useWorkLang()
   const currentUser           = profile?.name ?? 'Dror'
   const canViewWork  = hasPermission('work', 'view')
@@ -1075,6 +1075,11 @@ export function Work() {
             </button>
           )
         })}
+        {browserPermission === 'default' && (
+          <button onClick={() => void enableBrowserNotifications()} className="ml-auto whitespace-nowrap rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/20">
+            Enable browser notifications
+          </button>
+        )}
       </nav>
 
       {/* Content */}

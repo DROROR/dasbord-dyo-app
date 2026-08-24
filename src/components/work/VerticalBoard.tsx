@@ -5,6 +5,7 @@ import { DEFAULT_BOARD_STATUSES, priorityDefsForBoard } from '../../data/workCon
 import { PriorityQuickEdit, AssigneeQuickEdit } from './TaskQuickEdit'
 import { ClientBadge } from './ClientBadge'
 import { MoveTaskModal } from './MoveTaskModal'
+import { TaskPlatformBadges } from './TaskPlatforms'
 import { useWorkLang } from '../../contexts/WorkLanguageContext'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -96,6 +97,8 @@ function TaskCard({
         )}
         <ClientBadge name={task.clientName} />
       </div>
+
+      <TaskPlatformBadges platforms={task.platforms} />
 
       {/* Row 2 — status + priority (quick-edit), then id + meta + assignee (quick-edit) */}
       <div className="flex items-center gap-2 w-full flex-wrap">

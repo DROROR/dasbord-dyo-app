@@ -100,6 +100,8 @@ export interface BoardStatus {
 
 // ─── Main entities ────────────────────────────────────────────────────────────
 
+export type TaskPlatform = 'admin' | 'website' | 'mobile_app' | 'super_admin'
+
 export interface Task {
   id: string
   title: string
@@ -111,6 +113,7 @@ export interface Task {
   board: BoardId
   priority: Priority
   status: string
+  platforms?: TaskPlatform[]
   clientId?: string
   clientName?: string
   dueDate?: string
@@ -218,6 +221,7 @@ export type NotificationType =
   | 'support_escalation'
   | 'task_assigned'
   | 'subtask_assigned'
+  | 'task_status_changed'
 
 export interface AppNotification {
   id: string

@@ -32,6 +32,7 @@ const NOTIF_ICON: Record<NotificationType, React.ElementType> = {
   task_done_return:      Check,
   task_assigned:         UserPlus,
   subtask_assigned:      ListChecks,
+  task_status_changed:   ListChecks,
 }
 
 const NOTIF_COLOR: Record<NotificationType, string> = {
@@ -48,6 +49,7 @@ const NOTIF_COLOR: Record<NotificationType, string> = {
   task_done_return:      'bg-green-100 text-green-600',
   task_assigned:         'bg-blue-100 text-blue-700',
   subtask_assigned:      'bg-cyan-100 text-cyan-700',
+  task_status_changed:   'bg-purple-100 text-purple-700',
 }
 
 // A notification type with no entry above must never blank the screen.

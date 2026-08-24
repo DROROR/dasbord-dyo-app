@@ -8,7 +8,7 @@ import { Avatar } from '../Avatar'
 import { useNotifications } from '../../contexts/NotificationContext'
 import { useTimer, TIMER_ENTRY_SAVED_EVENT, type TimerEntrySavedDetail } from '../../contexts/TimerContext'
 import { useWorkLang } from '../../contexts/WorkLanguageContext'
-import type { Task, TaskSubtask, TaskSubtaskStatus, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption, Board } from '../../types/work'
+import type { Task, TaskPlatform, TaskSubtask, TaskSubtaskStatus, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption, Board } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
 import {
   addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask,
@@ -17,6 +17,7 @@ import {
   type TaskBoardMove,
 } from '../../lib/database'
 import { MoveTaskModal } from './MoveTaskModal'
+import { TaskPlatformPicker } from './TaskPlatforms'
 
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -109,6 +110,7 @@ export function TaskDetailModal({
   const [desc,      setDesc]      = useState(task.description)
   const statuses = boardStatuses ?? DEFAULT_BOARD_STATUSES
   const [status,    setStatus]    = useState(task.status)
+  const [platforms, setPlatforms] = useState<TaskPlatform[]>(task.platforms ?? [])
   const [assignee,  setAssignee]  = useState(task.assignee)
   const [clientId,  setClientId]  = useState(task.clientId ?? '')
   const [priority,  setPriority]  = useState(task.priority)
@@ -970,6 +972,15 @@ export function TaskDetailModal({
 
           {/* Right sidebar */}
           <div className="w-full lg:w-[384px] shrink-0 border-t lg:border-t-0 lg:border-l border-gray-100 bg-gray-50/40 overflow-visible lg:overflow-y-auto px-5 py-5 flex flex-col gap-4">
+
+            <div>
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Platform</p>
+              <TaskPlatformPicker value={platforms} disabled={readonly} onChange={next => {
+                setPlatforms(next)
+                save({ platforms: next })
+              }} />
+              <p className="mt-1.5 text-[10px] text-gray-400">Select one or more products.</p>
+            </div>
 
             {/* Status */}
             <div>

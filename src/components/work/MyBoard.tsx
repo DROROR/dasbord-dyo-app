@@ -7,6 +7,7 @@ import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import { PriorityQuickEdit, AssigneeQuickEdit } from './TaskQuickEdit'
 import { ClientBadge } from './ClientBadge'
 import { MoveTaskModal } from './MoveTaskModal'
+import { TaskPlatformBadges } from './TaskPlatforms'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -97,13 +98,18 @@ function CompactTaskRow({
       tabIndex={0}
       onClick={onClick}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
-      className="flex items-center gap-3 w-full px-4 py-2.5 bg-white hover:bg-gray-50 border-b border-gray-50 text-left transition-colors last:border-b-0 cursor-pointer"
+      className="flex items-center gap-3 w-full px-4 py-3 bg-white hover:bg-gray-50 border-b border-gray-100 text-left transition-colors last:border-b-0 cursor-pointer"
     >
+      <div className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-bold text-gray-900">{task.title}</span>
+        <div className="mt-1 flex items-center gap-2">
+          <span className="text-[9px] font-mono text-gray-400 truncate">{task.id}</span>
+          <TaskPlatformBadges platforms={task.platforms} />
+        </div>
+      </div>
       <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_PILL[task.status] ?? 'bg-gray-100 text-gray-600'}`}>
         {STATUS_LABEL[task.status] ?? task.status}
       </span>
-      <span className="text-[10px] font-mono text-gray-400 shrink-0 w-16 truncate">{task.id}</span>
-      <span className="flex-1 text-sm text-gray-800 truncate min-w-0">{task.title}</span>
       <ClientBadge name={task.clientName} />
       {badge && (
         <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 whitespace-nowrap ${badge.cls}`}>
@@ -165,7 +171,7 @@ function MyStatusSection({
         className="flex items-center gap-2.5 w-full px-4 py-2.5 bg-gray-50/80 hover:bg-gray-100/60 transition-colors text-left border-b border-gray-100"
       >
         <ChevronDown size={13} className={`text-gray-500 transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} />
-        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_PILL[col.id] ?? 'bg-gray-100 text-gray-600'}`}>
+        <span className={`text-sm font-bold px-3 py-1 rounded-lg ${STATUS_PILL[col.id] ?? 'bg-gray-100 text-gray-700'}`}>
           {label}
         </span>
         <span className="text-xs font-bold text-gray-500 bg-white border border-gray-200 rounded-full px-1.5 min-w-[20px] text-center">
