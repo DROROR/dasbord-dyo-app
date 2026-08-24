@@ -585,10 +585,10 @@ export function TaskDetailModal({
             {editTitle ? (
               <input autoFocus value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
                 onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { setTitle(task.title); setEditTitle(false) } }}
-                className="w-full text-sm font-semibold text-gray-900 border-b-2 border-primary focus:outline-none bg-transparent py-0 leading-snug"
+                className="w-full text-base font-bold text-gray-950 border-b-2 border-primary focus:outline-none bg-transparent py-0 leading-snug"
               />
             ) : (
-              <button onClick={() => !readonly && setEditTitle(true)} disabled={readonly} className="text-sm font-semibold text-gray-900 hover:text-primary transition-colors text-left leading-snug line-clamp-1 w-full disabled:hover:text-gray-900 disabled:cursor-default" title={readonly ? undefined : 'Click to edit'}>{title}</button>
+              <button onClick={() => !readonly && setEditTitle(true)} disabled={readonly} className="text-base font-bold text-gray-950 hover:text-primary transition-colors text-left leading-snug line-clamp-1 w-full disabled:hover:text-gray-900 disabled:cursor-default" title={readonly ? undefined : 'Click to edit'}>{title}</button>
             )}
           </div>
           {openTicketsForClient > 0 && (
@@ -763,7 +763,7 @@ export function TaskDetailModal({
 
             {/* Description */}
             <section>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Description</p>
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-2">Description</p>
               <textarea value={desc} onChange={e => setDesc(e.target.value)} onBlur={saveDesc} rows={6}
                 placeholder="Add a description..." disabled={readonly}
                 className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-4 py-3 resize-none focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-400 leading-relaxed disabled:bg-gray-50 disabled:text-gray-500"
@@ -774,7 +774,7 @@ export function TaskDetailModal({
             <section>
               <div className="flex items-center gap-2 mb-3">
                 <ListChecks size={14} className="text-primary" />
-                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+                <p className="text-xs font-bold text-gray-900 uppercase tracking-wide">
                   {tr('תת־משימות', 'Subtasks')}
                 </p>
                 {subtasks.length > 0 && (
@@ -866,7 +866,7 @@ export function TaskDetailModal({
 
             {/* Comments */}
             <section>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-3">Comments {comments.length > 0 && <span className="normal-case font-normal">({comments.length})</span>}</p>
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-3">Comments {comments.length > 0 && <span className="normal-case font-normal">({comments.length})</span>}</p>
               {comments.length > 0 && (
                 <div className="space-y-4 mb-4">
                   {comments.map(c => (
@@ -922,7 +922,7 @@ export function TaskDetailModal({
 
             {/* Attachments */}
             <section>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-3">Attachments</p>
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-3">Attachments</p>
               {attachments.length > 0 && (
                 <div className="space-y-2 mb-3">
                   {attachments.map(a => {
@@ -973,7 +973,7 @@ export function TaskDetailModal({
 
             {/* Status */}
             <div>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Status</p>
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Status</p>
               <div className={`relative rounded-lg ${STATUS_PILL[status] ?? 'bg-gray-100 text-gray-600'}`}>
                 <select value={status} onChange={e => handleStatusChange(e.target.value)} disabled={readonly} className="w-full text-xs font-semibold px-3 py-2 bg-transparent border-0 focus:outline-none appearance-none cursor-pointer pr-7 disabled:cursor-default">
                   {statuses.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
@@ -986,7 +986,7 @@ export function TaskDetailModal({
                 field is saved alongside it purely for history/snapshot
                 display, never used to identify who's assigned. */}
             <div>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Assignee</p>
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Assignee</p>
               <div className="flex items-center gap-2">
                 <Avatar name={assignee} />
                 <select
@@ -1053,7 +1053,7 @@ export function TaskDetailModal({
 
             {/* Client link */}
             <div>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Client link</p>
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Client link</p>
               <select value={clientId} disabled={readonly} onChange={e => { setClientId(e.target.value); save({ clientId: e.target.value || undefined, clientName: clients.find(c => c.id === e.target.value)?.name }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50">
                 <option value="">No client linked</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -1062,7 +1062,7 @@ export function TaskDetailModal({
 
             {/* Priority */}
             <div>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Priority</p>
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Priority</p>
               <div className="grid grid-cols-2 gap-1">
                 {priorityDefs.map(cfg => {
                   const active = priority === cfg.id
@@ -1080,19 +1080,19 @@ export function TaskDetailModal({
 
             {/* Start date */}
             <div>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Start date</p>
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Start date</p>
               <input type="date" value={startDate} disabled={readonly} onChange={e => { setStartDate(e.target.value); save({ startDate: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50" />
             </div>
 
             {/* Due date */}
             <div>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Due date</p>
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Due date</p>
               <input type="date" value={dueDate} disabled={readonly} onChange={e => { setDueDate(e.target.value); save({ dueDate: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50" />
             </div>
 
             {/* Time estimate */}
             <div>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Time estimate (h)</p>
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Time estimate (h)</p>
               <input type="number" min="0" step="0.5" value={timeEst} onChange={e => setTimeEst(e.target.value)} disabled={readonly}
                 onBlur={() => { const h = parseFloat(timeEst); if (!isNaN(h)) save({ timeEstimate: h }) }}
                 placeholder="e.g. 8" className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white placeholder:text-gray-400 disabled:bg-gray-50"
@@ -1138,7 +1138,7 @@ export function TaskDetailModal({
 
               {/* Manual entry form */}
               <div className="mt-1 rounded-xl border border-gray-200 bg-white p-3 flex flex-col gap-2">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Manual entry</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-gray-900">Manual entry</p>
                 {myOpenSubtasks.length > 0 && (
                   <select
                     value={timeSubtaskId}
@@ -1188,7 +1188,7 @@ export function TaskDetailModal({
               {/* Entry list */}
               {timeEntries.length > 0 && (
                 <div className="mt-1 pt-3 border-t border-primary/10 flex flex-col gap-2 max-h-56 overflow-y-auto pr-0.5">
-                  <div className="flex items-center justify-between"><p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Time entries</p><span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">{timeEntries.length}</span></div>
+                  <div className="flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-wide text-gray-900">Time entries</p><span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">{timeEntries.length}</span></div>
                   {[...timeEntries].reverse().map(entry => (
                     editingId === entry.id ? (
                       <div key={entry.id} className="grid min-w-0 grid-cols-[auto_auto_2.25rem_2.25rem] items-center gap-1.5 rounded-xl border border-primary/20 bg-white p-2 text-[10px] shadow-sm">
@@ -1257,7 +1257,7 @@ export function TaskDetailModal({
             {/* Code reviewer */}
             {status === 'pending_code_review' && (
               <div className="border border-purple-200 bg-purple-50 rounded-xl p-3">
-                <p className="text-[10px] font-semibold text-purple-600 uppercase tracking-wider mb-1.5">Code Reviewer</p>
+                <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Code Reviewer</p>
                 <select value={codeRev} disabled={readonly} onChange={e => { setCodeRev(e.target.value); save({ codeReviewer: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-purple-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-purple-200 transition bg-white disabled:bg-purple-50">
                   <option value="">Select reviewer...</option>
                   {assignees.map(a => <option key={a} value={a}>{a}</option>)}
@@ -1268,7 +1268,7 @@ export function TaskDetailModal({
             {/* UX reviewer */}
             {status === 'pending_ux_review' && (
               <div className="border border-pink-200 bg-pink-50 rounded-xl p-3">
-                <p className="text-[10px] font-semibold text-pink-600 uppercase tracking-wider mb-1.5">UI/UX Reviewer</p>
+                <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">UI/UX Reviewer</p>
                 <select value={uxRev} disabled={readonly} onChange={e => { setUxRev(e.target.value); save({ uxReviewer: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-pink-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-pink-200 transition bg-white disabled:bg-pink-50">
                   <option value="">Select reviewer...</option>
                   {assignees.map(a => <option key={a} value={a}>{a}</option>)}
