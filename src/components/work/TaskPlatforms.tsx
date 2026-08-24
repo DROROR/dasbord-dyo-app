@@ -11,7 +11,7 @@ export function TaskPlatformBadges({ platforms = [] }: { platforms?: TaskPlatfor
   if (!platforms.length) return null
   return <div className="flex flex-wrap gap-1">{platforms.map(id => {
     const option = TASK_PLATFORM_OPTIONS.find(item => item.id === id)
-    return option ? <span key={id} className={`border px-2 py-1 text-[10px] font-bold leading-none ${option.cls}`}>{option.label}</span> : null
+    return option ? <span key={id} className={`rounded-sm border px-2 py-1 text-[10px] font-bold leading-none ${option.cls}`}>{option.label}</span> : null
   })}</div>
 }
 
@@ -19,7 +19,7 @@ export function TaskPlatformPicker({ value = [], onChange, disabled = false }: {
   return <div className="flex flex-wrap gap-1.5">{TASK_PLATFORM_OPTIONS.map(option => {
     const selected = value.includes(option.id)
     return <button key={option.id} type="button" disabled={disabled} onClick={() => onChange(selected ? value.filter(id => id !== option.id) : [...value, option.id])}
-      className={`border px-2 py-1 text-[10px] font-bold transition-colors disabled:cursor-default ${selected ? option.cls : 'border-gray-300 bg-white text-gray-600 hover:border-gray-500'}`}
+      className={`rounded-sm border px-2 py-1 text-[10px] font-bold transition-colors disabled:cursor-default ${selected ? option.cls : 'border-gray-300 bg-white text-gray-600 hover:border-gray-500'}`}
       aria-pressed={selected}>{option.label}</button>
   })}</div>
 }

@@ -100,7 +100,7 @@ function CompactTaskRow({
         <span className="mt-0.5 block truncate text-sm font-semibold text-gray-900">{task.title}</span>
       </div>
       <TaskPlatformBadges platforms={task.platforms} />
-      <span className={`w-fit shrink-0 border border-current/10 px-2 py-1 text-[10px] font-bold leading-none ${STATUS_PILL[task.status] ?? 'bg-gray-100 text-gray-600'}`}>
+      <span className={`w-fit shrink-0 rounded-sm border border-current/10 px-2 py-1 text-[10px] font-bold leading-none ${STATUS_PILL[task.status] ?? 'bg-gray-100 text-gray-600'}`}>
         {STATUS_LABEL[task.status] ?? task.status}
       </span>
       <AssigneeQuickEdit task={task} eligible={eligibleAssignees} canEdit={canEdit} onSaved={onTaskSaved} />
@@ -138,7 +138,7 @@ function MyStatusSection({
         className="flex items-center gap-2.5 w-full px-4 py-2.5 bg-gray-50/80 hover:bg-gray-100/60 transition-colors text-left border-b border-gray-100"
       >
         <ChevronDown size={13} className={`text-gray-500 transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} />
-        <span className={`px-2 py-1 text-xs font-bold ${STATUS_PILL[col.id] ?? 'bg-gray-100 text-gray-700'}`}>
+        <span className={`rounded-sm px-2 py-1 text-xs font-bold ${STATUS_PILL[col.id] ?? 'bg-gray-100 text-gray-700'}`}>
           {label}
         </span>
         <span className="text-xs font-bold text-gray-500 bg-white border border-gray-200 rounded-full px-1.5 min-w-[20px] text-center">
