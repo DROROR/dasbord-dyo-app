@@ -486,11 +486,11 @@ export function MyBoard({
           <p className="text-sm font-semibold text-gray-500">{tr('אין משימות המשויכות אליך', 'No tasks assigned to you')}</p>
         </div>
       ) : (
-        <div className="grid flex-1 min-h-0 gap-4 overflow-y-auto pb-3 min-[1500px]:grid-cols-12 min-[1500px]:overflow-hidden">
-          <aside className="flex min-h-0 flex-col gap-3 min-[1500px]:order-2 min-[1500px]:col-span-5 min-[1500px]:overflow-hidden">
+        <div className="grid flex-1 min-h-0 gap-4 overflow-y-auto pb-3 min-[1700px]:grid-cols-12 min-[1700px]:overflow-hidden">
+          <aside className="flex min-h-0 flex-col gap-3 min-[1700px]:order-2 min-[1700px]:col-span-5 min-[1700px]:overflow-hidden">
       {/* Alerts */}
       {(pendingClose.length > 0 || overdueTasks.length > 0 || unclaimed.length > 0) && (
-        <div className="flex flex-none flex-col gap-2 overflow-visible rounded-xl border border-gray-200/70 bg-white p-3 min-[1500px]:min-h-0 min-[1500px]:flex-[1.55] min-[1500px]:basis-0 min-[1500px]:overflow-y-auto">
+        <div className="flex flex-none flex-col gap-2 overflow-visible rounded-xl border border-gray-200/70 bg-white p-3 min-[1700px]:min-h-0 min-[1700px]:flex-[1.55] min-[1700px]:basis-0 min-[1700px]:overflow-y-auto">
           <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{tr('התראות', 'Alerts')}</p>
 
           {/* Urgent work and support tickets are always the first actionable
@@ -504,7 +504,7 @@ export function MyBoard({
                 {urgent
                   ? <AlertCircle size={14} className="text-red-500 shrink-0" />
                   : <Ticket      size={14} className="text-orange-500 shrink-0" />}
-                <span className="min-w-0 truncate text-sm font-semibold text-orange-900">{t.title}</span>
+                <span className="min-w-0 whitespace-normal break-words text-sm font-semibold leading-snug text-orange-900">{t.title}</span>
                 {urgent && (
                   <span className="row-start-2 col-start-3 text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded font-bold shrink-0">
                     {resolveTaskPriority(t, boards)?.label ?? tr('דחוף', 'Urgent')}
@@ -521,7 +521,7 @@ export function MyBoard({
               className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 overflow-hidden rounded-xl border border-orange-200 bg-orange-50 px-3 py-2.5 text-left transition-colors hover:bg-orange-100"
             >
               <CheckCircle2 size={14} className="text-orange-500 shrink-0" />
-              <span className="min-w-0 truncate text-sm font-semibold text-orange-900">{t.title}</span>
+              <span className="min-w-0 whitespace-normal break-words text-sm font-semibold leading-snug text-orange-900">{t.title}</span>
               <span className="text-[9px] bg-orange-200 text-orange-800 px-1.5 py-0.5 rounded font-bold shrink-0">
                 {tr('ממתין לסגירה', 'Pending closure')}
               </span>
@@ -534,7 +534,7 @@ export function MyBoard({
               className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 overflow-hidden rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-left transition-colors hover:bg-red-100"
             >
               <AlertCircle size={14} className="text-red-500 shrink-0" />
-              <span className="min-w-0 truncate text-sm font-semibold text-red-900">{t.title}</span>
+              <span className="min-w-0 whitespace-normal break-words text-sm font-semibold leading-snug text-red-900">{t.title}</span>
               <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 ${STATUS_PILL[t.status]}`}>
                 {tr(STATUS_LABEL_HE[t.status] ?? STATUS_LABEL[t.status], STATUS_LABEL[t.status])}
               </span>
@@ -544,7 +544,7 @@ export function MyBoard({
 
         </div>
       )}
-          <div className="flex flex-none flex-col gap-3 overflow-visible rounded-xl border border-gray-200/70 bg-white p-3 min-[1500px]:min-h-0 min-[1500px]:flex-1 min-[1500px]:basis-0 min-[1500px]:overflow-y-auto">
+          <div className="flex flex-none flex-col gap-3 overflow-visible rounded-xl border border-gray-200/70 bg-white p-3 min-[1700px]:min-h-0 min-[1700px]:flex-1 min-[1700px]:basis-0 min-[1700px]:overflow-y-auto">
           {pendingClose.length === 0 && overdueTasks.length === 0 && unclaimed.length === 0 && statusResponsibilityGroups.length === 0 && actionGroups.length === 0 && trackingGroups.length === 0 && (
             <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-green-100 bg-green-50/70 px-4 py-8 text-center">
               <CheckCircle2 size={20} className="mb-2 text-green-600" />
@@ -636,7 +636,7 @@ export function MyBoard({
 
           </div>
           </aside>
-          <main className="min-h-[260px] rounded-2xl border border-gray-200/70 bg-white shadow-[0_4px_18px_rgba(31,50,114,0.06)] min-[1500px]:order-1 min-[1500px]:col-span-7 min-[1500px]:min-h-0 min-[1500px]:overflow-hidden">
+          <main className="min-h-[260px] rounded-2xl border border-gray-200/70 bg-white shadow-[0_4px_18px_rgba(31,50,114,0.06)] min-[1700px]:order-1 min-[1700px]:col-span-7 min-[1700px]:min-h-0 min-[1700px]:overflow-hidden">
           {selectedGroup && (
             <MyStatusSection
               key={selectedGroup.id}
