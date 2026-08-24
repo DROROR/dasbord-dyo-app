@@ -1055,7 +1055,7 @@ export function Work() {
     <div
       dir="ltr"
       translate="no"
-      className="notranslate flex flex-col -m-6 w-full max-w-full min-w-0"
+      className="notranslate -m-6 flex w-[calc(100%+3rem)] max-w-none min-w-0 flex-col"
       style={{ height: 'calc(100vh - 64px)' }}
     >
 
