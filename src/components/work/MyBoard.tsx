@@ -98,13 +98,24 @@ function CompactTaskRow({
       tabIndex={0}
       onClick={onClick}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
-      className="flex flex-wrap items-center gap-x-3 gap-y-2 w-full px-4 py-3 odd:bg-slate-50 even:bg-white hover:bg-blue-50/60 border border-gray-200 rounded-xl text-left transition-colors cursor-pointer shadow-sm"
+      className="grid w-full grid-cols-1 items-center gap-2 border-b border-gray-100 bg-white px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-slate-50 cursor-pointer sm:grid-cols-[minmax(200px,1fr)_90px_90px_120px_28px] sm:gap-3"
     >
-      <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
-        <span className="block truncate text-sm font-bold text-gray-900">{task.title}</span>
+      <div className="min-w-0">
+        <span className="block truncate text-sm font-semibold text-gray-900">{task.title}</span>
         <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="text-[9px] font-mono text-gray-400 truncate">{task.id}</span>
+          <ClientBadge name={task.clientName} />
           <TaskPlatformBadges platforms={task.platforms} />
+          {task.dueDate && (
+            <span className={`text-[10px] flex items-center gap-0.5 shrink-0 ${overdue ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
+              <Calendar size={9} />{fmtDate(task.dueDate)}
+            </span>
+          )}
+          {entryTotal(task.timeEntries) > 0 && (
+            <span className="text-[10px] text-gray-400 flex items-center gap-0.5 shrink-0">
+              <Clock size={9} />{fmtHours(entryTotal(task.timeEntries))}
+            </span>
+          )}
           {badge && (
             <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 whitespace-nowrap ${badge.cls}`}>
               {badge.label}
@@ -115,20 +126,9 @@ function CompactTaskRow({
       <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_PILL[task.status] ?? 'bg-gray-100 text-gray-600'}`}>
         {STATUS_LABEL[task.status] ?? task.status}
       </span>
-      <ClientBadge name={task.clientName} />
       <PriorityQuickEdit task={task} priorityDefs={priorityDefs} canEdit={canEdit} onSaved={onTaskSaved} />
-      {task.dueDate && (
-        <span className={`text-[10px] flex items-center gap-0.5 shrink-0 ${overdue ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
-          <Calendar size={9} />{fmtDate(task.dueDate)}
-        </span>
-      )}
-      {entryTotal(task.timeEntries) > 0 && (
-        <span className="text-[10px] text-gray-400 flex items-center gap-0.5 shrink-0">
-          <Clock size={9} />{fmtHours(entryTotal(task.timeEntries))}
-        </span>
-      )}
       <AssigneeQuickEdit task={task} eligible={eligibleAssignees} canEdit={canEdit} onSaved={onTaskSaved} />
-      {canMove && (
+      {canMove ? (
         <button
           onClick={e => { e.stopPropagation(); onMoveClick(task) }}
           title="Move to another board"
@@ -136,7 +136,7 @@ function CompactTaskRow({
         >
           <ArrowRightLeft size={12} />
         </button>
-      )}
+      ) : <span />}
     </div>
   )
 }
@@ -179,7 +179,16 @@ function MyStatusSection({
         </span>
       </button>
       {open && (
-        <div className="flex flex-1 min-h-0 flex-col gap-2 overflow-y-auto p-2">
+        <div className="flex flex-1 min-h-0 flex-col overflow-y-auto">
+          {tasks.length > 0 && (
+            <div className="hidden shrink-0 grid-cols-[minmax(200px,1fr)_90px_90px_120px_28px] gap-3 border-b border-gray-200 bg-slate-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:grid">
+              <span>{tr('משימה', 'Task')}</span>
+              <span>{tr('סטטוס', 'Status')}</span>
+              <span>{tr('עדיפות', 'Priority')}</span>
+              <span>{tr('אחראי', 'Assignee')}</span>
+              <span />
+            </div>
+          )}
           {tasks.length === 0 ? (
             <div className="text-[11px] text-gray-400 text-center py-4 select-none">{tr('אין משימות', 'No tasks')}</div>
           ) : (
