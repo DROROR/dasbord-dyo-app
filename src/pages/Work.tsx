@@ -1055,7 +1055,7 @@ export function Work() {
     <div
       dir="ltr"
       translate="no"
-      className="notranslate flex h-full w-full min-w-0 flex-col overflow-hidden"
+      className="work-page notranslate flex h-full w-full min-w-0 flex-col overflow-hidden"
     >
 
       {/* Tab bar */}
@@ -1074,8 +1074,50 @@ export function Work() {
             </button>
           )
         })}
+        {tab === 'tasks' && (
+          <div className="ml-auto flex shrink-0 items-center gap-2 pl-4">
+            {visibleBoards.map(b => {
+              const active = activeBoard === b.id
+              const count = tasks.filter(t => t.board === b.id).length
+              return (
+                <div key={b.id} className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => setActiveBoard(b.id)}
+                    className={`flex items-center gap-1.5 whitespace-nowrap px-2 py-2 text-sm transition-colors ${active ? 'font-bold text-primary' : 'font-medium text-gray-500 hover:text-gray-800'}`}
+                  >
+                    {b.name}
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-bold leading-none text-white">{count}</span>
+                  </button>
+                  {canManageWork && (
+                    <button onClick={() => setSettingsBoard(b)} className="p-1 text-gray-400 transition-colors hover:text-primary" title="Board settings">
+                      <Settings size={12} />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+            {canManageWork && (
+              <button onClick={() => setShowAddBoard(true)} className="flex items-center gap-1 whitespace-nowrap px-2 py-2 text-sm font-medium text-gray-500 transition-colors hover:text-primary">
+                <Plus size={13} /> Add Board
+              </button>
+            )}
+            {canEdit && (
+              <>
+                <div className="mx-1 h-5 w-px bg-gray-200" aria-hidden="true" />
+                <button
+                  onClick={() => addTaskWithStatus('not_started')}
+                  disabled={!canCreateInBoard(activeBoard)}
+                  title={canCreateInBoard(activeBoard) ? undefined : 'אין לך גישה מלאה ללוח הזה — פנה למנהל כדי לקבל הרשאת Full לפני יצירת משימות כאן'}
+                  className="flex shrink-0 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Plus size={14} /> New Task
+                </button>
+              </>
+            )}
+          </div>
+        )}
         {browserPermission === 'default' && (
-          <button onClick={() => void enableBrowserNotifications()} className="ml-auto whitespace-nowrap rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/20">
+          <button onClick={() => void enableBrowserNotifications()} className={`${tab === 'tasks' ? 'ml-2' : 'ml-auto'} whitespace-nowrap rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/20`}>
             Enable browser notifications
           </button>
         )}
@@ -1108,46 +1150,6 @@ export function Work() {
 
         {!tasksLoading && !boardsLoading && tab === 'tasks' && (
           <div className="flex flex-col gap-4 flex-1 min-h-0">
-            {/* Board selector */}
-            <div className="flex items-center gap-2 flex-wrap shrink-0">
-              {visibleBoards.map(b => {
-                const active = activeBoard === b.id
-                const count  = tasks.filter(t => t.board === b.id).length
-                return (
-                  <div key={b.id} className="flex items-center gap-0.5">
-                    <button
-                      onClick={() => setActiveBoard(b.id)}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all border whitespace-nowrap ${active ? 'bg-primary text-white border-primary shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/50 hover:text-primary'}`}
-                    >
-                      {b.name}
-                      <span className={`text-xs px-1.5 py-px rounded-full font-bold leading-none ${active ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>{count}</span>
-                    </button>
-                    {canManageWork && (
-                      <button onClick={() => setSettingsBoard(b)} className={`p-1.5 rounded-lg transition-colors ${active ? 'text-primary hover:bg-primary/10' : 'text-gray-400 hover:text-gray-500 hover:bg-gray-100'}`} title="Board settings">
-                        <Settings size={12} />
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
-              {canManageWork && (
-                <button onClick={() => setShowAddBoard(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-dashed border-gray-300 text-gray-500 hover:border-primary hover:text-primary transition-colors whitespace-nowrap">
-                  <Plus size={13} /> Add Board
-                </button>
-              )}
-              <div className="flex-1" />
-              {canEdit && (
-                <button
-                  onClick={() => addTaskWithStatus('not_started')}
-                  disabled={!canCreateInBoard(activeBoard)}
-                  title={canCreateInBoard(activeBoard) ? undefined : 'אין לך גישה מלאה ללוח הזה — פנה למנהל כדי לקבל הרשאת Full לפני יצירת משימות כאן'}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-primary text-white hover:bg-primary/90 transition-all shadow-[0_5px_16px_rgba(31,50,114,0.22)] hover:-translate-y-0.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-primary"
-                >
-                  <Plus size={14} /> New Task
-                </button>
-              )}
-            </div>
-
             {createTaskError && (
               <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 shrink-0 flex items-center justify-between gap-3">
                 <span>{createTaskError}</span>

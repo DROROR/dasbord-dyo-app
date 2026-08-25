@@ -1,4 +1,4 @@
-import { LogOut } from 'lucide-react'
+import { ChevronDown, LogOut } from 'lucide-react'
 import { useWorkLang, type WorkLang } from '../../contexts/WorkLanguageContext'
 import logoFull from '../../assets/logo.png'
 import logoSymbol from '../../assets/logo-symbol.png'
@@ -28,7 +28,7 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
 
   return (
     <aside
-      className={`h-screen bg-primary flex flex-col shrink-0 transition-all duration-300 ${
+      className={`h-screen bg-primary dark:bg-[#070b14] flex flex-col shrink-0 transition-all duration-300 ${
         collapsed ? 'w-16' : 'w-60'
       }`}
     >
@@ -39,16 +39,37 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
         ) : (
           <>
             <img src={logoFull} alt="Admin Platform" className="h-7 w-auto min-w-0 max-w-[124px] object-contain" />
-            <select
-              value={workLang}
-              onChange={event => setWorkLang(event.target.value as WorkLang)}
-              aria-label="Work language"
-              title="Work language"
-              className="ms-auto w-[76px] rounded-lg border border-white/15 bg-white/10 px-2 py-1.5 text-[11px] font-semibold text-white outline-none focus:border-secondary/60"
-            >
-              <option value="en" className="text-gray-800">English</option>
-              <option value="he" className="text-gray-800">עברית</option>
-            </select>
+            <div className="relative ms-auto shrink-0">
+              <span className="pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2" aria-hidden="true">
+                {workLang === 'he' ? (
+                  <svg viewBox="0 0 28 20" className="h-3.5 w-5 overflow-hidden rounded-[2px]" role="img">
+                    <rect width="28" height="20" fill="#fff" />
+                    <rect y="3" width="28" height="2" fill="#2563eb" />
+                    <rect y="15" width="28" height="2" fill="#2563eb" />
+                    <path d="M14 6.2 17.3 12H10.7L14 6.2Zm0 7.6L10.7 8h6.6L14 13.8Z" fill="none" stroke="#2563eb" strokeWidth="1" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 28 20" className="h-3.5 w-5 overflow-hidden rounded-[2px]" role="img">
+                    <rect width="28" height="20" fill="#1e3a8a" />
+                    <path d="M0 0 28 20M28 0 0 20" stroke="#fff" strokeWidth="4" />
+                    <path d="M0 0 28 20M28 0 0 20" stroke="#dc2626" strokeWidth="1.5" />
+                    <path d="M14 0v20M0 10h28" stroke="#fff" strokeWidth="6" />
+                    <path d="M14 0v20M0 10h28" stroke="#dc2626" strokeWidth="3" />
+                  </svg>
+                )}
+              </span>
+              <select
+                value={workLang}
+                onChange={event => setWorkLang(event.target.value as WorkLang)}
+                aria-label="Work language"
+                title="Work language"
+                className="w-[104px] appearance-none rounded-lg border border-white/15 bg-white/10 py-1.5 pl-9 pr-8 text-[11px] font-semibold text-white outline-none focus:border-secondary/60"
+              >
+                <option value="en" className="text-gray-800">English</option>
+                <option value="he" className="text-gray-800">עברית</option>
+              </select>
+              <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-white/60" />
+            </div>
           </>
         )}
       </div>
