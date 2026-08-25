@@ -99,6 +99,7 @@ html.dark body { background: var(--brand-background); color: var(--brand-text); 
 .dark .task-editor label { color: #f8fafc; }
 .dark .task-editor input, .dark .task-editor textarea, .dark .task-editor select { color: #f8fafc; }
 .dark .task-title-input { background-color: #172033; border-color: #64748b; }
+.dark .sidebar-shell { background-color: #111827; border-color: #202c3d; }
 
 /* Bright, high-contrast semantic colors on dark surfaces. */
 .dark .bg-red-50, .dark .bg-red-100 { background-color: #451a24; }

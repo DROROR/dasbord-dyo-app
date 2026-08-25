@@ -126,13 +126,13 @@ function rollingMonthEnd(start: Date): Date {
 
 type RangeMode = 'week1' | 'week2' | 'week3' | 'calendarMonth' | 'rollingMonth' | 'custom'
 
-const MODE_LABELS: Record<RangeMode, string> = {
-  week1:         'שבוע אחד',
-  week2:         'שבועיים',
-  week3:         '3 שבועות',
-  calendarMonth: 'חודש קלנדרי',
-  rollingMonth:  'חודש מתגלגל',
-  custom:        'טווח מותאם אישית',
+const MODE_LABELS: Record<RangeMode, { he: string; en: string }> = {
+  week1:         { he: 'שבוע אחד', en: '1 week' },
+  week2:         { he: 'שבועיים', en: '2 weeks' },
+  week3:         { he: '3 שבועות', en: '3 weeks' },
+  calendarMonth: { he: 'חודש קלנדרי', en: 'Calendar month' },
+  rollingMonth:  { he: 'חודש מתגלגל', en: 'Rolling month' },
+  custom:        { he: 'טווח מותאם אישית', en: 'Custom range' },
 }
 
 const WEEKDAY_NAMES_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -222,9 +222,10 @@ interface UnscheduledDragState {
 // selected", matching the existing Boards filter's own convention.
 
 interface FilterItem { id: string; label: string }
+interface GanttStats { scheduled: number; withoutDates: number }
 
 function CheckboxFilterDropdown({
-  items, hidden, onToggle, onSelectAll, onDeselectAll, allLabel, unitLabel,
+  items, hidden, onToggle, onSelectAll, onDeselectAll, allLabel, unitLabel, quickActionLabel, onQuickAction,
 }: {
   items: FilterItem[]
   hidden: Set<string>
@@ -235,7 +236,10 @@ function CheckboxFilterDropdown({
   allLabel: string
   /** Shown after the visible/total count when partially selected, e.g. "בורדים". */
   unitLabel: string
+  quickActionLabel?: string
+  onQuickAction?: () => void
 }) {
+  const { t } = useWorkLang()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -253,7 +257,7 @@ function CheckboxFilterDropdown({
     : `${visibleCount}/${items.length} ${unitLabel}`
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative shrink-0" ref={ref}>
       <button
         onClick={() => setOpen(s => !s)}
         className={`flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 bg-white transition-colors focus:outline-none ${hidden.size > 0 ? 'border-primary text-primary font-semibold' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
@@ -265,8 +269,11 @@ function CheckboxFilterDropdown({
       {open && (
         <div className="absolute top-full mt-1 left-0 z-30 bg-white border border-gray-200 rounded-xl shadow-lg p-3 min-w-52 max-h-72 overflow-y-auto">
           <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-100 sticky top-0 bg-white">
-            <button onClick={onSelectAll} className="text-xs text-primary font-semibold hover:underline">בחר הכל</button>
-            <button onClick={onDeselectAll} className="text-xs text-gray-400 font-semibold hover:underline">בטל הכל</button>
+            <button onClick={onSelectAll} className="text-xs text-primary font-semibold hover:underline">{t('בחר הכל', 'Select all')}</button>
+            {onQuickAction && quickActionLabel && (
+              <button onClick={onQuickAction} className="text-xs text-primary font-bold hover:underline">{quickActionLabel}</button>
+            )}
+            <button onClick={onDeselectAll} className="text-xs text-gray-400 font-semibold hover:underline">{t('בטל הכל', 'Clear all')}</button>
           </div>
           <div className="flex flex-col gap-1">
             {items.map(item => {
@@ -297,7 +304,7 @@ const MIN_DAY_WIDTH    = 64
 const DRAG_THRESHOLD_PX = 5
 
 export function GanttTab({
-  tasks, boards, assignees, profiles, onOpenTask, onUpdateTask, readonly = false,
+  tasks, boards, assignees, profiles, myProfileId, onStatsChange, onOpenTask, onUpdateTask, readonly = false,
 }: {
   tasks: Task[]
   boards: Board[]
@@ -306,6 +313,8 @@ export function GanttTab({
    *  option list and the source for resolving a task's assigneeId to a
    *  name when only a legacy display-name match is possible. */
   profiles: { id: string; name: string }[]
+  myProfileId?: string
+  onStatsChange?: Dispatch<SetStateAction<GanttStats>>
   onOpenTask: (id: string) => void
   /** Non-optimistic: resolves with the server-confirmed task, or rejects.
    *  Every Gantt interaction (whole-task drag, resize, unscheduled drop)
@@ -374,9 +383,9 @@ export function GanttTab({
 
   const userOptions = useMemo<FilterItem[]>(() => [
     ...profiles.map(p => ({ id: p.id, label: p.name })),
-    { id: UNASSIGNED_KEY, label: 'לא משויך' },
+    { id: UNASSIGNED_KEY, label: t('לא משויך', 'Unassigned') },
     ...legacyUserOptions,
-  ], [profiles, legacyUserOptions])
+  ], [profiles, legacyUserOptions, t])
 
   const priorityOptions = useMemo<FilterItem[]>(() =>
     Array.from(new Map(visibleBoardsForFilters.flatMap(b => priorityDefsForBoard(b)).map(p => [p.id, p])).values())
@@ -524,6 +533,12 @@ export function GanttTab({
 
   const scheduled   = filtered.filter(t => t.dueDate)
   const unscheduled = filtered.filter(t => !t.dueDate)
+
+  useEffect(() => {
+    onStatsChange?.(previous => previous.scheduled === scheduled.length && previous.withoutDates === unscheduled.length
+      ? previous
+      : { scheduled: scheduled.length, withoutDates: unscheduled.length })
+  }, [scheduled.length, unscheduled.length, onStatsChange])
 
   // left/width in pixels, honoring whichever live preview (whole-drag or
   // edge-resize) currently applies to this task, if any. Width uses +1 day
@@ -685,7 +700,14 @@ export function GanttTab({
     const task = tasks.find(x => x.id === taskId)
     if (!task) return
     const droppedIso = toIso(addDays(viewStart, targetDayIndex))
-    const updated = { ...task, startDate: droppedIso, dueDate: droppedIso }
+    const durationDays = task.startDate && task.dueDate
+      ? Math.max(0, daysBetween(parseIsoDateLocal(task.startDate), parseIsoDateLocal(task.dueDate)))
+      : 0
+    const updated = {
+      ...task,
+      startDate: droppedIso,
+      dueDate: toIso(addDays(parseIsoDateLocal(droppedIso), durationDays)),
+    }
     onUpdateTask(updated).catch(err => {
       // Nothing local to roll back — this task was never optimistically
       // removed from the Unscheduled list; it stays there automatically
@@ -699,37 +721,37 @@ export function GanttTab({
 
   return (
     <div
-      className="flex flex-col flex-1 min-h-0 w-full max-w-full min-w-0 gap-3"
+      className="flex flex-col flex-1 min-h-0 w-full max-w-full min-w-0 gap-2"
       onPointerMove={unscheduledDrag ? onUnscheduledPointerMove : undefined}
       onPointerUp={unscheduledDrag ? onUnscheduledPointerUp : undefined}
     >
 
-      {/* Range controls */}
-      <div className="flex items-center gap-2 flex-wrap shrink-0">
+      {/* Range controls + filters — one compact horizontal toolbar. */}
+      <div className="flex min-w-0 shrink-0 items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5">
         <select
           value={mode}
           onChange={e => setMode(e.target.value as RangeMode)}
-          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 font-semibold focus:outline-none focus:border-primary"
+          className="order-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 font-semibold focus:outline-none focus:border-primary"
         >
           {(Object.keys(MODE_LABELS) as RangeMode[]).map(m => (
-            <option key={m} value={m}>{MODE_LABELS[m]}</option>
+            <option key={m} value={m}>{t(MODE_LABELS[m].he, MODE_LABELS[m].en)}</option>
           ))}
         </select>
 
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden shrink-0">
-          <button onClick={goPrev} title="הקודם" className="p-1.5 text-gray-500 hover:bg-gray-50 hover:text-primary transition-colors">
+        <div className="order-1 flex rounded-lg border border-gray-200 overflow-hidden shrink-0">
+          <button onClick={goPrev} title={t('הקודם', 'Previous')} className="p-1.5 text-gray-500 hover:bg-gray-50 hover:text-primary transition-colors">
             <ChevronLeft size={14} />
           </button>
           <button onClick={goToday} className="px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:text-primary transition-colors border-x border-gray-200">
-            היום
+            {t('היום', 'Today')}
           </button>
-          <button onClick={goNext} title="הבא" className="p-1.5 text-gray-500 hover:bg-gray-50 hover:text-primary transition-colors">
+          <button onClick={goNext} title={t('הבא', 'Next')} className="p-1.5 text-gray-500 hover:bg-gray-50 hover:text-primary transition-colors">
             <ChevronRight size={14} />
           </button>
         </div>
 
         {mode === 'custom' && (
-          <div className="flex items-center gap-1.5">
+          <div className="order-1 flex items-center gap-1.5">
             <input
               type="date"
               value={toIso(customFrom)}
@@ -744,27 +766,23 @@ export function GanttTab({
               className={`text-xs border rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-primary ${customRangeInvalid ? 'border-red-300 text-red-600' : 'border-gray-200'}`}
             />
             {customRangeInvalid && (
-              <span className="text-[10px] text-red-500 font-semibold">טווח לא תקין — התאריך הסופי קודם להתחלה</span>
+              <span className="text-[10px] text-red-500 font-semibold">{t('טווח לא תקין — התאריך הסופי קודם להתחלה', 'Invalid range — end date is before start date')}</span>
             )}
           </div>
         )}
 
-        <span className="text-xs text-gray-500 font-medium">
+        <span className="order-1 text-xs text-gray-500 font-medium">
           {viewStart.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
           {' – '}
           {viewEnd.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
         </span>
 
         {actionError && (
-          <span className="flex items-center gap-1.5 text-[11px] text-red-600 font-semibold bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+          <span className="order-1 flex items-center gap-1.5 text-[11px] text-red-600 font-semibold bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
             {actionError}
             <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600">✕</button>
           </span>
         )}
-      </div>
-
-      {/* Filter bar */}
-      <div className="flex items-center gap-2 flex-wrap shrink-0">
         {/* Multi-board checkbox filter */}
         <CheckboxFilterDropdown
           items={boards.map(b => ({ id: b.id, label: b.name }))}
@@ -772,8 +790,8 @@ export function GanttTab({
           onToggle={id => setHiddenBoards(prev => toggleInSet(prev, id))}
           onSelectAll={() => setHiddenBoards(new Set())}
           onDeselectAll={() => setHiddenBoards(new Set(boards.map(b => b.id)))}
-          allLabel="כל הבורדים"
-          unitLabel="בורדים"
+          allLabel={t('כל הבורדים', 'All boards')}
+          unitLabel={t('בורדים', 'boards')}
         />
 
         {/* Users — assigneeId authoritative, legacy name-matched as a
@@ -786,8 +804,10 @@ export function GanttTab({
           onToggle={id => setHiddenUserKeys(prev => toggleInSet(prev, id))}
           onSelectAll={() => setHiddenUserKeys(new Set())}
           onDeselectAll={() => setHiddenUserKeys(new Set(userOptions.map(o => o.id)))}
-          allLabel="כל המשתמשים"
-          unitLabel="משתמשים"
+          allLabel={t('כל המשתמשים', 'All users')}
+          unitLabel={t('משתמשים', 'users')}
+          quickActionLabel={myProfileId ? t('רק אני', 'Only me') : undefined}
+          onQuickAction={myProfileId ? () => setHiddenUserKeys(new Set(userOptions.filter(o => o.id !== myProfileId).map(o => o.id))) : undefined}
         />
 
         {/* Priorities — ids/labels reused as-is from the currently
@@ -801,8 +821,8 @@ export function GanttTab({
           onToggle={id => setHiddenPriorities(prev => toggleInSet(prev, id))}
           onSelectAll={() => setHiddenPriorities(new Set())}
           onDeselectAll={() => setHiddenPriorities(new Set(priorityOptions.map(o => o.id)))}
-          allLabel="כל העדיפויות"
-          unitLabel="עדיפויות"
+          allLabel={t('כל העדיפויות', 'All priorities')}
+          unitLabel={t('עדיפויות', 'priorities')}
         />
 
         {/* Statuses — active statuses from the currently selected boards
@@ -813,12 +833,12 @@ export function GanttTab({
           onToggle={id => setHiddenStatuses(prev => toggleInSet(prev, id))}
           onSelectAll={() => setHiddenStatuses(new Set())}
           onDeselectAll={() => setHiddenStatuses(new Set(statusOptions.map(o => o.id)))}
-          allLabel="כל הסטטוסים"
-          unitLabel="סטטוסים"
+          allLabel={t('כל הסטטוסים', 'All statuses')}
+          unitLabel={t('סטטוסים', 'statuses')}
         />
-        <div className="flex-1" />
+        <div className="order-2 min-w-3 flex-1" />
         {/* Assignee legend */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="order-2 flex shrink-0 items-center gap-2">
           {assignees.map(a => {
             const c = colorMap[a]
             return (
@@ -829,7 +849,6 @@ export function GanttTab({
             )
           })}
         </div>
-        <span className="text-xs text-gray-400 shrink-0">{scheduled.length} מתוזמן · {unscheduled.length} ללא תאריך</span>
       </div>
 
       {/* Gantt grid — ONE shared horizontal scroll container for both header
@@ -923,12 +942,19 @@ export function GanttTab({
             const isDrag  = drag?.taskId === task.id
             const isResizing = resize?.taskId === task.id
             const isBusy  = (isDrag && drag.saving) || (isResizing && resize.saving)
+            const isOutsideRange = !(bl < timelineContentWidth && bl + bw > 0)
+            const isOutsideBeingDragged = isOutsideRange && unscheduledDrag?.taskId === task.id && unscheduledDrag.active
 
             return (
-              <div key={task.id} className="flex border-b border-gray-50 hover:bg-gray-50/50 group" style={{ height: ROW_H }}>
-                <div className="sticky left-0 z-10 bg-white group-hover:bg-gray-50/50 border-r border-gray-100 flex items-center gap-2 px-3 shrink-0" style={{ width: TASK_COL_WIDTH, minWidth: TASK_COL_WIDTH }}>
+              <div key={task.id} className={`flex border-b border-gray-50 hover:bg-gray-50/50 group ${isOutsideBeingDragged ? 'opacity-40' : ''}`} style={{ height: ROW_H }}>
+                <div
+                  onPointerDown={readonly || !isOutsideRange ? undefined : e => onUnscheduledRowPointerDown(e, task)}
+                  className={`sticky left-0 z-10 bg-white group-hover:bg-gray-50/50 border-r border-gray-100 flex items-center gap-2 px-3 shrink-0 select-none ${!readonly && isOutsideRange ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                  style={{ width: TASK_COL_WIDTH, minWidth: TASK_COL_WIDTH }}
+                >
+                  {!readonly && isOutsideRange && <GripVertical size={12} className="text-primary shrink-0" />}
                   {p && <span className={`w-2 h-2 rounded-full shrink-0 ${p.dotCls}`} />}
-                  <button dir="rtl" onClick={() => onOpenTask(task.id)} className="flex-1 text-xs text-gray-800 truncate hover:text-primary transition-colors text-left font-medium">{task.title}</button>
+                  <button dir="rtl" onClick={() => !unscheduledDrag?.active && onOpenTask(task.id)} className="flex-1 text-xs text-gray-800 truncate hover:text-primary transition-colors text-left font-medium">{task.title}</button>
                   <ClientBadge name={task.clientName} />
                   <Avatar name={task.assignee} size="xs" />
                 </div>
@@ -945,6 +971,12 @@ export function GanttTab({
 
                   {todayOffset >= 0 && todayOffset <= timelineContentWidth && (
                     <div className="absolute top-0 bottom-0 w-0.5 z-10 pointer-events-none" style={{ left: todayOffset, backgroundColor: '#6366f1', opacity: 0.3 }} />
+                  )}
+
+                  {isOutsideRange && (
+                    <span className="absolute inset-0 flex items-center px-4 text-[10px] italic text-gray-400 pointer-events-none">
+                      {t('מחוץ לטווח — גרור את שורת המשימה לתאריך חדש', 'Outside this range — drag the task row to a new date')}
+                    </span>
                   )}
 
                   {bl < timelineContentWidth && bl + bw > 0 && (

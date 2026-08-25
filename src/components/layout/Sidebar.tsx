@@ -28,7 +28,7 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
 
   return (
     <aside
-      className={`h-screen bg-primary flex flex-col shrink-0 transition-all duration-300 ${
+      className={`sidebar-shell h-screen border-l border-white/10 bg-primary flex flex-col shrink-0 transition-all duration-300 ${
         collapsed ? 'w-16' : 'w-60'
       }`}
     >

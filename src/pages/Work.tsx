@@ -604,6 +604,7 @@ export function Work() {
     catch { return INITIAL_BOARDS[0].id }
   })
   const [tasks,        setTasks]        = useState<Task[]>([])
+  const [ganttStats,   setGanttStats]   = useState({ scheduled: 0, withoutDates: 0 })
   const [tasksLoading, setTasksLoading] = useState(true)
   // INITIAL_BOARDS (the seed constant `boards` starts as) never carries a
   // live statusOwnerId/access map — it's a static fallback for a brand-new
@@ -1116,8 +1117,16 @@ export function Work() {
             )}
           </div>
         )}
+        {tab === 'gantt' && (
+          <span className="ml-auto shrink-0 whitespace-nowrap pl-4 text-xs font-medium text-gray-500">
+            {tr(
+              `${ganttStats.scheduled} מתוזמן · ${ganttStats.withoutDates} ללא תאריך`,
+              `${ganttStats.scheduled} scheduled · ${ganttStats.withoutDates} without dates`,
+            )}
+          </span>
+        )}
         {browserPermission === 'default' && (
-          <button onClick={() => void enableBrowserNotifications()} className={`${tab === 'tasks' ? 'ml-2' : 'ml-auto'} whitespace-nowrap rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/20`}>
+          <button onClick={() => void enableBrowserNotifications()} className={`${tab === 'tasks' || tab === 'gantt' ? 'ml-2' : 'ml-auto'} whitespace-nowrap rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/20`}>
             Enable browser notifications
           </button>
         )}
@@ -1179,9 +1188,11 @@ export function Work() {
           <GanttTab
             tasks={tasks}
             boards={visibleBoards}
-            assignees={assignees}
-            profiles={profiles}
-            onOpenTask={setOpenId}
+              assignees={assignees}
+              profiles={profiles}
+              myProfileId={profile?.id}
+              onStatsChange={setGanttStats}
+              onOpenTask={setOpenId}
             onUpdateTask={updateTaskConfirmed}
             readonly={!canEdit}
           />
