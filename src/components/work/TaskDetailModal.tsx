@@ -18,6 +18,18 @@ import {
 } from '../../lib/database'
 import { MoveTaskModal } from './MoveTaskModal'
 import { TaskPlatformPicker } from './TaskPlatforms'
+import { supabase } from '../../lib/supabase'
+
+const TASK_ATTACHMENTS_BUCKET = 'task-attachments'
+const TASK_ATTACHMENT_PREFIX = 'storage:task-attachments:'
+
+function taskAttachmentPath(url: string) {
+  return url.startsWith(TASK_ATTACHMENT_PREFIX) ? url.slice(TASK_ATTACHMENT_PREFIX.length) : null
+}
+
+function isImageAttachment(attachment: Attachment) {
+  return attachment.url.startsWith('data:image/') || /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(attachment.name)
+}
 
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -142,7 +154,31 @@ export function TaskDetailModal({
 
   const [attachUrl,  setAttachUrl]  = useState('')
   const [attachName, setAttachName] = useState('')
+  const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({})
+  const [attachmentUploading, setAttachmentUploading] = useState(false)
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const stored = attachments.filter(a => taskAttachmentPath(a.url))
+    if (stored.length === 0) return
+
+    void Promise.all(stored.map(async attachment => {
+      const path = taskAttachmentPath(attachment.url)
+      if (!path) return null
+      const { data, error } = await supabase.storage.from(TASK_ATTACHMENTS_BUCKET).createSignedUrl(path, 60 * 60)
+      if (error) throw error
+      return [attachment.id, data.signedUrl] as const
+    })).then(entries => {
+      if (!cancelled) setAttachmentUrls(prev => ({ ...prev, ...Object.fromEntries(entries.filter(Boolean) as (readonly [string, string])[]) }))
+    }).catch(error => {
+      console.error('Failed to load task attachment:', error)
+      if (!cancelled) setAttachmentError('An attachment could not be loaded. Please try again.')
+    })
+
+    return () => { cancelled = true }
+  }, [attachments])
 
   const timerCtx = useTimer()
   const isThisTaskRunning = timerCtx.timerState?.taskId === task.id
@@ -462,13 +498,41 @@ export function TaskDetailModal({
     const att: Attachment = { id: newId(), type: 'url', name: attachName.trim() || attachUrl.trim(), url: attachUrl.trim() }
     const updated = [...attachments, att]; setAttachments(updated); setAttachUrl(''); setAttachName(''); save({ attachments: updated })
   }
-  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return
-    const att: Attachment = { id: newId(), type: 'file', name: file.name, url: URL.createObjectURL(file) }
-    const updated = [...attachments, att]; setAttachments(updated); save({ attachments: updated }); e.target.value = ''
+    e.target.value = ''
+    setAttachmentUploading(true)
+    setAttachmentError(null)
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'attachment'
+    const path = `${task.id}/${crypto.randomUUID()}-${safeName}`
+    try {
+      const { error } = await supabase.storage.from(TASK_ATTACHMENTS_BUCKET).upload(path, file, {
+        cacheControl: '3600',
+        contentType: file.type || 'application/octet-stream',
+        upsert: false,
+      })
+      if (error) throw error
+      const { data, error: signedUrlError } = await supabase.storage.from(TASK_ATTACHMENTS_BUCKET).createSignedUrl(path, 60 * 60)
+      if (signedUrlError) throw signedUrlError
+      const att: Attachment = { id: newId(), type: 'file', name: file.name, url: `${TASK_ATTACHMENT_PREFIX}${path}` }
+      const updated = [...attachments, att]
+      setAttachmentUrls(prev => ({ ...prev, [att.id]: data.signedUrl }))
+      setAttachments(updated)
+      save({ attachments: updated })
+    } catch (error) {
+      console.error('Task attachment upload failed:', error)
+      setAttachmentError(error instanceof Error ? error.message : 'File upload failed. Please try again.')
+    } finally {
+      setAttachmentUploading(false)
+    }
   }
   function removeAttachment(id: string) {
+    const removed = attachments.find(a => a.id === id)
     const updated = attachments.filter(a => a.id !== id); setAttachments(updated); save({ attachments: updated })
+    const path = removed ? taskAttachmentPath(removed.url) : null
+    if (path) void supabase.storage.from(TASK_ATTACHMENTS_BUCKET).remove([path]).then(({ error }) => {
+      if (error) console.error('Task attachment cleanup failed:', error)
+    })
   }
 
   // Closing a support ticket: ask whether a release is needed, then whether to
@@ -928,7 +992,10 @@ export function TaskDetailModal({
               {attachments.length > 0 && (
                 <div className="space-y-2 mb-3">
                   {attachments.map(a => {
-                    const isImage = a.url.startsWith('data:image/')
+                    const storedPath = taskAttachmentPath(a.url)
+                    const resolvedUrl = storedPath ? attachmentUrls[a.id] : a.url
+                    const brokenLegacyUpload = a.url.startsWith('blob:')
+                    const isImage = isImageAttachment(a)
                     if (isImage) {
                       return (
                         <div key={a.id} className="flex flex-col gap-1.5 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 group">
@@ -936,21 +1003,33 @@ export function TaskDetailModal({
                             <span className="text-[10px] text-gray-500 truncate flex-1">{a.name}</span>
                             {!readonly && <button onClick={() => removeAttachment(a.id)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 transition-all shrink-0"><X size={11} /></button>}
                           </div>
-                          <img
-                            src={a.url}
-                            alt={a.name}
-                            style={{ maxHeight: '120px' }}
-                            className="rounded-lg object-contain cursor-pointer border border-gray-200 hover:opacity-80 transition-opacity self-start"
-                            onClick={() => window.open(a.url, '_blank')}
-                            title="לחץ לצפייה מלאה"
-                          />
+                          {brokenLegacyUpload ? (
+                            <p className="text-xs text-red-500">This older upload was temporary and is no longer available. Please upload the original file again.</p>
+                          ) : resolvedUrl ? (
+                            <a href={resolvedUrl} target="_blank" rel="noreferrer" className="self-start" title="Open full image">
+                              <img
+                                src={resolvedUrl}
+                                alt={a.name}
+                                style={{ maxHeight: '120px' }}
+                                className="rounded-lg object-contain cursor-pointer border border-gray-200 hover:opacity-80 transition-opacity"
+                              />
+                            </a>
+                          ) : (
+                            <span className="flex items-center gap-1.5 text-xs text-gray-400"><Loader2 size={12} className="animate-spin" /> Loading image…</span>
+                          )}
                         </div>
                       )
                     }
                     return (
                       <div key={a.id} className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 group">
                         <Paperclip size={12} className="text-gray-500 shrink-0" />
-                        <a href={a.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline flex-1 truncate">{a.name}</a>
+                        {brokenLegacyUpload ? (
+                          <span className="text-xs text-red-500 flex-1 truncate">{a.name} — re-upload required</span>
+                        ) : resolvedUrl ? (
+                          <a href={resolvedUrl} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline flex-1 truncate">{a.name}</a>
+                        ) : (
+                          <span className="text-xs text-gray-400 flex-1 truncate">Loading {a.name}…</span>
+                        )}
                         <span className="text-[9px] text-gray-400 uppercase font-semibold shrink-0">{a.type}</span>
                         {!readonly && <button onClick={() => removeAttachment(a.id)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 transition-all shrink-0"><X size={11} /></button>}
                       </div>
@@ -964,9 +1043,10 @@ export function TaskDetailModal({
                 <button onClick={addUrlAttachment} disabled={readonly || !attachUrl.trim()} className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs rounded-lg transition-colors disabled:opacity-40 shrink-0"><Link2 size={11} /> Add</button>
               </div>
               <input ref={fileInputRef} type="file" disabled={readonly} className="hidden" onChange={handleFileSelect} />
-              <button onClick={() => fileInputRef.current?.click()} disabled={readonly} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-primary transition-colors disabled:opacity-40">
-                <Paperclip size={12} /> Upload file
+              <button onClick={() => fileInputRef.current?.click()} disabled={readonly || attachmentUploading} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-primary transition-colors disabled:opacity-40">
+                {attachmentUploading ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />} {attachmentUploading ? 'Uploading…' : 'Upload file'}
               </button>
+              {attachmentError && <p className="mt-1.5 text-xs text-red-500">{attachmentError}</p>}
             </section>
           </div>
 
