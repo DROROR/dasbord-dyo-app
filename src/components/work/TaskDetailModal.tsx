@@ -501,6 +501,10 @@ export function TaskDetailModal({
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return
     e.target.value = ''
+    if (file.size > 20 * 1024 * 1024) {
+      setAttachmentError('File is too large. Maximum size is 20 MB.')
+      return
+    }
     setAttachmentUploading(true)
     setAttachmentError(null)
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'attachment'
@@ -1042,10 +1046,17 @@ export function TaskDetailModal({
                 <input value={attachUrl} onChange={e => setAttachUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addUrlAttachment() }} disabled={readonly} placeholder="https://..." className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-400 disabled:bg-gray-50" />
                 <button onClick={addUrlAttachment} disabled={readonly || !attachUrl.trim()} className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs rounded-lg transition-colors disabled:opacity-40 shrink-0"><Link2 size={11} /> Add</button>
               </div>
-              <input ref={fileInputRef} type="file" disabled={readonly} className="hidden" onChange={handleFileSelect} />
-              <button onClick={() => fileInputRef.current?.click()} disabled={readonly || attachmentUploading} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-primary transition-colors disabled:opacity-40">
-                {attachmentUploading ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />} {attachmentUploading ? 'Uploading…' : 'Upload file'}
+              <input ref={fileInputRef} type="file" disabled={readonly || attachmentUploading} className="hidden" onChange={handleFileSelect} />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={readonly || attachmentUploading}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/25 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {attachmentUploading ? <Loader2 size={15} className="animate-spin" /> : <Paperclip size={15} />}
+                {attachmentUploading ? 'Uploading attachment…' : 'Upload attachment'}
               </button>
+              <p className="mt-1.5 text-center text-[10px] text-gray-400">Images and files up to 20 MB</p>
               {attachmentError && <p className="mt-1.5 text-xs text-red-500">{attachmentError}</p>}
             </section>
           </div>
