@@ -151,7 +151,7 @@ function MyStatusSection({
               key={filter}
               type="button"
               onClick={() => onFilterChange(filter)}
-              className={`rounded-sm border px-2 py-1 text-[10px] font-bold transition-colors ${taskFilter === filter ? 'border-primary bg-primary text-white' : 'border-gray-200 bg-white text-gray-500 hover:border-primary/40 hover:text-primary'}`}
+              className={`rounded-sm border px-2 py-1 text-xs font-bold transition-colors ${taskFilter === filter ? 'border-primary bg-primary text-white' : 'border-gray-200 bg-white text-gray-500 hover:border-primary/40 hover:text-primary'}`}
             >
               {filter === 'active' ? tr('פעיל', 'Active') : filter === 'all' ? tr('הכל', 'All') : tr('ארכיון', 'Archived')}
             </button>

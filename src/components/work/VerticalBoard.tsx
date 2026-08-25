@@ -345,7 +345,7 @@ export function VerticalBoard({
           value={boardFilter}
           onChange={e => changeBoardFilter(e.target.value)}
           title={tr('בורד', 'Board')}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
+          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
         >
           <option value="">{tr('כל הבורדים', 'All Boards')}</option>
           {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -353,7 +353,7 @@ export function VerticalBoard({
         <select
           value={assignee}
           onChange={e => setAssignee(e.target.value)}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
+          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
         >
           <option value="">All assignees</option>
           {assignees.map(a => <option key={a} value={a}>{a}</option>)}
@@ -361,7 +361,7 @@ export function VerticalBoard({
         <select
           value={priority}
           onChange={e => setPriority(e.target.value)}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
+          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
         >
           <option value="">All priorities</option>
           {priorityFilterOptions.map(p => (
@@ -372,7 +372,7 @@ export function VerticalBoard({
           value={client}
           onChange={e => setClient(e.target.value)}
           title={tr('לקוח', 'Client')}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
+          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
         >
           <option value="">{tr('כל הלקוחות', 'All Clients')}</option>
           <option value={NO_CLIENT}>{tr('ללא לקוח', 'No Client')}</option>
