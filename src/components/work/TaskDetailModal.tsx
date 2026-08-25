@@ -648,49 +648,57 @@ export function TaskDetailModal({
       <div className="task-editor relative bg-white rounded-3xl shadow-2xl ring-1 ring-black/5 w-full max-w-6xl flex flex-col overflow-hidden" style={{ maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div className="flex items-center gap-3 px-5 sm:px-6 py-4 border-b border-gray-100 bg-white/95 shrink-0">
-          <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-1 rounded-lg whitespace-nowrap shrink-0">{boardLabel}</span>
-          <span className="text-[10px] text-gray-500 font-mono shrink-0">{task.id}</span>
+        <div className="flex items-end gap-3 px-5 sm:px-6 py-4 border-b border-gray-100 bg-white/95 shrink-0">
           <div className="flex-1 min-w-0">
+            <div className="mb-1 flex min-w-0 items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+              <span className="shrink-0">Task title</span>
+              <span className="h-3 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+              <span className="truncate font-mono font-normal normal-case tracking-normal text-gray-500" title={task.id}>ID {task.id}</span>
+            </div>
             {editTitle ? (
               <input autoFocus value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
                 onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { setTitle(task.title); setEditTitle(false) } }}
-                className="task-title-input w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base font-bold leading-snug text-gray-950 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+                className="task-title-input h-9 w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-base font-bold leading-snug text-gray-950 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
               />
             ) : (
-              <button onClick={() => !readonly && setEditTitle(true)} disabled={readonly} className="task-title-input line-clamp-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-left text-base font-bold leading-snug text-gray-950 transition-colors hover:border-primary hover:text-primary disabled:cursor-default disabled:hover:border-gray-300 disabled:hover:text-gray-900" title={readonly ? undefined : 'Click to edit'}>{title}</button>
+              <button onClick={() => !readonly && setEditTitle(true)} disabled={readonly} className="task-title-input flex h-9 w-full items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-left text-base font-bold leading-snug text-gray-950 transition-colors hover:border-primary hover:text-primary disabled:cursor-default disabled:hover:border-gray-300 disabled:hover:text-gray-900" title={readonly ? undefined : 'Click to edit'}><span className="truncate">{title}</span></button>
             )}
           </div>
-          {openTicketsForClient > 0 && (
-            <span
-              className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-1 rounded-lg whitespace-nowrap shrink-0"
-              title="Other support tickets still open for this client"
-            >
-              ללקוח הזה {openTicketsForClient} קריאות תמיכה פתוחות נוספות
-            </span>
-          )}
-          <button onClick={copyLink} title="Copy task link" className={`p-2 rounded-xl border border-gray-200 bg-white transition-colors shrink-0 ${copied ? 'bg-green-100 text-green-600' : 'text-gray-500 hover:bg-gray-100 hover:text-primary'}`}>
-            {copied ? <Check size={15} /> : <Copy size={15} />}
-          </button>
-          {canMoveBoard && (
-            <button
-              onClick={() => setShowMoveModal(true)}
-              title={tr('העבר ללוח אחר', 'Move to another board')}
-              className="p-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:border-primary/30 hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
-            >
-              <ArrowRightLeft size={15} />
-            </button>
-          )}
-          {canDelete && (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              title={tr('מחק משימה', 'Delete task')}
-              className="p-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:border-red-200 hover:bg-red-50 hover:text-red-500 transition-colors shrink-0"
-            >
-              <Trash2 size={15} />
-            </button>
-          )}
-          <button onClick={onClose} className="p-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-800 transition-colors shrink-0"><X size={15} /></button>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <span className="max-w-[320px] truncate text-[10px] font-semibold text-gray-500" title={boardLabel}>{boardLabel}</span>
+            <div className="flex items-center gap-2">
+              {openTicketsForClient > 0 && (
+                <span
+                  className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-1 rounded-lg whitespace-nowrap shrink-0"
+                  title="Other support tickets still open for this client"
+                >
+                  ללקוח הזה {openTicketsForClient} קריאות תמיכה פתוחות נוספות
+                </span>
+              )}
+              <button onClick={copyLink} title="Copy task link" className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white transition-colors shrink-0 ${copied ? 'bg-green-100 text-green-600' : 'text-gray-500 hover:bg-gray-100 hover:text-primary'}`}>
+                {copied ? <Check size={15} /> : <Copy size={15} />}
+              </button>
+              {canMoveBoard && (
+                <button
+                  onClick={() => setShowMoveModal(true)}
+                  title={tr('העבר ללוח אחר', 'Move to another board')}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:border-primary/30 hover:bg-primary/10 hover:text-primary transition-colors shrink-0"
+                >
+                  <ArrowRightLeft size={15} />
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  title={tr('מחק משימה', 'Delete task')}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:border-red-200 hover:bg-red-50 hover:text-red-500 transition-colors shrink-0"
+                >
+                  <Trash2 size={15} />
+                </button>
+              )}
+              <button onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-800 transition-colors shrink-0"><X size={15} /></button>
+            </div>
+          </div>
         </div>
 
         {showMoveModal && (
@@ -833,7 +841,9 @@ export function TaskDetailModal({
 
             {/* Description */}
             <section>
-              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-2">Description</p>
+              <div className="mb-2 flex min-w-0 items-center gap-3">
+                <p className="text-xs font-bold text-gray-900 uppercase tracking-wide">Description</p>
+              </div>
               <textarea value={desc} onChange={e => setDesc(e.target.value)} onBlur={saveDesc} rows={6}
                 placeholder="Add a description..." disabled={readonly}
                 className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-4 py-3 resize-none focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-400 leading-relaxed disabled:bg-gray-50 disabled:text-gray-500"
