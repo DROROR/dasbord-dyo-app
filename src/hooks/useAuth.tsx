@@ -100,11 +100,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (DEV_BYPASS) return
 
-    void supabase.auth.getSession().then(({ data: { session } }) => hydrateUser(session?.user ?? null))
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      // A Supabase query inside this callback can block the sign-in event.
-      // Defer profile hydration so a successful login renders immediately.
+      // onAuthStateChange emits INITIAL_SESSION when this provider mounts,
+      // so it is the single session authority. A separate getSession()
+      // request can resolve later with a stale null snapshot and overwrite a
+      // login that just succeeded, sending the user back to the login screen.
+      // A Supabase query inside this callback can block the auth event, so
+      // defer profile hydration until after the callback returns.
       setTimeout(() => void hydrateUser(session?.user ?? null), 0)
     })
 
@@ -117,8 +119,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signIn(email: string, password: string) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
-    if (!data.user) throw new Error('Sign-in succeeded without a user session')
-    await hydrateUser(data.user)
+    if (!data.session?.user) throw new Error('Sign-in succeeded without a user session')
+    await hydrateUser(data.session.user)
   }
 
   async function signOut() {
