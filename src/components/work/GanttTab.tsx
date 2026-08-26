@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, ChevronLeft, ChevronRight, Check, GripVertical } from 'lucide-react'
 import { Avatar } from '../Avatar'
 import type { Task, Board } from '../../types/work'
@@ -242,14 +243,43 @@ function CheckboxFilterDropdown({
   const { t } = useWorkLang()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [panelPosition, setPanelPosition] = useState({ top: 0, left: 0 })
+
+  const positionPanel = useCallback(() => {
+    const rect = buttonRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setPanelPosition({
+      top: rect.bottom + 4,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 224)),
+    })
+  }, [])
+
+  function toggleOpen() {
+    if (!open) positionPanel()
+    setOpen(value => !value)
+  }
 
   useEffect(() => {
     function handle(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (!ref.current?.contains(target) && !panelRef.current?.contains(target)) setOpen(false)
     }
     document.addEventListener('mousedown', handle)
     return () => document.removeEventListener('mousedown', handle)
   }, [])
+
+  useEffect(() => {
+    if (!open) return
+    positionPanel()
+    window.addEventListener('resize', positionPanel)
+    window.addEventListener('scroll', positionPanel, true)
+    return () => {
+      window.removeEventListener('resize', positionPanel)
+      window.removeEventListener('scroll', positionPanel, true)
+    }
+  }, [open, positionPanel])
 
   const visibleCount = items.length - hidden.size
   const label = hidden.size === 0
@@ -259,15 +289,20 @@ function CheckboxFilterDropdown({
   return (
     <div className="relative shrink-0" ref={ref}>
       <button
-        onClick={() => setOpen(s => !s)}
+        ref={buttonRef}
+        onClick={toggleOpen}
         className={`flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 bg-white transition-colors focus:outline-none ${hidden.size > 0 ? 'border-primary text-primary font-semibold' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
       >
         {label}
         <ChevronDown size={11} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
-      {open && (
-        <div className="absolute top-full mt-1 left-0 z-30 bg-white border border-gray-200 rounded-xl shadow-lg p-3 min-w-52 max-h-72 overflow-y-auto">
+      {open && createPortal(
+        <div
+          ref={panelRef}
+          className="fixed z-[100] min-w-52 max-h-72 overflow-y-auto rounded-xl border border-gray-200 bg-white p-3 shadow-lg"
+          style={{ top: panelPosition.top, left: panelPosition.left }}
+        >
           <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-100 sticky top-0 bg-white">
             <button onClick={onSelectAll} className="text-xs text-primary font-semibold hover:underline">{t('בחר הכל', 'Select all')}</button>
             {onQuickAction && quickActionLabel && (
@@ -279,19 +314,19 @@ function CheckboxFilterDropdown({
             {items.map(item => {
               const checked = !hidden.has(item.id)
               return (
-                <label key={item.id} className="flex items-center gap-2.5 py-1 px-1 rounded-lg hover:bg-gray-50 cursor-pointer">
+                <button type="button" key={item.id} onClick={() => onToggle(item.id)} className="flex w-full items-center gap-2.5 rounded-lg px-1 py-1 text-left hover:bg-gray-50 cursor-pointer">
                   <div
-                    onClick={() => onToggle(item.id)}
                     className={`w-4 h-4 rounded flex items-center justify-center border transition-colors cursor-pointer shrink-0 ${checked ? 'bg-primary border-primary' : 'border-gray-300 bg-white'}`}
                   >
                     {checked && <Check size={10} className="text-white" />}
                   </div>
                   <span className="text-xs text-gray-700 flex-1 truncate">{item.label}</span>
-                </label>
+                </button>
               )
             })}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
