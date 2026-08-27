@@ -64,6 +64,13 @@ function taskMatchesStatus(t: Task, boards: Board[], stableId: string, label: st
     || normalizedStatus(t.status).startsWith(`${normalizedStatus(stableId)}_`)
 }
 
+function taskStatusTextClass(task: Task, boards: Board[]): string {
+  const pillClass = boards.find(board => board.id === task.board)?.statuses.find(status => status.id === task.status)?.pillCls
+    ?? STATUS_PILL[task.status]
+    ?? ''
+  return pillClass.split(' ').find(className => className.startsWith('text-')) ?? 'text-gray-700'
+}
+
 type TaskBadge = { label: string; cls: string }
 type TaskGroup = { id: string; label: string; tasks: Task[]; boardLabel?: string }
 type TaskListFilter = 'active' | 'all' | 'archived'
@@ -489,7 +496,7 @@ export function MyBoard({
           <aside className="flex min-h-0 flex-col gap-3 min-[1500px]:order-2 min-[1500px]:col-span-5 min-[1500px]:overflow-hidden">
       {/* Alerts */}
       {(pendingClose.length > 0 || overdueTasks.length > 0 || unclaimed.length > 0) && (
-        <div className="alerts-scroll flex max-h-[45vh] min-h-[144px] flex-none flex-col gap-2 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-3 min-[1500px]:min-h-0 min-[1500px]:max-h-none min-[1500px]:flex-[1.55] min-[1500px]:basis-0">
+        <div className="alerts-scroll flex max-h-[45vh] min-h-[144px] flex-none flex-col gap-1 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-3 min-[1500px]:min-h-0 min-[1500px]:max-h-none min-[1500px]:flex-[1.55] min-[1500px]:basis-0">
           <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{tr('התראות', 'Alerts')}</p>
 
           {/* Urgent work and support tickets are always the first actionable
@@ -498,41 +505,42 @@ export function MyBoard({
             const urgent = !unclaimedSupportBoard.has(t.board)
             return (
               <button key={t.id} onClick={() => onOpenTask(t.id)}
-                className="grid h-12 w-full min-w-0 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 overflow-hidden rounded-lg border border-orange-200 bg-orange-50 px-3 text-left transition-colors hover:bg-orange-100"
+                className="grid h-10 w-full min-w-0 shrink-0 grid-cols-[14px_minmax(0,1fr)_max-content_max-content] items-center gap-1 overflow-hidden rounded-lg border border-orange-200 bg-orange-50 px-2 text-left transition-colors hover:bg-orange-100"
               >
                 {urgent
                   ? <AlertCircle size={14} className="text-red-500 shrink-0" />
                   : <Ticket      size={14} className="text-orange-500 shrink-0" />}
-                <span className="min-w-0 truncate text-sm font-semibold text-orange-900">{t.title}</span>
-                <span className="shrink-0 rounded-sm bg-red-100 px-1.5 py-1 text-[9px] font-bold text-red-700">{tr('לא נתבע', 'UNCLAIMED')}</span>
-                <span className="w-14 shrink-0 text-right text-[10px] text-orange-700">{t.dueDate ? fmtDate(t.dueDate) : '—'}</span>
+                <span className="min-w-0 truncate text-xs font-semibold text-gray-900">{t.title}</span>
+                <span className="shrink-0 rounded-md border border-red-200 bg-white px-2 py-1 text-[10px] font-bold leading-none text-red-700">{tr('לא נתבע', 'UNCLAIMED')}</span>
+                <span className="shrink-0 text-right text-[10px] text-orange-700">{t.dueDate ? fmtDate(t.dueDate) : '—'}</span>
               </button>
             )
           })}
 
           {pendingClose.map(t => (
             <button key={t.id} onClick={() => onOpenTask(t.id)}
-              className="grid h-12 w-full min-w-0 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 overflow-hidden rounded-lg border border-orange-200 bg-orange-50 px-3 text-left transition-colors hover:bg-orange-100"
+              className="grid h-10 w-full min-w-0 shrink-0 grid-cols-[14px_minmax(0,1fr)_max-content_max-content] items-center gap-1 overflow-hidden rounded-lg border border-orange-200 bg-orange-50 px-2 text-left transition-colors hover:bg-orange-100"
             >
               <CheckCircle2 size={14} className="text-orange-500 shrink-0" />
-              <span className="min-w-0 truncate text-sm font-semibold text-orange-900">{t.title}</span>
-              <span className="shrink-0 rounded-sm bg-orange-200 px-1.5 py-1 text-[9px] font-bold text-orange-800">
+              <span className="min-w-0 truncate text-xs font-semibold text-gray-900">{t.title}</span>
+              <span className="shrink-0 rounded-md border border-orange-200 bg-white px-2 py-1 text-[10px] font-bold leading-none text-orange-700">
                 {tr('ממתין לסגירה', 'Pending closure')}
               </span>
-              <span className="w-14 shrink-0 text-right text-[10px] text-orange-700">{t.dueDate ? fmtDate(t.dueDate) : '—'}</span>
+              <span className="shrink-0 text-right text-[10px] text-orange-700">{t.dueDate ? fmtDate(t.dueDate) : '—'}</span>
             </button>
           ))}
 
           {overdueTasks.map(t => (
             <button key={t.id} onClick={() => onOpenTask(t.id)}
-              className="grid h-12 w-full min-w-0 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 overflow-hidden rounded-lg border border-red-200 bg-red-50 px-3 text-left transition-colors hover:bg-red-100"
+              className="grid h-10 w-full min-w-0 shrink-0 grid-cols-[14px_minmax(0,1fr)_max-content_max-content] items-center gap-1 overflow-hidden rounded-lg border border-red-200 bg-red-50 px-2 text-left transition-colors hover:bg-red-100"
             >
               <AlertCircle size={14} className="text-red-500 shrink-0" />
-              <span className="min-w-0 truncate text-sm font-semibold text-red-900">{t.title}</span>
-              <span className={`shrink-0 rounded-sm px-1.5 py-1 text-[9px] font-semibold ${STATUS_PILL[t.status]}`}>
-                {tr(STATUS_LABEL_HE[t.status] ?? STATUS_LABEL[t.status], STATUS_LABEL[t.status])}
+              <span className="min-w-0 truncate text-xs font-semibold text-gray-900">{t.title}</span>
+              <span className={`shrink-0 rounded-md border border-current/20 bg-white px-2 py-1 text-[10px] font-bold leading-none ${taskStatusTextClass(t, boards)}`}>
+                {boards.find(board => board.id === t.board)?.statuses.find(status => status.id === t.status)?.label
+                  ?? tr(STATUS_LABEL_HE[t.status] ?? STATUS_LABEL[t.status] ?? t.status, STATUS_LABEL[t.status] ?? t.status)}
               </span>
-              <span className="w-14 shrink-0 text-right text-[10px] font-semibold text-red-700">{fmtDate(t.dueDate!)}</span>
+              <span className="shrink-0 text-right text-[10px] font-semibold text-red-700">{fmtDate(t.dueDate!)}</span>
             </button>
           ))}
 
