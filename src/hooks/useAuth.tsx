@@ -51,6 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(DEV_BYPASS ? DEV_PROFILE : null)
   const [loading, setLoading] = useState(!DEV_BYPASS)
   const authRequestRef = useRef(0)
+  const authenticatedUserRef = useRef<User | null>(DEV_BYPASS ? DEV_USER : null)
 
   const fetchProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     const { data, error } = await supabase
@@ -100,14 +101,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (DEV_BYPASS) return
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // onAuthStateChange emits INITIAL_SESSION when this provider mounts,
       // so it is the single session authority. A separate getSession()
       // request can resolve later with a stale null snapshot and overwrite a
       // login that just succeeded, sending the user back to the login screen.
       // A Supabase query inside this callback can block the auth event, so
       // defer profile hydration until after the callback returns.
-      setTimeout(() => void hydrateUser(session?.user ?? null), 0)
+      const eventUser = session?.user ?? null
+      if (eventUser) authenticatedUserRef.current = eventUser
+      if (event === 'SIGNED_OUT') authenticatedUserRef.current = null
+
+      setTimeout(() => {
+        // INITIAL_SESSION may have captured `null` before a fast successful
+        // password sign-in, then run after signIn() has already committed the
+        // returned user. Never let that stale initial snapshot log the fresh
+        // session back out in React; a real SIGNED_OUT event still clears it.
+        if (event === 'INITIAL_SESSION' && !eventUser && authenticatedUserRef.current) return
+        void hydrateUser(eventUser)
+      }, 0)
     })
 
     return () => {
@@ -120,10 +132,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
     if (!data.session?.user) throw new Error('Sign-in succeeded without a user session')
+    authenticatedUserRef.current = data.session.user
     await hydrateUser(data.session.user)
   }
 
   async function signOut() {
+    authenticatedUserRef.current = null
     await supabase.auth.signOut()
   }
 
