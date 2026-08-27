@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Plus, LayoutGrid, FileText, BarChart2, Bot, User, Briefcase,
-  Settings, X, Check, Pencil, ChevronDown, Trash2, Loader2, TrendingUp,
+  Settings, X, Check, Pencil, ChevronDown, Trash2, Loader2, TrendingUp, Search,
 } from 'lucide-react'
 import type { Task, Board, PriorityDef, BoardStatus } from '../types/work'
 import { boardAccessRank, eligibleAssigneesForBoard } from '../types/work'
@@ -604,6 +604,7 @@ export function Work() {
     catch { return INITIAL_BOARDS[0].id }
   })
   const [tasks,        setTasks]        = useState<Task[]>([])
+  const [taskSearch,   setTaskSearch]   = useState('')
   const [ganttStats,   setGanttStats]   = useState({ scheduled: 0, withoutDates: 0 })
   const [tasksLoading, setTasksLoading] = useState(true)
   // INITIAL_BOARDS (the seed constant `boards` starts as) never carries a
@@ -1077,39 +1078,19 @@ export function Work() {
         })}
         {tab === 'tasks' && (
           <div className="ml-auto flex shrink-0 items-center gap-2 pl-4">
-            {visibleBoards.map(b => {
-              const active = activeBoard === b.id
-              const count = tasks.filter(t => t.board === b.id).length
-              return (
-                <div key={b.id} className="flex items-center gap-0.5">
-                  <button
-                    onClick={() => setActiveBoard(b.id)}
-                    className={`flex items-center gap-1.5 whitespace-nowrap px-2 py-2 text-sm transition-colors ${active ? 'font-bold text-primary' : 'font-medium text-gray-500 hover:text-gray-800'}`}
-                  >
-                    {b.name}
-                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-bold leading-none text-white">{count}</span>
-                  </button>
-                  {canManageWork && (
-                    <button onClick={() => setSettingsBoard(b)} className="p-1 text-gray-400 transition-colors hover:text-primary" title="Board settings">
-                      <Settings size={12} />
-                    </button>
-                  )}
-                </div>
-              )
-            })}
-            {canManageWork && (
-              <button onClick={() => setShowAddBoard(true)} className="flex items-center gap-1 whitespace-nowrap px-2 py-2 text-sm font-medium text-gray-500 transition-colors hover:text-primary">
-                <Plus size={13} /> Add Board
-              </button>
-            )}
+            <div className="relative h-8 w-56">
+              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+              <input value={taskSearch} onChange={event => setTaskSearch(event.target.value)} placeholder="Search tasks..." className="h-8 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-8 text-xs transition placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10" />
+              {taskSearch && <button onClick={() => setTaskSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"><X size={12} /></button>}
+            </div>
             {canEdit && (
               <>
-                <div className="mx-1 h-5 w-px bg-gray-200" aria-hidden="true" />
+                <div className="mx-1 h-5 w-px shrink-0 bg-gray-200" aria-hidden="true" />
                 <button
                   onClick={() => addTaskWithStatus('not_started')}
                   disabled={!canCreateInBoard(activeBoard)}
                   title={canCreateInBoard(activeBoard) ? undefined : 'אין לך גישה מלאה ללוח הזה — פנה למנהל כדי לקבל הרשאת Full לפני יצירת משימות כאן'}
-                  className="flex shrink-0 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-8 shrink-0 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-bold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Plus size={14} /> New Task
                 </button>
@@ -1133,7 +1114,7 @@ export function Work() {
       </nav>
 
       {/* Content */}
-      <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col px-6 pt-5 pb-0">
+      <div className={`flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col px-6 pb-0 ${tab === 'tasks' ? 'pt-3' : 'pt-5'}`}>
 
         {(tasksLoading || boardsLoading) && (tab === 'myboard' || tab === 'tasks' || tab === 'gantt') && (
           <div className="flex-1 flex items-center justify-center">
@@ -1158,13 +1139,32 @@ export function Work() {
         )}
 
         {!tasksLoading && !boardsLoading && tab === 'tasks' && (
-          <div className="flex flex-col gap-4 flex-1 min-h-0">
+          <div className="flex flex-col gap-3 flex-1 min-h-0">
             {createTaskError && (
               <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 shrink-0 flex items-center justify-between gap-3">
                 <span>{createTaskError}</span>
                 <button onClick={() => setCreateTaskError(null)} className="text-red-400 hover:text-red-600 shrink-0">✕</button>
               </p>
             )}
+
+            <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
+              <span />
+              <div className="flex min-w-0 items-center justify-center gap-2 overflow-x-auto">
+                {visibleBoards.map(board => {
+                  const active = activeBoard === board.id
+                  const count = tasks.filter(task => task.board === board.id).length
+                  return (
+                    <div key={board.id} className={`flex h-7 shrink-0 items-center rounded-lg border transition-colors ${active ? "border-primary bg-primary text-white" : "border-gray-200 bg-gray-100 text-gray-700 hover:border-gray-300 hover:bg-gray-200"}`}>
+                      <button onClick={() => setActiveBoard(board.id)} className="flex h-full items-center gap-1.5 whitespace-nowrap px-3 text-xs font-semibold">
+                        {board.name}<span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none ${active ? "bg-white/20 text-white" : "bg-gray-700 text-white"}`}>{count}</span>
+                      </button>
+                      {canManageWork && <button onClick={() => setSettingsBoard(board)} className={`mr-1 p-1 transition-colors ${active ? "text-white/75 hover:text-white" : "text-gray-500 hover:text-primary"}`} title="Board settings"><Settings size={12} /></button>}
+                    </div>
+                  )
+                })}
+              </div>
+              {canManageWork ? <button onClick={() => setShowAddBoard(true)} className="flex h-7 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 transition-colors hover:border-primary hover:text-primary"><Plus size={13} /> Add Board</button> : <span />}
+            </div>
 
             <VerticalBoard
               tasks={tasks}
@@ -1180,6 +1180,8 @@ export function Work() {
               onBoardFilterChange={setActiveBoard}
               canMoveTask={canDeleteTask}
               profiles={profiles}
+              search={taskSearch}
+              onSearchChange={setTaskSearch}
             />
           </div>
         )}

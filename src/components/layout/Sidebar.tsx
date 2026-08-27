@@ -4,7 +4,6 @@ import logoFull from '../../assets/logo.png'
 import logoSymbol from '../../assets/logo-symbol.png'
 import type { UserProfile } from '../../hooks/useAuth'
 import { useAuth } from '../../hooks/useAuth'
-import { useLang } from '../../contexts/LanguageContext'
 import { PAGES } from '../../lib/permissions'
 
 // Nav items come from the central PAGES registry (src/lib/permissions.ts)
@@ -21,8 +20,7 @@ interface Props {
 }
 
 export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: Props) {
-  const { t } = useLang()
-  const { lang: workLang, setLang: setWorkLang } = useWorkLang()
+  const { lang: workLang, setLang: setWorkLang, t } = useWorkLang()
   const { hasPermission, canManagePermissions } = useAuth()
   const initial = profile?.name?.charAt(0).toUpperCase() ?? '?'
 

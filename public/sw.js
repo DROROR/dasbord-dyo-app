@@ -1,5 +1,5 @@
-const CACHE_NAME = 'dyo-work-shell-v1'
-const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg', '/pwa-192.png', '/pwa-512.png']
+const CACHE_NAME = 'dyo-work-shell-v2'
+const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/dyo-favicon.png', '/pwa-192.png', '/pwa-512.png']
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)))

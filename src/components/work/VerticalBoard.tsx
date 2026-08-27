@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Search, X, Calendar, Clock, ChevronDown, Plus, ArrowRightLeft } from 'lucide-react'
+import { X, Calendar, Clock, ChevronDown, Plus, ArrowRightLeft } from 'lucide-react'
 import type { Task, Board, BoardStatus, AssigneeOption, PriorityDef } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, priorityDefsForBoard } from '../../data/workConstants'
 import { PriorityQuickEdit, AssigneeQuickEdit } from './TaskQuickEdit'
@@ -159,7 +159,7 @@ function StatusSection({
         className="flex items-center gap-2.5 w-full px-4 py-2.5 bg-gray-50/80 hover:bg-gray-100/60 transition-colors text-left border-b border-gray-100 rounded-t-lg"
       >
         <ChevronDown size={13} className={`text-gray-500 transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} />
-        <span className={`text-xs font-bold px-3 py-1 rounded-full ${col.pillCls}`}>
+        <span className={`text-xs font-bold px-3 py-1 rounded-md ${col.pillCls}`}>
           {col.label}
         </span>
         <span className="text-xs font-bold text-gray-500 bg-white border border-gray-200 rounded-full px-1.5 min-w-[20px] text-center">
@@ -208,7 +208,7 @@ function StatusSection({
 export function VerticalBoard({
   tasks, boards, activeBoardId, onOpenTask, onAddTask, assignees, readonly,
   canEditTask, eligibleAssigneesFor, onTaskSaved, onBoardFilterChange,
-  canMoveTask, profiles,
+  canMoveTask, profiles, search, onSearchChange,
 }: {
   /** Every task the caller wants considered — the internal Board filter (below) narrows this further; this is deliberately NOT pre-filtered to one board so "All Boards" has real data to show. */
   tasks: Task[]
@@ -230,15 +230,16 @@ export function VerticalBoard({
   canMoveTask: (task: Task) => boolean
   /** Active profiles + isOwner flag, used by the move modal to resolve assignee eligibility on whichever destination board is picked. */
   profiles: { id: string; name: string; isOwner: boolean }[]
+  search: string
+  onSearchChange: (value: string) => void
 }) {
   const { t: tr } = useWorkLang()
   const [movingTask, setMovingTask] = useState<Task | null>(null)
-  const [search,       setSearch]       = useState('')
   const [assignee,     setAssignee]     = useState('')
   const [priority,     setPriority]     = useState('')
   const [client,       setClient]       = useState('')
   const [boardFilter,  setBoardFilter]  = useState(activeBoardId)
-  const [showArchived, setShowArchived] = useState(false)
+  const [showArchived, setShowArchived] = useState(true)
 
   // Keeps this dropdown in sync when the board is changed from OUTSIDE
   // (clicking one of the existing board tabs) — adjusted during render
@@ -327,20 +328,6 @@ export function VerticalBoard({
     <div className="flex flex-col gap-3 flex-1 min-h-0">
       {/* Filter bar */}
       <div className="flex items-center gap-2 flex-wrap shrink-0">
-        <div className="relative flex-1 min-w-[180px] max-w-xs">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search tasks..."
-            className="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-400"
-          />
-          {search && (
-            <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-500">
-              <X size={12} />
-            </button>
-          )}
-        </div>
         <select
           value={boardFilter}
           onChange={e => changeBoardFilter(e.target.value)}
@@ -386,7 +373,7 @@ export function VerticalBoard({
           {showArchived ? 'Hide Archived' : 'Show Archived'}
         </button>
         {anyFilterActive && (
-          <button onClick={() => { setSearch(''); setAssignee(''); setPriority(''); setClient(''); changeBoardFilter('') }} className="flex items-center gap-1 text-sm text-gray-500 hover:text-primary transition-colors">
+          <button onClick={() => { onSearchChange(''); setAssignee(''); setPriority(''); setClient(''); changeBoardFilter('') }} className="flex items-center gap-1 text-sm text-gray-500 hover:text-primary transition-colors">
             <X size={12} /> Clear
           </button>
         )}
@@ -412,7 +399,7 @@ export function VerticalBoard({
             // single board to create into from here. Hidden in that
             // case regardless of the caller's own readonly value,
             // never just disabled-looking.
-            readonly={readonly || !boardFilter}
+            readonly={readonly || !boardFilter || col.id === 'archived'}
             canEditTask={canEditTask}
             eligibleAssigneesFor={eligibleAssigneesFor}
             onTaskSaved={onTaskSaved}
