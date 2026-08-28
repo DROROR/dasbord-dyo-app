@@ -45,8 +45,19 @@ function toggleInSet(set: Set<string>, id: string): Set<string> {
 // commit-then-effect render pass a useEffect-based version would cause
 // here. Deliberately uses a second useState for the previous key, not a
 // ref — reading/writing a ref during render is itself now flagged.
-function usePrunedHiddenSet(validIds: string[]): [Set<string>, Dispatch<SetStateAction<Set<string>>>] {
-  const [hidden, setHidden] = useState<Set<string>>(new Set())
+function loadStoredHiddenSet(storageKey: string, validIds: string[]): Set<string> {
+  try {
+    const stored = JSON.parse(localStorage.getItem(storageKey) ?? '[]')
+    if (!Array.isArray(stored)) return new Set()
+    const valid = new Set(validIds)
+    return new Set(stored.filter((id): id is string => typeof id === 'string' && valid.has(id)))
+  } catch {
+    return new Set()
+  }
+}
+
+function usePrunedHiddenSet(validIds: string[], storageKey: string): [Set<string>, Dispatch<SetStateAction<Set<string>>>] {
+  const [hidden, setHidden] = useState<Set<string>>(() => loadStoredHiddenSet(storageKey, validIds))
   const key = validIds.join('|')
   const [prevKey, setPrevKey] = useState(key)
   if (prevKey !== key) {
@@ -55,6 +66,9 @@ function usePrunedHiddenSet(validIds: string[]): [Set<string>, Dispatch<SetState
     const pruned = new Set([...hidden].filter(id => idSet.has(id)))
     if (pruned.size !== hidden.size) setHidden(pruned)
   }
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, JSON.stringify([...hidden])) } catch { /* preference remains in memory */ }
+  }, [hidden, storageKey])
   return [hidden, setHidden]
 }
 
@@ -134,6 +148,31 @@ const MODE_LABELS: Record<RangeMode, { he: string; en: string }> = {
   calendarMonth: { he: 'חודש קלנדרי', en: 'Calendar month' },
   rollingMonth:  { he: 'חודש מתגלגל', en: 'Rolling month' },
   custom:        { he: 'טווח מותאם אישית', en: 'Custom range' },
+}
+
+const GANTT_STORAGE = {
+  mode: 'dyo-gantt-range-mode',
+  anchor: 'dyo-gantt-anchor',
+  customFrom: 'dyo-gantt-custom-from',
+  customTo: 'dyo-gantt-custom-to',
+  boards: 'dyo-gantt-hidden-boards',
+  users: 'dyo-gantt-hidden-users',
+  priorities: 'dyo-gantt-hidden-priorities',
+  statuses: 'dyo-gantt-hidden-statuses',
+} as const
+
+function storedRangeMode(): RangeMode {
+  try {
+    const value = localStorage.getItem(GANTT_STORAGE.mode)
+    return value && value in MODE_LABELS ? value as RangeMode : 'week2'
+  } catch { return 'week2' }
+}
+
+function storedLocalDate(key: string, fallback: Date): Date {
+  try {
+    const value = localStorage.getItem(key)
+    return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? parseIsoDateLocal(value) : fallback
+  } catch { return fallback }
 }
 
 const WEEKDAY_NAMES_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -360,10 +399,10 @@ export function GanttTab({
 }) {
   const { t } = useWorkLang()
 
-  const [mode,   setMode]   = useState<RangeMode>('week2')
-  const [anchor, setAnchor] = useState<Date>(() => startOfDay(new Date()))
-  const [customFrom, setCustomFrom] = useState<Date>(() => startOfDay(new Date()))
-  const [customTo,   setCustomTo]   = useState<Date>(() => addDays(startOfDay(new Date()), 13))
+  const [mode,   setMode]   = useState<RangeMode>(storedRangeMode)
+  const [anchor, setAnchor] = useState<Date>(() => storedLocalDate(GANTT_STORAGE.anchor, startOfDay(new Date())))
+  const [customFrom, setCustomFrom] = useState<Date>(() => storedLocalDate(GANTT_STORAGE.customFrom, startOfDay(new Date())))
+  const [customTo,   setCustomTo]   = useState<Date>(() => storedLocalDate(GANTT_STORAGE.customTo, addDays(startOfDay(new Date()), 13)))
   const [drag,   setDrag]   = useState<DragState | null>(null)
   const [resize, setResize] = useState<ResizeState | null>(null)
   const [unscheduledDrag, setUnscheduledDrag] = useState<UnscheduledDragState | null>(null)
@@ -377,7 +416,7 @@ export function GanttTab({
 
   // Pruned against the raw boards prop (not visibleBoardsForFilters below,
   // which is itself derived FROM this) — see usePrunedHiddenSet.
-  const [hiddenBoards, setHiddenBoards] = usePrunedHiddenSet(useMemo(() => boards.map(b => b.id), [boards]))
+  const [hiddenBoards, setHiddenBoards] = usePrunedHiddenSet(useMemo(() => boards.map(b => b.id), [boards]), GANTT_STORAGE.boards)
 
   const colorMap = useMemo(() => {
     return Object.fromEntries(assignees.map((a, i) => [a, PALETTE[i % PALETTE.length]]))
@@ -443,9 +482,18 @@ export function GanttTab({
     [visibleBoardsForFilters]
   )
 
-  const [hiddenUserKeys,   setHiddenUserKeys]   = usePrunedHiddenSet(useMemo(() => userOptions.map(o => o.id), [userOptions]))
-  const [hiddenPriorities, setHiddenPriorities] = usePrunedHiddenSet(useMemo(() => priorityOptions.map(o => o.id), [priorityOptions]))
-  const [hiddenStatuses,   setHiddenStatuses]   = usePrunedHiddenSet(useMemo(() => statusOptions.map(o => o.id), [statusOptions]))
+  const [hiddenUserKeys,   setHiddenUserKeys]   = usePrunedHiddenSet(useMemo(() => userOptions.map(o => o.id), [userOptions]), GANTT_STORAGE.users)
+  const [hiddenPriorities, setHiddenPriorities] = usePrunedHiddenSet(useMemo(() => priorityOptions.map(o => o.id), [priorityOptions]), GANTT_STORAGE.priorities)
+  const [hiddenStatuses,   setHiddenStatuses]   = usePrunedHiddenSet(useMemo(() => statusOptions.map(o => o.id), [statusOptions]), GANTT_STORAGE.statuses)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(GANTT_STORAGE.mode, mode)
+      localStorage.setItem(GANTT_STORAGE.anchor, toIso(anchor))
+      localStorage.setItem(GANTT_STORAGE.customFrom, toIso(customFrom))
+      localStorage.setItem(GANTT_STORAGE.customTo, toIso(customTo))
+    } catch { /* preference remains in memory */ }
+  }, [mode, anchor, customFrom, customTo])
 
   const customRangeInvalid = customTo < customFrom
 
