@@ -438,6 +438,16 @@ export async function getMessageTemplates(): Promise<DbMessageTemplate[]> {
   return data as DbMessageTemplate[]
 }
 
+export async function createMessageTemplate(input: Pick<DbMessageTemplate, 'name' | 'body' | 'channel'>): Promise<DbMessageTemplate> {
+  const { data, error } = await supabase
+    .from('message_templates')
+    .insert(input)
+    .select('id, name, body, channel, created_at')
+    .single()
+  if (error) throw error
+  return data as DbMessageTemplate
+}
+
 export async function updateMessageTemplate(
   id: string,
   body: string

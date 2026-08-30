@@ -5,7 +5,7 @@ import {
   Pencil, Save, Plus, ChevronUp, ChevronDown, Loader2, AlertCircle,
 } from 'lucide-react'
 import { getAllMessages, getClientNameMap,
-  getMessageTemplates, updateMessageTemplate,
+  getMessageTemplates, createMessageTemplate, updateMessageTemplate,
   getSequences, updateSequenceStep, createSequenceStep, deleteSequenceStep,
   getClients,
 } from '../lib/database'
@@ -445,6 +445,11 @@ function TemplatesTab() {
   const [savingId,        setSavingId]        = useState<string | null>(null)
   const [savedTemplateId, setSavedTemplateId] = useState<string | null>(null)
   const [templateError,   setTemplateError]   = useState<string | null>(null)
+  const [showCreate,      setShowCreate]      = useState(false)
+  const [createName,      setCreateName]      = useState('')
+  const [createBody,      setCreateBody]      = useState('')
+  const [createChannel,   setCreateChannel]   = useState<Channel>('service')
+  const [createSaving,    setCreateSaving]    = useState(false)
   const editRef = useRef<HTMLTextAreaElement>(null)
 
   // ── Sequences ─────────────────────────────────────────────────────────────
@@ -524,6 +529,30 @@ function TemplatesTab() {
       setSavedTemplateId(id)
       setTimeout(() => setSavedTemplateId(null), 2500)
     } finally { setSavingId(null) }
+  }
+
+  const saveNewTemplate = async () => {
+    if (!canEdit || !createName.trim() || !createBody.trim()) return
+    setCreateSaving(true)
+    setTemplateError(null)
+    try {
+      const created = await createMessageTemplate({
+        name: createName.trim(),
+        body: createBody.trim(),
+        channel: createChannel,
+      })
+      setTemplates(prev => [...prev, created])
+      setCreateName('')
+      setCreateBody('')
+      setCreateChannel('service')
+      setShowCreate(false)
+      setSavedTemplateId(created.id)
+      setTimeout(() => setSavedTemplateId(null), 2500)
+    } catch (err) {
+      setTemplateError(err instanceof Error ? err.message : 'שגיאה ביצירת התבנית')
+    } finally {
+      setCreateSaving(false)
+    }
   }
 
   // ── Step handlers ─────────────────────────────────────────────────────────
@@ -685,8 +714,74 @@ function TemplatesTab() {
 
       {/* ── תבניות שליחה ───────────────────────────────────────────────── */}
       <div className="bg-surface rounded-2xl border border-gray-100 shadow-sm p-5">
-        <h2 className="text-base font-semibold text-primary mb-0.5">תבניות שליחה</h2>
-        <p className="text-xs text-gray-400 mb-5">תבניות הודעה לשימוש ידני ואוטומטי</p>
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-primary mb-0.5">תבניות שליחה</h2>
+            <p className="text-xs text-gray-400">תבניות הודעה לשימוש ידני ואוטומטי</p>
+          </div>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => { setShowCreate(open => !open); setTemplateError(null) }}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark"
+            >
+              {showCreate ? <X size={13} /> : <Plus size={13} />}
+              {showCreate ? 'סגור' : 'הוסף תבנית'}
+            </button>
+          )}
+        </div>
+
+        {showCreate && (
+          <div className="mb-5 rounded-xl border border-primary/15 bg-primary/5 p-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-gray-600">שם התבנית</label>
+                <input
+                  value={createName}
+                  onChange={event => setCreateName(event.target.value)}
+                  placeholder="לדוגמה: תזכורת לפגישה"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-gray-600">ערוץ</label>
+                <select
+                  value={createChannel}
+                  onChange={event => setCreateChannel(event.target.value as Channel)}
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                >
+                  <option value="service">שירות</option>
+                  <option value="sales">מכירות</option>
+                </select>
+              </div>
+            </div>
+            <div className="mt-3">
+              <label className="mb-1.5 block text-xs font-semibold text-gray-600">תוכן ההודעה</label>
+              <textarea
+                value={createBody}
+                onChange={event => setCreateBody(event.target.value)}
+                rows={4}
+                placeholder="כתוב את תוכן התבנית..."
+                className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm leading-relaxed outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+              />
+            </div>
+            {templateError && <p className="mt-2 text-xs text-red-500">{templateError}</p>}
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void saveNewTemplate()}
+                disabled={createSaving || !createName.trim() || !createBody.trim()}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {createSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                {createSaving ? 'שומר...' : 'שמור תבנית'}
+              </button>
+              <button type="button" onClick={() => setShowCreate(false)} className="px-3 py-2 text-xs font-medium text-gray-500 hover:text-gray-700">
+                בטל
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Preview panel */}
         {previewId && (() => {
