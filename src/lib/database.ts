@@ -432,7 +432,7 @@ export interface DbMessageTemplate {
 export async function getMessageTemplates(): Promise<DbMessageTemplate[]> {
   const { data, error } = await supabase
     .from('message_templates')
-    .select('id, name, body, channel, created_at')
+    .select('id, name, body, tag, channel, media_url, created_at')
     .order('created_at', { ascending: true })
   if (error) throw error
   return data as DbMessageTemplate[]
@@ -441,8 +441,8 @@ export async function getMessageTemplates(): Promise<DbMessageTemplate[]> {
 export async function createMessageTemplate(input: Pick<DbMessageTemplate, 'name' | 'body' | 'channel'>): Promise<DbMessageTemplate> {
   const { data, error } = await supabase
     .from('message_templates')
-    .insert(input)
-    .select('id, name, body, channel, created_at')
+    .insert({ ...input, tag: 'ידני' })
+    .select('id, name, body, tag, channel, media_url, created_at')
     .single()
   if (error) throw error
   return data as DbMessageTemplate

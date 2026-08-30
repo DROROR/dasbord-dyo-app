@@ -13,6 +13,7 @@ import type { DbMessage, DbMessageTemplate, DbSequenceWithSteps, DbSequenceStep,
 import { getChannelLabel } from '../lib/whatsapp'
 import type { Channel } from '../lib/whatsapp'
 import { useCan } from '../hooks/useCan'
+import { useWorkLang } from '../contexts/WorkLanguageContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -424,6 +425,7 @@ function ComposeTab() {
 
 function TemplatesTab() {
   const canEdit = useCan('whatsapp', 'full')
+  const { t: tr } = useWorkLang()
   // ── Loading ───────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
@@ -445,12 +447,21 @@ function TemplatesTab() {
   const [savingId,        setSavingId]        = useState<string | null>(null)
   const [savedTemplateId, setSavedTemplateId] = useState<string | null>(null)
   const [templateError,   setTemplateError]   = useState<string | null>(null)
-  const [showCreate,      setShowCreate]      = useState(false)
-  const [createName,      setCreateName]      = useState('')
-  const [createBody,      setCreateBody]      = useState('')
-  const [createChannel,   setCreateChannel]   = useState<Channel>('service')
+  const [showCreate,      setShowCreate]      = useState(() => localStorage.getItem('dyo-whatsapp-create-open') === 'true')
+  const [createName,      setCreateName]      = useState(() => localStorage.getItem('dyo-whatsapp-create-name') ?? '')
+  const [createBody,      setCreateBody]      = useState(() => localStorage.getItem('dyo-whatsapp-create-body') ?? '')
+  const [createChannel,   setCreateChannel]   = useState<Channel>(() => localStorage.getItem('dyo-whatsapp-create-channel') === 'sales' ? 'sales' : 'service')
   const [createSaving,    setCreateSaving]    = useState(false)
   const editRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('dyo-whatsapp-create-open', String(showCreate))
+      localStorage.setItem('dyo-whatsapp-create-name', createName)
+      localStorage.setItem('dyo-whatsapp-create-body', createBody)
+      localStorage.setItem('dyo-whatsapp-create-channel', createChannel)
+    } catch { /* draft remains in memory when storage is unavailable */ }
+  }, [showCreate, createName, createBody, createChannel])
 
   // ── Sequences ─────────────────────────────────────────────────────────────
   const [seqs,      setSeqs]      = useState<DbSequenceWithSteps[]>([])
@@ -549,7 +560,7 @@ function TemplatesTab() {
       setSavedTemplateId(created.id)
       setTimeout(() => setSavedTemplateId(null), 2500)
     } catch (err) {
-      setTemplateError(err instanceof Error ? err.message : 'שגיאה ביצירת התבנית')
+      setTemplateError(err instanceof Error ? err.message : tr('שגיאה ביצירת התבנית', 'Error creating the template'))
     } finally {
       setCreateSaving(false)
     }
@@ -726,7 +737,7 @@ function TemplatesTab() {
               className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark"
             >
               {showCreate ? <X size={13} /> : <Plus size={13} />}
-              {showCreate ? 'סגור' : 'הוסף תבנית'}
+              {showCreate ? tr('סגור', 'Close') : tr('הוסף תבנית', 'Add Template')}
             </button>
           )}
         </div>
@@ -735,33 +746,33 @@ function TemplatesTab() {
           <div className="mb-5 rounded-xl border border-primary/15 bg-primary/5 p-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-gray-600">שם התבנית</label>
+                <label className="mb-1.5 block text-xs font-semibold text-gray-600">{tr('שם התבנית', 'Template name')}</label>
                 <input
                   value={createName}
                   onChange={event => setCreateName(event.target.value)}
-                  placeholder="לדוגמה: תזכורת לפגישה"
+                  placeholder={tr('לדוגמה: תזכורת לפגישה', 'For example: Meeting reminder')}
                   className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-gray-600">ערוץ</label>
+                <label className="mb-1.5 block text-xs font-semibold text-gray-600">{tr('ערוץ', 'Channel')}</label>
                 <select
                   value={createChannel}
                   onChange={event => setCreateChannel(event.target.value as Channel)}
                   className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
                 >
-                  <option value="service">שירות</option>
-                  <option value="sales">מכירות</option>
+                  <option value="service">{tr('שירות', 'Service')}</option>
+                  <option value="sales">{tr('מכירות', 'Sales')}</option>
                 </select>
               </div>
             </div>
             <div className="mt-3">
-              <label className="mb-1.5 block text-xs font-semibold text-gray-600">תוכן ההודעה</label>
+              <label className="mb-1.5 block text-xs font-semibold text-gray-600">{tr('תוכן ההודעה', 'Message content')}</label>
               <textarea
                 value={createBody}
                 onChange={event => setCreateBody(event.target.value)}
                 rows={4}
-                placeholder="כתוב את תוכן התבנית..."
+                placeholder={tr('כתוב את תוכן התבנית...', 'Write the template message...')}
                 className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm leading-relaxed outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
               />
             </div>
@@ -774,10 +785,10 @@ function TemplatesTab() {
                 className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {createSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-                {createSaving ? 'שומר...' : 'שמור תבנית'}
+                {createSaving ? tr('שומר...', 'Saving...') : tr('שמור תבנית', 'Save Template')}
               </button>
               <button type="button" onClick={() => setShowCreate(false)} className="px-3 py-2 text-xs font-medium text-gray-500 hover:text-gray-700">
-                בטל
+                {tr('בטל', 'Cancel')}
               </button>
             </div>
           </div>
@@ -1187,7 +1198,14 @@ const TABS = [
 type TabId = typeof TABS[number]['id']
 
 export function WhatsApp() {
-  const [tab, setTab] = useState<TabId>('compose')
+  const [tab, setTab] = useState<TabId>(() => {
+    const stored = localStorage.getItem('dyo-whatsapp-selected-tab')
+    return TABS.some(item => item.id === stored) ? stored as TabId : 'compose'
+  })
+
+  useEffect(() => {
+    try { localStorage.setItem('dyo-whatsapp-selected-tab', tab) } catch { /* selection remains in memory */ }
+  }, [tab])
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
