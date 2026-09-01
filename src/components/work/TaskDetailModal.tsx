@@ -199,6 +199,7 @@ export function TaskDetailModal({
   const [timeSubtaskId, setTimeSubtaskId] = useState('')
 
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
+  const [newSubtaskDescription, setNewSubtaskDescription] = useState('')
   const [newSubtaskAssignee, setNewSubtaskAssignee] = useState('')
   const [subtaskSaving, setSubtaskSaving] = useState(false)
   const [subtaskError, setSubtaskError] = useState<string | null>(null)
@@ -421,10 +422,12 @@ export function TaskDetailModal({
       const created = await createTaskSubtask({
         taskId: task.id,
         title: newSubtaskTitle.trim(),
+        description: newSubtaskDescription.trim() || undefined,
         assigneeId: newSubtaskAssignee,
       })
       publishSubtasks([...subtasks, created])
       setNewSubtaskTitle('')
+      setNewSubtaskDescription('')
       setNewSubtaskAssignee('')
     } catch (err) {
       setSubtaskError(err instanceof Error ? err.message : tr('יצירת תת־המשימה נכשלה', 'Failed to create subtask'))
@@ -979,30 +982,38 @@ export function TaskDetailModal({
               )}
 
               {canManageSubtasks && (
-                <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_180px_auto] gap-2">
-                  <input
-                    value={newSubtaskTitle}
-                    onChange={e => setNewSubtaskTitle(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') void addSubtask() }}
-                    placeholder={tr('מה צריך לבצע?', 'What needs to be done?')}
-                    className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-primary"
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_180px_auto]">
+                    <input
+                      value={newSubtaskTitle}
+                      onChange={e => setNewSubtaskTitle(e.target.value)}
+                      placeholder={tr('כותרת תת־המשימה', 'Subtask title')}
+                      className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-primary"
+                    />
+                    <select
+                      value={newSubtaskAssignee}
+                      onChange={e => setNewSubtaskAssignee(e.target.value)}
+                      className="text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white focus:outline-none focus:border-primary"
+                    >
+                      <option value="">{tr('בחירת משתתף', 'Choose participant')}</option>
+                      {eligibleAssignees.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                    <button
+                      onClick={() => void addSubtask()}
+                      disabled={subtaskSaving || !newSubtaskTitle.trim() || !newSubtaskAssignee}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-40"
+                    >
+                      {subtaskSaving ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                      {tr('הוסף', 'Add')}
+                    </button>
+                  </div>
+                  <textarea
+                    value={newSubtaskDescription}
+                    onChange={e => setNewSubtaskDescription(e.target.value)}
+                    rows={2}
+                    placeholder={tr('תיאור תת־המשימה (אופציונלי)', 'Subtask description (optional)')}
+                    className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm leading-relaxed focus:border-primary focus:outline-none"
                   />
-                  <select
-                    value={newSubtaskAssignee}
-                    onChange={e => setNewSubtaskAssignee(e.target.value)}
-                    className="text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white focus:outline-none focus:border-primary"
-                  >
-                    <option value="">{tr('בחירת משתתף', 'Choose participant')}</option>
-                    {eligibleAssignees.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
-                  <button
-                    onClick={() => void addSubtask()}
-                    disabled={subtaskSaving || !newSubtaskTitle.trim() || !newSubtaskAssignee}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-40"
-                  >
-                    {subtaskSaving ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-                    {tr('הוסף', 'Add')}
-                  </button>
                 </div>
               )}
               {subtaskError && <p className="text-xs text-red-500 mt-2">{subtaskError}</p>}
