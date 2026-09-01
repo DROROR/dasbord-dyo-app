@@ -27,7 +27,7 @@ export function Login() {
       <div className="w-full max-w-sm">
 
         <div className="flex justify-center mb-8">
-          <img src={logoFull} alt="Admin Platform" className="h-12 w-auto" />
+          <img src={logoFull} alt="Dyo Planner" className="h-12 w-auto" />
         </div>
 
         <div className="bg-surface rounded-2xl border border-gray-100 shadow-sm p-8">

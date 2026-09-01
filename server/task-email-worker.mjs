@@ -2,7 +2,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const RESEND_KEY = process.env.RESEND_API_KEY
 const FROM = process.env.TASK_EMAIL_FROM
-const DASHBOARD_URL = process.env.DASHBOARD_URL || 'https://dashboard.dyocourses.com'
+const DASHBOARD_URL = process.env.DASHBOARD_URL || 'https://planner.dyocourses.com'
 const POLL_MS = 15_000
 
 if (!SUPABASE_URL || !SERVICE_KEY || !RESEND_KEY || !FROM) {
@@ -24,7 +24,7 @@ async function run() {
   for (const item of await response.json()) {
     try {
       await patch(item.id, { status: 'processing', attempts: item.attempts + 1, last_error: null })
-      const sent = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ from: FROM, to: [item.recipient_email], subject: item.subject, html: `<p>${escapeHtml(item.message)}</p><p><a href="${escapeHtml(DASHBOARD_URL)}">Open DYO Work</a></p>` }) })
+      const sent = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ from: FROM, to: [item.recipient_email], subject: item.subject, html: `<p>${escapeHtml(item.message)}</p><p><a href="${escapeHtml(DASHBOARD_URL)}">Open Dyo Planner</a></p>` }) })
       if (!sent.ok) throw new Error(`Email provider returned ${sent.status}`)
       await patch(item.id, { status: 'sent', sent_at: new Date().toISOString() })
     } catch (error) {

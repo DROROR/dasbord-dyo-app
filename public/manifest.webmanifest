@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "DYO Work Dashboard",
-  "short_name": "DYO Work",
-  "description": "DYO team work and task dashboard",
+  "name": "Dyo Planner",
+  "short_name": "Dyo Planner",
+  "description": "Dyo team planning and task workspace",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

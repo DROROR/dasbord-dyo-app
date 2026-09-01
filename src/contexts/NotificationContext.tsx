@@ -48,7 +48,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       const fresh = await getNotifications()
       if (knownIds.current && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         fresh.filter(n => !n.read && !knownIds.current!.has(n.id)).forEach(n => {
-          const notification = new Notification(n.taskTitle || 'DYO Work', { body: n.message, icon: '/pwa-192.png', tag: n.id })
+          const notification = new Notification(n.taskTitle || 'Dyo Planner', { body: n.message, icon: '/pwa-192.png', tag: n.id })
           notification.onclick = () => { window.focus(); if (n.taskId) window.location.hash = `work/task/${n.taskId}`; notification.close() }
         })
       }

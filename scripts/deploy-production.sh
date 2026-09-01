@@ -4,7 +4,7 @@ set -Eeuo pipefail
 readonly APP_DIR='/opt/dashboard-dyo-app'
 readonly DIST_DIR="$APP_DIR/dist"
 readonly EXPECTED_BRANCH='production'
-readonly HEALTH_URL='https://dashboard.dyocourses.com/'
+readonly HEALTH_URL='https://planner.dyocourses.com/'
 
 if [[ $# -ne 1 || ! $1 =~ ^[0-9a-f]{40}$ ]]; then
   echo 'Usage: deploy-production.sh <40-character-commit-sha>' >&2
