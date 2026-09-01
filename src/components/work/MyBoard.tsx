@@ -455,12 +455,12 @@ export function MyBoard({
   const hasAnyTasks = displayTasks.length > 0
 
   return (
-    <div className="flex flex-col gap-3 flex-1 min-h-0">
+    <div className="flex flex-col gap-2 flex-1 min-h-0">
       {/* Active timer banner */}
       {activeTimer && (
         <button
           onClick={() => onOpenTask(activeTimer.taskId)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-primary/10 border border-primary/20 rounded-xl text-sm font-medium text-primary hover:bg-primary/20 transition-colors animate-pulse shrink-0 text-right"
+          className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl text-sm font-medium text-primary hover:bg-primary/20 transition-colors animate-pulse shrink-0 text-right"
         >
           <Clock size={14} className="shrink-0 animate-none" />
           <span>{tr('שעון פעיל', 'Active timer')}: {activeTimer.taskTitle}</span>
@@ -469,13 +469,13 @@ export function MyBoard({
 
       {/* Real personal metrics stay first; alerts and the responsive
           task workspace follow in a stable dashboard hierarchy. */}
-      <div className="grid grid-cols-1 gap-3 shrink-0 order-first sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 shrink-0 order-first sm:grid-cols-3">
         {([
           { id: 'summary:my-tasks', label: tr('המשימות שלי', 'My Tasks'),   value: displayTasks.length, sub: tr('משויכות אליך', 'assigned to you'), cls: 'text-primary', bg: 'bg-gradient-to-br from-primary/10 to-white border-primary/20' },
           { id: 'summary:overdue', label: tr('באיחור', 'Overdue'),          value: overdueTasks.length, sub: tr('עבר תאריך היעד', 'past due date'), cls: overdueTasks.length > 0 ? 'text-red-600' : 'text-gray-400', bg: overdueTasks.length > 0 ? 'bg-gradient-to-br from-red-50 to-white border-red-200' : 'bg-gradient-to-br from-gray-50 to-white border-gray-200' },
           { id: 'summary:working-time', label: tr('זמן העבודה שלי', 'My Working Time'), value: hoursThisMonth, sub: tr('סה״כ שעות החודש', 'Total hours this month'), cls: 'text-secondary-dark', bg: 'bg-gradient-to-br from-secondary/15 to-white border-secondary/30', isHours: true },
         ] as const).map(({ id, label, value, sub, cls, bg, isHours }) => (
-          <button type="button" key={id} onClick={() => setSelectedGroupId(id)} className={'relative overflow-hidden border rounded-2xl px-4 py-3.5 text-left shadow-[0_4px_18px_rgba(31,50,114,0.06)] transition-all hover:-translate-y-0.5 hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 ' + (activeGroupId === id ? 'ring-2 ring-primary/25 border-primary/40 ' : '') + (bg ?? 'bg-white border-gray-100')}>
+          <button type="button" key={id} onClick={() => setSelectedGroupId(id)} className={'relative overflow-hidden border rounded-2xl px-3 py-2.5 text-left shadow-[0_4px_18px_rgba(31,50,114,0.06)] transition-all hover:-translate-y-0.5 hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 ' + (activeGroupId === id ? 'ring-2 ring-primary/25 border-primary/40 ' : '') + (bg ?? 'bg-white border-gray-100')}>
             <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
             <p className={`text-2xl font-bold ${cls}`}>{isHours ? fmtHours(value as number) : value}</p>
             <p className="text-[10px] text-gray-500 mt-0.5">{sub}</p>
@@ -492,11 +492,11 @@ export function MyBoard({
           <p className="text-sm font-semibold text-gray-500">{tr('אין משימות המשויכות אליך', 'No tasks assigned to you')}</p>
         </div>
       ) : (
-        <div className="grid flex-1 min-h-0 gap-4 overflow-y-auto pb-3 min-[1500px]:grid-cols-12 min-[1500px]:overflow-hidden">
-          <aside className="flex min-h-0 flex-col gap-3 min-[1500px]:order-2 min-[1500px]:col-span-5 min-[1500px]:overflow-hidden">
+        <div className="grid flex-1 min-h-0 gap-2 overflow-y-auto pb-2 min-[1500px]:grid-cols-12 min-[1500px]:overflow-hidden">
+          <aside className="flex min-h-0 flex-col gap-2 min-[1500px]:order-2 min-[1500px]:col-span-5 min-[1500px]:overflow-hidden">
       {/* Alerts */}
       {(pendingClose.length > 0 || overdueTasks.length > 0 || unclaimed.length > 0) && (
-        <div className="alerts-scroll flex max-h-[45vh] min-h-[144px] flex-none flex-col gap-1 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-3 min-[1500px]:min-h-0 min-[1500px]:max-h-none min-[1500px]:flex-[1.55] min-[1500px]:basis-0">
+        <div className="alerts-scroll flex max-h-[45vh] min-h-[144px] flex-none flex-col gap-1 overflow-y-auto rounded-xl border border-gray-200/70 bg-white p-2.5 min-[1500px]:min-h-0 min-[1500px]:max-h-none min-[1500px]:flex-[1.55] min-[1500px]:basis-0">
           <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{tr('התראות', 'Alerts')}</p>
 
           {/* Urgent work and support tickets are always the first actionable
@@ -546,7 +546,7 @@ export function MyBoard({
 
         </div>
       )}
-          <div className="flex flex-none flex-col gap-3 overflow-visible rounded-xl border border-gray-200/70 bg-white p-3 min-[1500px]:min-h-0 min-[1500px]:flex-1 min-[1500px]:basis-0 min-[1500px]:overflow-y-auto">
+          <div className="flex flex-none flex-col gap-2 overflow-visible rounded-xl border border-gray-200/70 bg-white p-2.5 min-[1500px]:min-h-0 min-[1500px]:flex-1 min-[1500px]:basis-0 min-[1500px]:overflow-y-auto">
           {pendingClose.length === 0 && overdueTasks.length === 0 && unclaimed.length === 0 && statusResponsibilityGroups.length === 0 && actionGroups.length === 0 && trackingGroups.length === 0 && (
             <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-green-100 bg-green-50/70 px-4 py-8 text-center">
               <CheckCircle2 size={20} className="mb-2 text-green-600" />
@@ -555,7 +555,7 @@ export function MyBoard({
             </div>
           )}
           {statusResponsibilityGroups.length > 0 && (
-            <section className="rounded-xl border border-primary/25 bg-gradient-to-br from-primary/10 via-white to-purple-50 p-3">
+            <section className="rounded-xl border border-primary/25 bg-gradient-to-br from-primary/10 via-white to-purple-50 p-2.5">
               <div className="flex items-start justify-between gap-3 mb-2">
                 <div>
                   <p className="text-sm font-bold text-primary">{tr('התורים באחריותך', 'Your Status Queues')}</p>
@@ -574,7 +574,7 @@ export function MyBoard({
                     <button
                       key={group.id}
                       onClick={() => setSelectedGroupId(group.id)}
-                      className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${selected ? 'border-primary bg-white ring-2 ring-primary/15' : 'border-primary/20 bg-white/80 hover:border-primary/50'}`}
+                      className={`flex items-center gap-3 rounded-xl border p-2.5 text-left transition-all ${selected ? 'border-primary bg-white ring-2 ring-primary/15' : 'border-primary/20 bg-white/80 hover:border-primary/50'}`}
                     >
                       <span className={`min-w-10 h-10 px-2 rounded-xl flex items-center justify-center text-xl font-bold ${selected ? 'bg-primary text-white' : 'bg-primary/10 text-primary'}`}>
                         {group.tasks.length}
@@ -592,7 +592,7 @@ export function MyBoard({
           )}
 
           {actionGroups.length > 0 && (
-            <section className="flex flex-col gap-2 rounded-xl border border-gray-200/70 bg-white p-3">
+            <section className="flex flex-col gap-2 rounded-xl border border-gray-200/70 bg-white p-2.5">
               <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{tr('נדרש טיפול', 'Needs Action')}</p>
               <div className="grid grid-cols-2 gap-2">
                 {actionGroups.map(group => {
@@ -613,7 +613,7 @@ export function MyBoard({
           )}
 
           {trackingGroups.length > 0 && (
-            <section className="flex flex-col gap-2 rounded-xl border border-gray-100 bg-gray-50/70 p-3">
+            <section className="flex flex-col gap-2 rounded-xl border border-gray-100 bg-gray-50/70 p-2.5">
               <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{tr('משימות בבדיקה', 'Under Review')}</p>
               <div className="grid grid-cols-1 gap-2">
                 {trackingGroups.map(group => {
