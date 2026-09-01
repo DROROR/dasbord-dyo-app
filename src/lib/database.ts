@@ -916,6 +916,15 @@ export async function addTaskComment(taskId: string, text: string, mentions: str
   return data as TaskComment[]
 }
 
+export async function deleteTaskComment(taskId: string, commentId: string): Promise<TaskComment[]> {
+  const { data, error } = await supabase.rpc('delete_task_comment', {
+    task_id: taskId,
+    comment_id: commentId,
+  })
+  if (error) throw error
+  return data as TaskComment[]
+}
+
 // Atomic claim — see claim_task() in
 // 20260810101000_rls_rpc_identity_and_queue.sql. Row-locks the task
 // server-side so two simultaneous claimants can't both "win"; the

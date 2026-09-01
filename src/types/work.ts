@@ -73,6 +73,8 @@ export interface StatusHistoryEntry {
 export interface TaskComment {
   id: string
   author: string
+  /** Authoritative creator UUID. Legacy comments created before author-aware deletion do not have it. */
+  authorId?: string
   text: string
   timestamp: string
   mentions: string[]

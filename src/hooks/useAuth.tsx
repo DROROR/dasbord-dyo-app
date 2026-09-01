@@ -52,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(!DEV_BYPASS)
   const authRequestRef = useRef(0)
   const authenticatedUserRef = useRef<User | null>(DEV_BYPASS ? DEV_USER : null)
+  const hydratedUserIdRef = useRef<string | null>(DEV_BYPASS ? DEV_USER.id : null)
 
   const fetchProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     const { data, error } = await supabase
@@ -81,20 +82,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(nextUser)
 
     if (!nextUser) {
+      hydratedUserIdRef.current = null
       setProfile(null)
       setLoading(false)
       return
     }
 
-    setLoading(true)
+    // TOKEN_REFRESHED and focus-triggered auth events for the SAME user are
+    // background profile syncs. Blocking the whole app here would unmount an
+    // open task dialog and make returning to the browser tab look like a page
+    // refresh. Only the initial/new-user hydration gets the global spinner.
+    const requiresBlockingLoad = hydratedUserIdRef.current !== nextUser.id
+    if (requiresBlockingLoad) setLoading(true)
     try {
       const nextProfile = await fetchProfile(nextUser.id)
-      if (requestId === authRequestRef.current) setProfile(nextProfile)
+      if (requestId === authRequestRef.current) {
+        hydratedUserIdRef.current = nextUser.id
+        setProfile(nextProfile)
+      }
     } catch (error) {
       console.error('Failed to load authenticated user profile:', error)
-      if (requestId === authRequestRef.current) setProfile(null)
+      // A transient background refresh failure must not tear down an already
+      // authenticated UI. Initial/new-user hydration still fails closed.
+      if (requestId === authRequestRef.current && requiresBlockingLoad) setProfile(null)
     } finally {
-      if (requestId === authRequestRef.current) setLoading(false)
+      if (requestId === authRequestRef.current && requiresBlockingLoad) setLoading(false)
     }
   }, [fetchProfile])
 
@@ -138,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signOut() {
     authenticatedUserRef.current = null
+    hydratedUserIdRef.current = null
     await supabase.auth.signOut()
   }
 

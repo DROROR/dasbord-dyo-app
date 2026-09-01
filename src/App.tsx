@@ -44,11 +44,15 @@ export default function App() {
   )
   const { user, profile, loading, canViewPage, isDeactivated, signOut } = useAuth()
   const landingSelectedRef = useRef(false)
+  const [workMounted, setWorkMounted] = useState(activePage === 'work')
 
   // Setting activePage even when denied is intentional: the render
   // guard below checks canViewPage(activePage) and shows AccessDenied
   // for that specific page id, rather than silently doing nothing.
-  const navigate = useCallback((page: string) => setActivePage(page), [])
+  const navigate = useCallback((page: string) => {
+    if (page === 'work') setWorkMounted(true)
+    setActivePage(page)
+  }, [])
 
   useEffect(() => {
     if (!profile) {
@@ -65,7 +69,10 @@ export default function App() {
       : !profile.is_owner && canViewPage('work') ? 'work' : firstAllowed
     if (!landingPage) return
 
-    const timer = window.setTimeout(() => setActivePage(landingPage), 0)
+    const timer = window.setTimeout(() => {
+      if (landingPage === 'work') setWorkMounted(true)
+      setActivePage(landingPage)
+    }, 0)
     return () => window.clearTimeout(timer)
   }, [profile, canViewPage])
 
@@ -120,11 +127,23 @@ export default function App() {
               profile={profile}
               onSignOut={signOut}
             >
-              <ErrorBoundary key={activePage}>
-                {allowed
-                  ? buildPages(navigate)[activePage]?.()
-                  : <AccessDenied onBack={landing ? () => navigate(landing) : undefined} />}
-              </ErrorBoundary>
+              {(workMounted || activePage === 'work') && canViewPage('work') && (
+                <div className={activePage === 'work' ? 'contents' : 'hidden'}>
+                  <ErrorBoundary>
+                    <Work />
+                  </ErrorBoundary>
+                </div>
+              )}
+              {activePage === 'work' && !canViewPage('work') && (
+                <AccessDenied onBack={landing ? () => navigate(landing) : undefined} />
+              )}
+              {activePage !== 'work' && (
+                <ErrorBoundary key={activePage}>
+                  {allowed
+                    ? buildPages(navigate)[activePage]?.()
+                    : <AccessDenied onBack={landing ? () => navigate(landing) : undefined} />}
+                </ErrorBoundary>
+              )}
             </Layout>
             <FloatingTimerWidget onNavigate={navigate} />
           </TimerProvider>

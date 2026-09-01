@@ -11,7 +11,7 @@ import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import type { Task, TaskPlatform, TaskSubtask, TaskSubtaskStatus, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption, Board } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
 import {
-  addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask,
+  addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask, deleteTaskComment,
   deleteTask, deleteTaskSubtask, getTaskBoardMoves, updateTaskSubtask,
   updateTaskTimeEntry, handoffTaskAssignment,
   type TaskBoardMove,
@@ -44,6 +44,21 @@ function fmtTimer(s: number) {
   return [h, m, sec].map(n => String(n).padStart(2, '0')).join(':')
 }
 function newId() { return Math.random().toString(36).slice(2, 10) }
+
+function commentParts(text: string) {
+  return text.split(/(https?:\/\/[^\s<>]+|www\.[^\s<>]+|@\w+)/gi).map((part, index) => {
+    if (/^https?:\/\//i.test(part) || /^www\./i.test(part)) {
+      const href = /^www\./i.test(part) ? `https://${part}` : part
+      return (
+        <a key={index} href={href} target="_blank" rel="noopener noreferrer" className="font-medium text-primary underline decoration-primary/30 underline-offset-2 hover:decoration-primary">
+          {part}
+        </a>
+      )
+    }
+    if (part.startsWith('@')) return <span key={index} className="font-semibold text-primary">{part}</span>
+    return <span key={index}>{part}</span>
+  })
+}
 
 /** What the developer answered when closing a support ticket. */
 export interface TicketDoneAnswers {
@@ -142,6 +157,8 @@ export function TaskDetailModal({
   const [showMention,  setShowMention]  = useState(false)
   const [commentSaving, setCommentSaving] = useState(false)
   const [commentError,  setCommentError]  = useState<string | null>(null)
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null)
+  const [commentDeleteError, setCommentDeleteError] = useState<string | null>(null)
   const [claiming,      setClaiming]      = useState(false)
   const [claimError,    setClaimError]    = useState<string | null>(null)
   const [handoffTarget, setHandoffTarget] = useState('')
@@ -499,6 +516,21 @@ export function TaskDetailModal({
       setCommentError(err instanceof Error ? err.message : 'הוספת התגובה נכשלה')
     } finally {
       setCommentSaving(false)
+    }
+  }
+
+  async function removeComment(commentId: string) {
+    if (!currentUserId || deletingCommentId) return
+    setDeletingCommentId(commentId)
+    setCommentDeleteError(null)
+    try {
+      const updated = await deleteTaskComment(task.id, commentId)
+      setComments(updated)
+      save({ comments: updated })
+    } catch (err) {
+      setCommentDeleteError(err instanceof Error ? err.message : tr('מחיקת התגובה נכשלה', 'Failed to delete comment'))
+    } finally {
+      setDeletingCommentId(null)
     }
   }
 
@@ -1031,17 +1063,27 @@ export function TaskDetailModal({
                         <div className="flex items-baseline gap-2 mb-1">
                           <span className="text-xs font-semibold text-gray-800">{c.author}</span>
                           <span className="text-[10px] text-gray-500">{fmtDateTime(c.timestamp)}</span>
+                          {c.authorId === currentUserId && (
+                            <button
+                              type="button"
+                              onClick={() => void removeComment(c.id)}
+                              disabled={deletingCommentId !== null}
+                              title={tr('מחק תגובה', 'Delete comment')}
+                              className="ml-auto inline-flex items-center justify-center rounded-md p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
+                            >
+                              {deletingCommentId === c.id ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                            </button>
+                          )}
                         </div>
                         <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
-                          {c.text.split(/(@\w+)/g).map((part, i) =>
-                            part.startsWith('@') ? <span key={i} className="text-primary font-semibold">{part}</span> : <span key={i}>{part}</span>
-                          )}
+                          {commentParts(c.text)}
                         </p>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
+              {commentDeleteError && <p className="mb-3 text-xs text-red-500">{commentDeleteError}</p>}
               <div className="flex gap-3 items-start">
                 <Avatar name={currentUser} />
                 <div className="flex-1 relative">
