@@ -1061,14 +1061,14 @@ export function Work() {
     >
 
       {/* Tab bar */}
-      <nav className="flex w-full min-w-0 shrink-0 items-center gap-0 overflow-x-auto border-b border-gray-200 bg-white px-6">
+      <nav className="flex w-full min-w-0 shrink-0 items-center gap-0 overflow-x-auto border-b border-gray-200 bg-white px-4">
         {WORK_TABS.filter(t => (t.id !== 'ai' || canEdit) && (t.id !== 'docs' || canViewDocs) && (t.id !== 'report' || canViewReport)).map(t => {
           const Icon   = t.icon
           const active = tab === t.id
           const label  = t.labelHe && t.labelEn ? tr(t.labelHe, t.labelEn) : t.label
           return (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-4 py-3.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${active ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'}`}
+              className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${active ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'}`}
             >
               <Icon size={14} />
               {label}
@@ -1114,7 +1114,7 @@ export function Work() {
       </nav>
 
       {/* Content */}
-      <div className={`flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col px-6 pb-0 ${tab === 'tasks' ? 'pt-3' : 'pt-5'}`}>
+      <div className={`flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col px-4 pb-0 ${tab === 'tasks' ? 'pt-2' : 'pt-3'}`}>
 
         {(tasksLoading || boardsLoading) && (tab === 'myboard' || tab === 'tasks' || tab === 'gantt') && (
           <div className="flex-1 flex items-center justify-center">
@@ -1139,7 +1139,7 @@ export function Work() {
         )}
 
         {!tasksLoading && !boardsLoading && tab === 'tasks' && (
-          <div className="flex flex-col gap-3 flex-1 min-h-0">
+          <div className="flex flex-col gap-2 flex-1 min-h-0">
             {createTaskError && (
               <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 shrink-0 flex items-center justify-between gap-3">
                 <span>{createTaskError}</span>
@@ -1147,9 +1147,9 @@ export function Work() {
               </p>
             )}
 
-            <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
+            <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2">
               <span />
-              <div className="flex min-w-0 items-center justify-center gap-2 overflow-x-auto">
+              <div className="flex min-w-0 items-center justify-center gap-1.5 overflow-x-auto">
                 {visibleBoards.map(board => {
                   const active = activeBoard === board.id
                   const count = tasks.filter(task => task.board === board.id).length

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Loader2, AlertCircle } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
-import logoFull from '../assets/logo.png'
+import logoFull from '../assets/logo.webp'
 
 export function Login() {
   const { signIn } = useAuth()
