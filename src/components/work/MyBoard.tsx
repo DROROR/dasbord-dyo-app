@@ -638,7 +638,7 @@ export function MyBoard({
 
           </div>
           </aside>
-          <main className="min-h-[260px] rounded-2xl border border-gray-200/70 bg-white shadow-[0_4px_18px_rgba(31,50,114,0.06)] min-[1500px]:order-1 min-[1500px]:col-span-7 min-[1500px]:min-h-0 min-[1500px]:overflow-hidden">
+          <main className="min-h-[260px] rounded-2xl bg-white shadow-[0_4px_18px_rgba(31,50,114,0.06)] min-[1500px]:order-1 min-[1500px]:col-span-7 min-[1500px]:min-h-0 min-[1500px]:overflow-hidden">
           {selectedGroup && (
             <MyStatusSection
               key={selectedGroup.id}
