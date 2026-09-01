@@ -36,7 +36,7 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
           <img src={logoSymbol} alt="Logo" className="h-11 w-auto mx-auto" />
         ) : (
           <>
-            <img src={logoFull} alt="Dyo Planner" className="h-11 w-auto min-w-0 max-w-[148px] object-contain" />
+            <img src={logoFull} alt="DYO Planner" className="h-11 w-auto min-w-0 max-w-[148px] object-contain" />
             <div className="relative ms-auto shrink-0">
               <span className="pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2" aria-hidden="true">
                 {workLang === 'he' ? (

@@ -24,7 +24,7 @@ async function run() {
   for (const item of await response.json()) {
     try {
       await patch(item.id, { status: 'processing', attempts: item.attempts + 1, last_error: null })
-      const sent = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ from: FROM, to: [item.recipient_email], subject: item.subject, html: `<p>${escapeHtml(item.message)}</p><p><a href="${escapeHtml(DASHBOARD_URL)}">Open Dyo Planner</a></p>` }) })
+      const sent = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ from: FROM, to: [item.recipient_email], subject: item.subject, html: `<p>${escapeHtml(item.message)}</p><p><a href="${escapeHtml(DASHBOARD_URL)}">Open DYO Planner</a></p>` }) })
       if (!sent.ok) throw new Error(`Email provider returned ${sent.status}`)
       await patch(item.id, { status: 'sent', sent_at: new Date().toISOString() })
     } catch (error) {

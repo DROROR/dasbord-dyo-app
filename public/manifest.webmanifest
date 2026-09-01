@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Dyo Planner",
-  "short_name": "Dyo Planner",
-  "description": "Dyo team planning and task workspace",
+  "name": "DYO Planner",
+  "short_name": "DYO Planner",
+  "description": "DYO team planning and task workspace",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
