@@ -202,6 +202,7 @@ export function TaskDetailModal({
   const [newSubtaskAssignee, setNewSubtaskAssignee] = useState('')
   const [subtaskSaving, setSubtaskSaving] = useState(false)
   const [subtaskError, setSubtaskError] = useState<string | null>(null)
+  const [previewSubtaskId, setPreviewSubtaskId] = useState<string | null>(null)
 
   const [showHistory,  setShowHistory]  = useState(false)
   const [copied,       setCopied]       = useState(false)
@@ -212,13 +213,18 @@ export function TaskDetailModal({
   const [moveHistoryError, setMoveHistoryError] = useState<string | null>(null)
 
   const taskRef = useRef(task)
+  const previewSubtask = subtasks.find(subtask => subtask.id === previewSubtaskId) ?? null
   useEffect(() => { taskRef.current = task }, [task])
 
   useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return
+      if (previewSubtaskId) setPreviewSubtaskId(null)
+      else onClose()
+    }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, previewSubtaskId])
 
   // When the floating widget stops this task's timer (persistence now
   // happens inside TimerContext.stop() itself), sync the confirmed,
@@ -739,6 +745,57 @@ export function TaskDetailModal({
           </div>
         )}
 
+        {previewSubtask && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => setPreviewSubtaskId(null)}>
+            <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
+              <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4">
+                <div className="min-w-0 flex-1">
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">{tr('תת־משימה', 'Subtask')}</p>
+                  <h3 className="break-words text-base font-bold leading-snug text-gray-900">{previewSubtask.title}</h3>
+                </div>
+                <button type="button" onClick={() => setPreviewSubtaskId(null)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800" aria-label={tr('סגור', 'Close')}>
+                  <X size={14} />
+                </button>
+              </div>
+
+              <div className="space-y-4 px-5 py-5">
+                <div>
+                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">{tr('תיאור', 'Description')}</p>
+                  <p className="min-h-16 whitespace-pre-wrap rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5 text-sm leading-relaxed text-gray-700">
+                    {previewSubtask.description?.trim() || tr('לא נוסף תיאור.', 'No description added.')}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">{tr('אחראי', 'Assignee')}</p>
+                    <div className="flex items-center gap-2">
+                      <Avatar name={previewSubtask.assigneeName || tr('לא משויך', 'Unassigned')} size="xs" />
+                      <span className="truncate text-sm font-medium text-gray-700">{previewSubtask.assigneeName || tr('לא משויך', 'Unassigned')}</span>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">{tr('סטטוס', 'Status')}</p>
+                    <span className={`inline-flex rounded-md px-2 py-1 text-xs font-bold ${STATUS_PILL[previewSubtask.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                      {previewSubtask.status === 'not_started'
+                        ? tr('טרם התחיל', 'Not Started')
+                        : previewSubtask.status === 'in_progress'
+                          ? tr('בתהליך', 'In Progress')
+                          : tr('הושלם', 'Done')}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 pt-3 text-[10px] text-gray-500">
+                  <span>{tr('נוצר', 'Created')}: {fmtDateTime(previewSubtask.createdAt)}</span>
+                  <span>{tr('עודכן', 'Updated')}: {fmtDateTime(previewSubtask.updatedAt)}</span>
+                  <span className="truncate font-mono" title={previewSubtask.id}>ID {previewSubtask.id}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Closing a support ticket — cannot be skipped */}
         {doneFlow && (
           <div className="absolute inset-0 z-20 bg-black/40 flex items-center justify-center p-6" dir="rtl">
@@ -873,7 +930,14 @@ export function TaskDetailModal({
                         className={`grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_150px_135px_auto] items-center gap-2 rounded-xl border px-3 py-2 ${isMine ? 'border-cyan-200 bg-cyan-50/50' : 'border-gray-100 bg-gray-50/60'}`}
                       >
                         <div className="min-w-0">
-                          <p className={`text-sm truncate ${subtask.status === 'done' ? 'line-through text-gray-500' : 'font-medium text-gray-700'}`}>{subtask.title}</p>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewSubtaskId(subtask.id)}
+                            title={tr('פתח תת־משימה', 'Open subtask')}
+                            className={`block max-w-full truncate text-left text-sm transition-colors hover:text-primary hover:underline ${subtask.status === 'done' ? 'line-through text-gray-500' : 'font-medium text-gray-700'}`}
+                          >
+                            {subtask.title}
+                          </button>
                           {isMine && <p className="text-[9px] text-cyan-700 mt-0.5">{tr('מוקצה לך', 'Assigned to you')}</p>}
                         </div>
                         <select
