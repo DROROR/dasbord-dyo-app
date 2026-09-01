@@ -33,10 +33,10 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
       {/* Logo */}
       <div className="h-16 flex items-center gap-2 px-3 border-b border-white/10 shrink-0">
         {collapsed ? (
-          <img src={logoSymbol} alt="Logo" className="h-8 w-auto mx-auto" />
+          <img src={logoSymbol} alt="Logo" className="h-11 w-auto mx-auto" />
         ) : (
           <>
-            <img src={logoFull} alt="Dyo Planner" className="h-7 w-auto min-w-0 max-w-[124px] object-contain" />
+            <img src={logoFull} alt="Dyo Planner" className="h-11 w-auto min-w-0 max-w-[148px] object-contain" />
             <div className="relative ms-auto shrink-0">
               <span className="pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2" aria-hidden="true">
                 {workLang === 'he' ? (
