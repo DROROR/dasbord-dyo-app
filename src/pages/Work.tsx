@@ -669,6 +669,7 @@ export function Work() {
   // RLS (has_board_access) already filters which boards come back from
   // getBoards() — no client-side re-filtering by access needed or done here.
   const visibleBoards = boards
+  const totalActiveTasks = tasks.filter(task => visibleBoards.some(board => board.id === task.board) && task.status !== "done" && task.status !== "archived").length
 
   const activeBoardObj = visibleBoards.find(b => b.id === activeBoard) ?? visibleBoards[0]
   const openTask       = openId ? (tasks.find(t => t.id === openId) ?? null) : null
@@ -1148,11 +1149,11 @@ export function Work() {
             )}
 
             <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2">
-              <span />
+              <span className="w-fit whitespace-nowrap rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600">{tr("סה״כ משימות", "Total Tasks")}: <strong className="text-gray-900">{totalActiveTasks}</strong></span>
               <div className="flex min-w-0 items-center justify-center gap-1.5 overflow-x-auto">
                 {visibleBoards.map(board => {
                   const active = activeBoard === board.id
-                  const count = tasks.filter(task => task.board === board.id).length
+                  const count = tasks.filter(task => task.board === board.id && task.status !== "done" && task.status !== "archived").length
                   return (
                     <div key={board.id} className={`flex h-7 shrink-0 items-center rounded-lg border transition-colors ${active ? "border-primary bg-primary text-white" : "border-gray-200 bg-gray-100 text-gray-700 hover:border-gray-300 hover:bg-gray-200"}`}>
                       <button onClick={() => setActiveBoard(board.id)} className="flex h-full items-center gap-1.5 whitespace-nowrap px-3 text-xs font-semibold">
