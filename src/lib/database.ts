@@ -1725,43 +1725,33 @@ export async function hasWorkReportAccess(): Promise<boolean> {
   return data as boolean
 }
 
-// Access management (list/grant/revoke) reads/writes work_report_access
-// directly — safe to do so here because every RLS policy on that table
-// requires the caller to be the Owner (see the migration); a non-owner
-// attempting any of these three simply gets zero rows / a rejected write,
-// not broader access.
+// Work Report access remains owner-managed and is enforced again inside every report RPC.
+export type WorkReportAccessLevel = "none" | "view_all" | "personal"
+
 export interface WorkReportAccessRow {
   profileId: string
+  accessLevel: Exclude<WorkReportAccessLevel, "none">
   grantedAt: string
 }
 
-// Deliberately a plain select with no embedded profiles(...) join —
-// work_report_access has two FKs to profiles (profile_id, granted_by),
-// so an embed would need an exact !<constraint-name> hint to
-// disambiguate, and guessing Postgres's auto-generated constraint name
-// is a real, avoidable fragility point. The caller already has (or can
-// fetch) the full profile list via getProfiles(); joining client-side
-// is simpler and doesn't depend on an unverified constraint name.
 export async function getWorkReportAccessList(): Promise<WorkReportAccessRow[]> {
   const { data, error } = await supabase
-    .from('work_report_access')
-    .select('profile_id, granted_at')
+    .from("work_report_access")
+    .select("profile_id, access_level, granted_at")
   if (error) throw error
-  return (data as { profile_id: string; granted_at: string }[])
-    .map(r => ({ profileId: r.profile_id, grantedAt: r.granted_at }))
+  return (data as { profile_id: string; access_level: "view_all" | "personal"; granted_at: string }[])
+    .map(r => ({ profileId: r.profile_id, accessLevel: r.access_level, grantedAt: r.granted_at }))
 }
 
-export async function grantWorkReportAccess(profileId: string, grantedBy: string): Promise<void> {
-  const { error } = await supabase
-    .from('work_report_access')
-    .insert({ profile_id: profileId, granted_by: grantedBy })
-  if (error) throw error
-}
-
-export async function revokeWorkReportAccess(profileId: string): Promise<void> {
-  const { error } = await supabase
-    .from('work_report_access')
-    .delete()
-    .eq('profile_id', profileId)
+export async function setWorkReportAccess(profileId: string, accessLevel: WorkReportAccessLevel, grantedBy: string): Promise<void> {
+  if (accessLevel === "none") {
+    const { error } = await supabase.from("work_report_access").delete().eq("profile_id", profileId)
+    if (error) throw error
+    return
+  }
+  const { error } = await supabase.from("work_report_access").upsert(
+    { profile_id: profileId, granted_by: grantedBy, access_level: accessLevel },
+    { onConflict: "profile_id" },
+  )
   if (error) throw error
 }

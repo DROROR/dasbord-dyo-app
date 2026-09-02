@@ -4,8 +4,9 @@ import { Avatar } from '../Avatar'
 import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import type { Task, WorkReport, WorkReportEmployee, WorkReportEvent, WorkReportTimeEntryRef } from '../../types/work'
 import {
-  getWorkReport, getWorkReportAccessList, grantWorkReportAccess, revokeWorkReportAccess, getProfiles,
+  getWorkReport, getWorkReportAccessList, setWorkReportAccess, getProfiles,
 } from '../../lib/database'
+import type { WorkReportAccessLevel } from "../../lib/database"
 
 // Today's calendar date in the project's reporting timezone (Asia/Jerusalem
 // — see the get_work_report() RPC), not the browser's local timezone.
@@ -62,7 +63,7 @@ function AccessPanel({
 }) {
   const { t: tr } = useWorkLang()
   const [candidates, setCandidates] = useState<GrantableProfile[] | null>(null)
-  const [grantedIds, setGrantedIds] = useState<Set<string> | null>(null)
+  const [accessByProfile, setAccessByProfile] = useState<Map<string, WorkReportAccessLevel> | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
@@ -85,7 +86,7 @@ function AccessPanel({
             .filter(p => p.is_active && !p.is_owner)
             .map(p => ({ id: p.id, name: p.name, email: p.email })),
         )
-        setGrantedIds(new Set(grants.map(g => g.profileId)))
+        setAccessByProfile(new Map(grants.map(g => [g.profileId, g.accessLevel])))
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -95,24 +96,23 @@ function AccessPanel({
     return () => { cancelled = true }
   }, [])
 
-  async function setAccess(profileId: string, grant: boolean) {
+  async function setAccess(profileId: string, accessLevel: WorkReportAccessLevel) {
     if (!myProfileId || savingId) return
     setSavingId(profileId)
     setSavedId(null)
     setSaveError(null)
     try {
-      if (grant) await grantWorkReportAccess(profileId, myProfileId)
-      else await revokeWorkReportAccess(profileId)
+      await setWorkReportAccess(profileId, accessLevel, myProfileId)
       // Non-optimistic: read back the actual saved state from the
       // server rather than assuming success just because the write
       // call didn't throw, and verify it matches what was requested
       // before showing any success indicator.
       const confirmed = await getWorkReportAccessList()
-      const nowGranted = confirmed.some(r => r.profileId === profileId)
-      if (nowGranted !== grant) {
+      const confirmedLevel: WorkReportAccessLevel = confirmed.find(r => r.profileId === profileId)?.accessLevel ?? "none"
+      if (confirmedLevel !== accessLevel) {
         throw new Error(tr('השינוי לא אומת בקריאה חוזרת — נסה שוב', 'The change could not be verified on read-back — please try again'))
       }
-      setGrantedIds(new Set(confirmed.map(r => r.profileId)))
+      setAccessByProfile(new Map(confirmed.map(r => [r.profileId, r.accessLevel])))
       setSavedId(profileId)
       setTimeout(() => setSavedId(cur => cur === profileId ? null : cur), 1500)
     } catch (err) {
@@ -143,14 +143,14 @@ function AccessPanel({
         </div>
       )}
 
-      {!loading && !loadError && candidates && grantedIds && (
+      {!loading && !loadError && candidates && accessByProfile && (
         <>
           {candidates.length === 0 ? (
             <p className="text-xs text-gray-400 py-2">{tr('אין משתמשים פעילים הזכאים להרשאה', 'No active users eligible for access')}</p>
           ) : (
             <div className="flex flex-col gap-2">
               {candidates.map(p => {
-                const granted = grantedIds.has(p.id)
+                const currentAccess: WorkReportAccessLevel = accessByProfile.get(p.id) ?? "none"
                 const isSaving = savingId === p.id
                 return (
                   <div key={p.id} className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-3 py-2">
@@ -166,21 +166,21 @@ function AccessPanel({
                         <Check size={13} /> {tr('נשמר', 'Saved')}
                       </span>
                     ) : (
-                      <div className="flex items-center rounded-lg border border-gray-200 overflow-hidden shrink-0">
-                        <button
-                          onClick={() => void setAccess(p.id, false)}
-                          disabled={!!savingId}
-                          className={`text-[10px] font-semibold px-2.5 py-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${!granted ? 'bg-gray-200 text-gray-700' : 'bg-white text-gray-400 hover:bg-gray-50'}`}
-                        >
-                          {tr('ללא גישה', 'No Access')}
-                        </button>
-                        <button
-                          onClick={() => void setAccess(p.id, true)}
-                          disabled={!!savingId}
-                          className={`text-[10px] font-semibold px-2.5 py-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${granted ? 'bg-primary text-white' : 'bg-white text-gray-400 hover:bg-gray-50'}`}
-                        >
-                          {tr('צפייה', 'View')}
-                        </button>
+                      <div className="flex items-center overflow-hidden rounded-lg border border-gray-200 shrink-0">
+                        {([
+                          ["none", tr("ללא גישה", "No Access")],
+                          ["view_all", tr("צפייה בהכל", "View All")],
+                          ["personal", tr("צפייה בלוח האישי בלבד", "View Only Personal Board")],
+                        ] as const).map(([level, label]) => (
+                          <button
+                            key={level}
+                            onClick={() => void setAccess(p.id, level)}
+                            disabled={!!savingId}
+                            className={"h-8 whitespace-nowrap border-e border-gray-200 px-2.5 text-[10px] font-semibold transition-colors last:border-e-0 disabled:cursor-not-allowed disabled:opacity-40 " + (currentAccess === level ? "bg-primary text-white" : "bg-white text-gray-500 hover:bg-gray-50")}
+                          >
+                            {label}
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>
