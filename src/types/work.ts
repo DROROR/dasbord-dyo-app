@@ -294,6 +294,8 @@ export interface WorkReportStatusBreakdownEntry {
 
 export interface WorkReport {
   reportDate: string
+  reportStart?: string
+  reportEnd?: string
   timezone: string
   team: {
     /** Distinct tasks with at least one transition anywhere on the selected date. */

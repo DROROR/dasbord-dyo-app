@@ -1713,8 +1713,8 @@ export async function markAllNotificationsRead(): Promise<void> {
 // access to boards/tasks they otherwise couldn't see. The RPC itself
 // re-checks has_work_report_access() server-side regardless of any
 // client-side gating; that check is the actual security boundary.
-export async function getWorkReport(reportDate: string): Promise<WorkReport> {
-  const { data, error } = await supabase.rpc('get_work_report', { report_date: reportDate })
+export async function getWorkReport(reportStart: string, reportEnd: string): Promise<WorkReport> {
+  const { data, error } = await supabase.rpc('get_work_report_range', { report_start: reportStart, report_end: reportEnd })
   if (error) throw error
   return data as WorkReport
 }

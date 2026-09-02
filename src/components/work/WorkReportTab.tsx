@@ -13,6 +13,17 @@ function todayInIsrael(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' })
 }
 
+type ReportPreset = 'today' | 'month' | '3months' | '6months' | 'year' | 'custom'
+
+function monthsBefore(date: string, months: number): string {
+  const [year, month, day] = date.split('-').map(Number)
+  const targetMonth = month - 1 - months
+  const targetYear = year + Math.floor(targetMonth / 12)
+  const normalizedMonth = ((targetMonth % 12) + 12) % 12
+  const lastDay = new Date(Date.UTC(targetYear, normalizedMonth + 1, 0)).getUTCDate()
+  return targetYear + '-' + String(normalizedMonth + 1).padStart(2, '0') + '-' + String(Math.min(day, lastDay)).padStart(2, '0')
+}
+
 function fmtHours(h: number): string {
   if (!h) return '0h'
   const hrs = Math.floor(h)
@@ -305,7 +316,9 @@ export function WorkReportTab({
   onOpenTask: (id: string) => void
 }) {
   const { t: tr } = useWorkLang()
-  const [date, setDate] = useState(todayInIsrael)
+  const [startDate, setStartDate] = useState(todayInIsrael)
+  const [endDate, setEndDate] = useState(todayInIsrael)
+  const [preset, setPreset] = useState<ReportPreset>('today')
   const [report, setReport] = useState<WorkReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -319,7 +332,7 @@ export function WorkReportTab({
       setLoading(true)
       setError(null)
       try {
-        const r = await getWorkReport(date)
+        const r = await getWorkReport(startDate, endDate)
         if (!cancelled) setReport(r)
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err))
@@ -328,9 +341,17 @@ export function WorkReportTab({
       }
     })()
     return () => { cancelled = true }
-  }, [date])
+  }, [startDate, endDate])
 
   const selected = report?.employees.find(e => e.id === selectedId) ?? null
+  function applyPreset(nextPreset: Exclude<ReportPreset, 'custom'>) {
+    const today = todayInIsrael()
+    const months = nextPreset === 'month' ? 1 : nextPreset === '3months' ? 3 : nextPreset === '6months' ? 6 : nextPreset === 'year' ? 12 : 0
+    setPreset(nextPreset)
+    setEndDate(today)
+    setStartDate(months ? monthsBefore(today, months) : today)
+    setSelectedId(null)
+  }
 
   if (selected) {
     return (
@@ -346,20 +367,31 @@ export function WorkReportTab({
   return (
     <div className="flex flex-col gap-4 flex-1 min-h-0">
       <div className="flex items-center justify-between gap-3 shrink-0 flex-wrap">
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={date}
-            max={todayInIsrael()}
-            onChange={e => e.target.value && setDate(e.target.value)}
-            className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-primary"
-          />
-          <span className="text-[10px] text-gray-400">{tr('שעון ישראל (Asia/Jerusalem)', 'Israel time (Asia/Jerusalem)')}</span>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <div className="flex h-9 flex-wrap items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1">
+            {([
+              ["today", tr("היום", "Today")],
+              ["month", tr("חודש אחרון", "Last Month")],
+              ["3months", tr("3 חודשים", "Last 3 Months")],
+              ["6months", tr("6 חודשים", "Last 6 Months")],
+              ["year", tr("שנה אחרונה", "Last Year")],
+            ] as const).map(([id, label]) => (
+              <button key={id} type="button" onClick={() => applyPreset(id)} className={"inline-flex h-7 items-center rounded-md px-3 text-xs font-semibold transition-colors " + (preset === id ? "bg-primary text-white" : "text-gray-500 hover:bg-white hover:text-gray-700")}>{label}</button>
+            ))}
+          </div>
+          <div className="flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3">
+            <span className="text-xs font-semibold text-gray-400">{tr("מ", "From")}</span>
+            <input type="date" value={startDate} max={endDate} onChange={e => { if (e.target.value) { setStartDate(e.target.value); setPreset("custom"); setSelectedId(null) } }} className="h-7 w-[118px] bg-transparent text-xs text-gray-700 focus:outline-none" />
+            <span className="text-gray-300">–</span>
+            <span className="text-xs font-semibold text-gray-400">{tr("עד", "To")}</span>
+            <input type="date" value={endDate} min={startDate} max={todayInIsrael()} onChange={e => { if (e.target.value) { setEndDate(e.target.value); setPreset("custom"); setSelectedId(null) } }} className="h-7 w-[118px] bg-transparent text-xs text-gray-700 focus:outline-none" />
+          </div>
+          <span className="text-xs text-gray-400">{tr("שעון ישראל", "Israel time")}</span>
         </div>
         {isOwner && (
           <button
             onClick={() => setShowAccess(s => !s)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${showAccess ? 'bg-primary text-white border-primary' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}
+            className={`flex h-9 items-center gap-1.5 px-3 rounded-lg text-xs font-semibold border transition-colors ${showAccess ? 'bg-primary text-white border-primary' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}
           >
             <Lock size={11} /> {tr('גישה', 'Access')}
           </button>
