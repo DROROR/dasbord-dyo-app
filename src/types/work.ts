@@ -60,6 +60,7 @@ export interface TaskSubtask {
   /** Display snapshot only; assigneeId is authoritative. */
   assigneeName: string
   createdBy?: string
+  comments: TaskComment[]
   createdAt: string
   updatedAt: string
 }

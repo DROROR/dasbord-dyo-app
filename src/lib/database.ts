@@ -692,6 +692,7 @@ interface DbTaskSubtask {
   assignee_id: string | null
   assignee_name_snapshot: string | null
   created_by: string | null
+  comments: TaskComment[] | null
   created_at: string
   updated_at: string
 }
@@ -706,6 +707,7 @@ function dbToTaskSubtask(db: DbTaskSubtask): TaskSubtask {
     assigneeId: db.assignee_id ?? undefined,
     assigneeName: db.assignee_name_snapshot ?? '',
     createdBy: db.created_by ?? undefined,
+    comments: db.comments ?? [],
     createdAt: db.created_at,
     updatedAt: db.updated_at,
   }
@@ -838,6 +840,16 @@ export async function updateTaskSubtask(subtask: TaskSubtask): Promise<TaskSubta
   })
   if (error) throw error
   return dbToTaskSubtask(data as DbTaskSubtask)
+}
+
+export async function addSubtaskComment(subtaskId: string, text: string, mentions: string[]): Promise<TaskComment[]> {
+  const { data, error } = await supabase.rpc('add_subtask_comment', {
+    subtask_id_in: subtaskId,
+    comment_text_in: text,
+    mentions_in: mentions,
+  })
+  if (error) throw error
+  return data as TaskComment[]
 }
 
 export async function deleteTaskSubtask(subtaskId: string): Promise<void> {

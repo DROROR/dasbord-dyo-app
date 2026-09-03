@@ -11,7 +11,7 @@ import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import type { Task, TaskPlatform, TaskSubtask, TaskSubtaskStatus, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption, Board } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
 import {
-  addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask, deleteTaskComment,
+  addSubtaskComment, addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask, deleteTaskComment,
   deleteTask, deleteTaskSubtask, getTaskBoardMoves, updateTaskSubtask,
   updateTaskTimeEntry, handoffTaskAssignment,
   type TaskBoardMove,
@@ -220,7 +220,17 @@ export function TaskDetailModal({
   const [newSubtaskAssignee, setNewSubtaskAssignee] = useState('')
   const [subtaskSaving, setSubtaskSaving] = useState(false)
   const [subtaskError, setSubtaskError] = useState<string | null>(null)
-  const [previewSubtaskId, setPreviewSubtaskId] = useState<string | null>(null)
+  const [previewSubtaskId, setPreviewSubtaskId] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search)
+    const linkedSubtaskId = params.get('subtask')
+    return params.get('task') === task.id && linkedSubtaskId && (task.subtasks ?? []).some(subtask => subtask.id === linkedSubtaskId)
+      ? linkedSubtaskId
+      : null
+  })
+  const [subtaskLinkCopied, setSubtaskLinkCopied] = useState(false)
+  const [newSubtaskComment, setNewSubtaskComment] = useState('')
+  const [subtaskCommentSaving, setSubtaskCommentSaving] = useState(false)
+  const [subtaskCommentError, setSubtaskCommentError] = useState<string | null>(null)
 
   const [showHistory,  setShowHistory]  = useState(false)
   const [copied,       setCopied]       = useState(false)
@@ -234,10 +244,42 @@ export function TaskDetailModal({
   const previewSubtask = subtasks.find(subtask => subtask.id === previewSubtaskId) ?? null
   useEffect(() => { taskRef.current = task }, [task])
 
+  function openSubtask(id: string) {
+    const url = new URL(window.location.href)
+    url.searchParams.set("task", task.id)
+    url.searchParams.set("subtask", id)
+    window.history.replaceState(window.history.state, "", url)
+    setPreviewSubtaskId(id)
+    setSubtaskLinkCopied(false)
+  }
+
+  function closeSubtask() {
+    const url = new URL(window.location.href)
+    url.searchParams.delete("subtask")
+    window.history.replaceState(window.history.state, "", url)
+    setPreviewSubtaskId(null)
+    setSubtaskLinkCopied(false)
+  }
+
+  function copySubtaskLink() {
+    if (!previewSubtask) return
+    const url = new URL(window.location.href)
+    url.searchParams.set("task", task.id)
+    url.searchParams.set("subtask", previewSubtask.id)
+    void navigator.clipboard.writeText(url.toString())
+    setSubtaskLinkCopied(true)
+    window.setTimeout(() => setSubtaskLinkCopied(false), 2000)
+  }
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return
-      if (previewSubtaskId) setPreviewSubtaskId(null)
+      if (previewSubtaskId) {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('subtask')
+        window.history.replaceState(window.history.state, '', url)
+        setPreviewSubtaskId(null)
+      }
       else onClose()
     }
     document.addEventListener('keydown', onKey)
@@ -480,6 +522,27 @@ export function TaskDetailModal({
       setSubtaskError(err instanceof Error ? err.message : tr('מחיקת תת־המשימה נכשלה', 'Failed to delete subtask'))
     } finally {
       setSubtaskSaving(false)
+    }
+  }
+
+  async function submitSubtaskComment() {
+    if (!previewSubtask || subtaskCommentSaving || !newSubtaskComment.trim()) return
+    const canAddComment = canComment || previewSubtask.assigneeId === currentUserId
+    if (!canAddComment) return
+    const text = newSubtaskComment.trim()
+    const mentions = Array.from(text.matchAll(/@(\w+)/g)).map(match => match[1])
+    setSubtaskCommentSaving(true)
+    setSubtaskCommentError(null)
+    try {
+      const updatedComments = await addSubtaskComment(previewSubtask.id, text, mentions)
+      publishSubtasks(subtasks.map(subtask =>
+        subtask.id === previewSubtask.id ? { ...subtask, comments: updatedComments } : subtask,
+      ))
+      setNewSubtaskComment('')
+    } catch (err) {
+      setSubtaskCommentError(err instanceof Error ? err.message : tr('הוספת התגובה נכשלה', 'Failed to add comment'))
+    } finally {
+      setSubtaskCommentSaving(false)
     }
   }
 
@@ -781,24 +844,48 @@ export function TaskDetailModal({
         )}
 
         {previewSubtask && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => setPreviewSubtaskId(null)}>
-            <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
-              <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4">
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={closeSubtask}>
+            <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
+              <div className="flex shrink-0 items-start gap-3 border-b border-gray-100 px-5 py-4">
                 <div className="min-w-0 flex-1">
                   <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">{tr('תת־משימה', 'Subtask')}</p>
-                  <h3 className="break-words text-base font-bold leading-snug text-gray-900">{previewSubtask.title}</h3>
+                  <input
+                    key={previewSubtask.id + "-title"}
+                    defaultValue={previewSubtask.title}
+                    disabled={!canManageSubtasks || subtaskSaving}
+                    onBlur={event => {
+                      const nextTitle = event.currentTarget.value.trim()
+                      if (nextTitle && nextTitle !== previewSubtask.title) void changeSubtask(previewSubtask, { title: nextTitle })
+                    }}
+                    className="h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-base font-bold text-gray-900 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:border-transparent disabled:px-0"
+                  />
                 </div>
-                <button type="button" onClick={() => setPreviewSubtaskId(null)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800" aria-label={tr('סגור', 'Close')}>
-                  <X size={14} />
-                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button type="button" onClick={copySubtaskLink} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900" aria-label={tr('העתק קישור לתת־משימה', 'Copy subtask link')}>
+                    {subtaskLinkCopied ? <Check size={14} /> : <Link2 size={14} />}
+                    {subtaskLinkCopied ? tr('הועתק', 'Copied') : tr('שתף', 'Share')}
+                  </button>
+                  <button type="button" onClick={closeSubtask} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800" aria-label={tr('סגור', 'Close')}>
+                    <X size={14} />
+                  </button>
+                </div>
               </div>
 
-              <div className="space-y-4 px-5 py-5">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-5">
                 <div>
                   <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">{tr('תיאור', 'Description')}</p>
-                  <p className="min-h-16 whitespace-pre-wrap rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5 text-sm leading-relaxed text-gray-700">
-                    {previewSubtask.description?.trim() || tr('לא נוסף תיאור.', 'No description added.')}
-                  </p>
+                  <textarea
+                    key={previewSubtask.id}
+                    defaultValue={previewSubtask.description ?? ""}
+                    disabled={!canManageSubtasks || subtaskSaving}
+                    onBlur={event => {
+                      const nextDescription = event.currentTarget.value.trim()
+                      if (nextDescription !== (previewSubtask.description ?? "")) void changeSubtask(previewSubtask, { description: nextDescription })
+                    }}
+                    placeholder={tr("לא נוסף תיאור.", "No description added.")}
+                    rows={6}
+                    className="min-h-32 w-full resize-y rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm leading-relaxed text-gray-700 outline-none transition-colors focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/10 disabled:resize-none disabled:border-gray-100"
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -811,13 +898,61 @@ export function TaskDetailModal({
                   </div>
                   <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
                     <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">{tr('סטטוס', 'Status')}</p>
-                    <span className={`inline-flex rounded-md px-2 py-1 text-xs font-bold ${STATUS_PILL[previewSubtask.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                      {previewSubtask.status === 'not_started'
-                        ? tr('טרם התחיל', 'Not Started')
-                        : previewSubtask.status === 'in_progress'
-                          ? tr('בתהליך', 'In Progress')
-                          : tr('הושלם', 'Done')}
-                    </span>
+                    <select
+                      value={previewSubtask.status}
+                      disabled={subtaskSaving || (!canManageSubtasks && previewSubtask.assigneeId !== currentUserId)}
+                      onChange={event => void changeSubtask(previewSubtask, { status: event.target.value as TaskSubtaskStatus })}
+                      className={`h-9 w-full rounded-lg border border-gray-200 px-3 text-xs font-bold outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:cursor-default ${STATUS_PILL[previewSubtask.status] ?? 'bg-gray-100 text-gray-600'}`}
+                    >
+                      <option value="not_started">{tr('טרם התחיל', 'Not Started')}</option>
+                      <option value="in_progress">{tr('בתהליך', 'In Progress')}</option>
+                      <option value="done">{tr('הושלם', 'Done')}</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100 pt-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <p className="text-xs font-bold uppercase tracking-wide text-gray-900">{tr('תגובות', 'Comments')}</p>
+                    {previewSubtask.comments.length > 0 && <span className="text-[10px] text-gray-500">({previewSubtask.comments.length})</span>}
+                  </div>
+                  {previewSubtask.comments.length > 0 && (
+                    <div className="mb-4 space-y-3">
+                      {previewSubtask.comments.map(comment => (
+                        <div key={comment.id} className="flex gap-2.5">
+                          <Avatar name={comment.author} size="xs" />
+                          <div className="min-w-0 flex-1">
+                            <div className="mb-1 flex items-baseline gap-2">
+                              <span className="text-xs font-semibold text-gray-800">{comment.author}</span>
+                              <span className="text-[10px] text-gray-400">{fmtDateTime(comment.timestamp)}</span>
+                            </div>
+                            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-700">{commentParts(comment.text)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-start gap-2.5">
+                    <Avatar name={currentUser} size="xs" />
+                    <div className="min-w-0 flex-1">
+                      <textarea
+                        value={newSubtaskComment}
+                        onChange={event => setNewSubtaskComment(event.target.value)}
+                        onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void submitSubtaskComment() }}
+                        disabled={!(canComment || previewSubtask.assigneeId === currentUserId) || subtaskCommentSaving}
+                        rows={2}
+                        placeholder={tr('הוסף תגובה או קישור...', 'Add a comment or link...')}
+                        className="w-full resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-gray-50"
+                      />
+                      <div className="mt-1.5 flex items-center justify-between gap-3">
+                        <span className="text-[10px] text-gray-400">⌘+Enter</span>
+                        <button type="button" onClick={() => void submitSubtaskComment()} disabled={!newSubtaskComment.trim() || !(canComment || previewSubtask.assigneeId === currentUserId) || subtaskCommentSaving} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40">
+                          {subtaskCommentSaving ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+                          {subtaskCommentSaving ? tr('שולח...', 'Sending...') : tr('תגובה', 'Comment')}
+                        </button>
+                      </div>
+                      {subtaskCommentError && <p className="mt-1.5 text-xs text-red-500">{subtaskCommentError}</p>}
+                    </div>
                   </div>
                 </div>
 
@@ -967,7 +1102,7 @@ export function TaskDetailModal({
                         <div className="min-w-0">
                           <button
                             type="button"
-                            onClick={() => setPreviewSubtaskId(subtask.id)}
+                            onClick={() => openSubtask(subtask.id)}
                             title={tr('פתח תת־משימה', 'Open subtask')}
                             className={`block max-w-full truncate text-left text-sm transition-colors hover:text-primary hover:underline ${subtask.status === 'done' ? 'line-through text-gray-500' : 'font-medium text-gray-700'}`}
                           >
