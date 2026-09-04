@@ -705,15 +705,16 @@ export function Work() {
     return boardAccessRank(board.access[profile.id]) >= boardAccessRank('full')
   }
 
-  // Client-side mirror of "tasks: delete"'s exact rule: owner, or a
-  // non-owner with BOTH work:'full' (canManageWork) AND board:'full' on
-  // the task's current board. canCreateInBoard already implements the
-  // is_owner-bypassed board:'full' half; ANDing it with canManageWork
-  // (which is also is_owner-bypassed) reproduces
-  // has_permission('work','full') AND has_board_access(board,'full')
-  // exactly — work:'edit', board:'view', and board:'comment' alone can
-  // never satisfy this. The RLS policy is authoritative; this is UX only.
+  // Owner may delete any task. Every non-owner may delete only a task
+  // whose immutable server-stamped creator UUID is their own, while
+  // still holding Work edit permission. Database RLS remains authoritative.
   function canDeleteTask(task: Task): boolean {
+    return isOwner || (canEdit && !!profile?.id && task.createdById === profile.id)
+  }
+
+  // Moving remains a separate full-management capability and is not
+  // broadened by the creator-only delete permission.
+  function canMoveTask(task: Task): boolean {
     return canManageWork && canCreateInBoard(task.board)
   }
 
@@ -1131,7 +1132,7 @@ export function Work() {
             canEditTask={canEditTask}
             allProfiles={profiles}
             onTaskSaved={handleTaskSaved}
-            canMoveTask={canDeleteTask}
+            canMoveTask={canMoveTask}
           />
         )}
 
@@ -1175,7 +1176,7 @@ export function Work() {
               eligibleAssigneesFor={task => eligibleAssigneesForBoard(boards.find(b => b.id === task.board), profiles)}
               onTaskSaved={handleTaskSaved}
               onBoardFilterChange={setActiveBoard}
-              canMoveTask={canDeleteTask}
+              canMoveTask={canMoveTask}
               profiles={profiles}
               search={taskSearch}
               onSearchChange={setTaskSearch}
@@ -1271,7 +1272,7 @@ export function Work() {
           canComment={canCommentOnTask(openTask)}
           canDelete={canDeleteTask(openTask)}
           readonly={!canEditTask(openTask)}
-          canMoveBoard={canDeleteTask(openTask)}
+          canMoveBoard={canMoveTask(openTask)}
           eligibleMoveBoards={boards.filter(b => b.id !== openTask.board && canCreateInBoard(b.id))}
           profiles={profiles}
           onMoved={handleTaskSaved}

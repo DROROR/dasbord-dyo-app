@@ -667,6 +667,7 @@ interface DbTask {
   comments: TaskComment[]
   attachments: Attachment[]
   created_by: string | null
+  created_by_id: string | null
   created_at: string
   updated_at: string
   done_at: string | null
@@ -736,6 +737,7 @@ function dbToTask(db: DbTask): Task {
     comments:        db.comments ?? [],
     subtasks:        (db.task_subtasks ?? []).map(dbToTaskSubtask).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     createdAt:       db.created_at,
+    createdById:     db.created_by_id ?? undefined,
     doneAt:          db.done_at ?? undefined,
     whatsappPending: db.whatsapp_pending ?? undefined,
     claimed:         db.claimed ?? undefined,

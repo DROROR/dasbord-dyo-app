@@ -128,6 +128,8 @@ export interface Task {
   comments: TaskComment[]
   subtasks?: TaskSubtask[]
   createdAt: string
+  /** Immutable UUID stamped by the database when the task is created. */
+  createdById?: string
   doneAt?: string
   whatsappPending?: boolean
   claimed?: boolean
