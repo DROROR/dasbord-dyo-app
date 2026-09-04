@@ -631,7 +631,6 @@ export function Work() {
   const [clients,   setClients]   = useState<{ id: string; name: string; phone: string | null }[]>([])
   const [assignees, setAssignees] = useState<string[]>([])
   const [profiles,  setProfiles]  = useState<{ id: string; name: string; isOwner: boolean }[]>([])
-  const [isTechnicalSupport, setIsTechnicalSupport] = useState(false)
 
   useEffect(() => {
     try {
@@ -844,9 +843,6 @@ export function Work() {
         const activeProfiles = dbProfiles.filter(p => p.is_active)
         setAssignees(activeProfiles.map(p => p.name).filter(Boolean))
         setProfiles(activeProfiles.map(p => ({ id: p.id, name: p.name, isOwner: p.is_owner })))
-        setIsTechnicalSupport(
-          dbProfiles.find(p => p.id === profile?.id)?.is_technical_support ?? false,
-        )
       } catch (err) {
         console.error('Failed to load clients or team members:', err)
       }
@@ -1130,7 +1126,7 @@ export function Work() {
             currentUser={currentUser}
             myProfileId={profile?.id}
             onOpenTask={setOpenId}
-            isTechnicalSupport={isTechnicalSupport}
+            canClaimSharedTasks={canEdit}
             activeProfileIds={activeProfileIds}
             canEditTask={canEditTask}
             allProfiles={profiles}
@@ -1259,7 +1255,7 @@ export function Work() {
           assignees={assignees}
           boardLabel={openTaskBoardObj?.name ?? openTask.board}
           boardStatuses={openTaskBoardObj?.statuses}
-          isTechnicalSupport={isTechnicalSupport}
+          isTechnicalSupport={canEdit}
           boardAllTasksToSupportQueue={openTaskBoardObj?.allTasksToSupportQueue}
           openTicketsForClient={
             openTask.clientId

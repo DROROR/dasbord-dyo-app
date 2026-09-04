@@ -203,7 +203,7 @@ function MyStatusSection({
 
 export function MyBoard({
   tasks, boards, currentUser, myProfileId, onOpenTask,
-  isTechnicalSupport = false, activeProfileIds, canEditTask, allProfiles, onTaskSaved, canMoveTask,
+  canClaimSharedTasks = false, activeProfileIds, canEditTask, allProfiles, onTaskSaved, canMoveTask,
 }: {
   tasks: Task[]
   boards: Board[]
@@ -212,7 +212,7 @@ export function MyBoard({
   /** The authenticated user's profile UUID — authoritative once a task has assigneeId set. */
   myProfileId?: string
   onOpenTask: (id: string) => void
-  isTechnicalSupport?: boolean
+  canClaimSharedTasks?: boolean
   /** Active profile UUIDs — an inactive status owner is treated as no owner at all (see statusOwnerIdOf). */
   activeProfileIds?: Set<string>
   /** Mirrors the server's "tasks: update" RLS policy exactly — gates quick-edit only, never a security boundary on its own. */
@@ -239,6 +239,7 @@ export function MyBoard({
   const statusResponsibilityTasks = useMemo(() => tasks.filter(t => {
     if (!myProfileId) return false
     if (t.status === 'done' || t.status === 'archived') return false
+    if (t.claimed) return false
     return statusOwnerIdOf(boards, t, activeProfileIds) === myProfileId
   }), [tasks, boards, myProfileId, activeProfileIds])
 
@@ -258,6 +259,7 @@ export function MyBoard({
   // Main assignees/status owners take precedence so one task never appears in
   // two personal-board groups for the same employee.
   const collaborationTasks = useMemo(() => tasks.filter(t => {
+    if (t.claimed) return false
     if (!myProfileId) return false
     if (isMine(t, myProfileId, currentUser)) return false
     if (statusOwnerIdOf(boards, t, activeProfileIds) === myProfileId) return false
@@ -325,8 +327,8 @@ export function MyBoard({
 
   // Shared support queue — eligibility is now fully configurable
   // (board.allTasksToSupportQueue / priority.showInSupportQueue), not
-  // a hardcoded board id or a priority-label regex. Visible only to
-  // active technical-support staff (server-side RLS already enforces
+  // a hardcoded board id or a priority-label regex. Visible to
+  // active team members with Work edit permission (server-side RLS already enforces
   // this independently — see is_technical_support_staff() /
   // "tasks: view" in 20260810101000_rls_rpc_identity_and_queue.sql —
   // this client-side gate is UX only).
@@ -347,7 +349,7 @@ export function MyBoard({
   }, [boards, allProfiles])
   const eligibleAssigneesFor = (task: Task): AssigneeOption[] => eligibleAssigneesByBoard.get(task.board) ?? []
 
-  const unclaimed = isTechnicalSupport
+  const unclaimed = canClaimSharedTasks
     ? tasks.filter(t => isOpen(t) && isQueueEligible(t))
     : []
   const unclaimedSupportBoard = new Set(
