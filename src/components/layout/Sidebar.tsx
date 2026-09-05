@@ -100,6 +100,17 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
         })}
       </nav>
 
+      {/* Promotional banner in the sidebar spare lower area. */}
+      {!collapsed && (
+        <div className="shrink-0 px-2 pb-2">
+          <img
+            src="/sidebar-banner.png"
+            alt=""
+            className="block h-[190px] w-full rounded-xl object-cover"
+          />
+        </div>
+      )}
+
       {/* Bottom nav (settings) */}
       <div className="px-2 pb-1">
         {BOTTOM_NAV.map(({ id, labelHe, labelEn, icon: Icon }) => {
