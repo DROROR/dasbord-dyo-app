@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { AlertCircle, Ticket, User, Clock, ChevronDown, CheckCircle2 } from 'lucide-react'
 import type { Task, Board, AssigneeOption } from '../../types/work'
 import { eligibleAssigneesForBoard } from '../../types/work'
-import { STATUS_PILL, STATUS_LABEL, STATUS_LABEL_HE, STATUS_LEFT, resolveTaskPriority } from '../../data/workConstants'
+import { STATUS_PILL, STATUS_LABEL, STATUS_LABEL_HE, resolveTaskPriority } from '../../data/workConstants'
 import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import { AssigneeQuickEdit } from './TaskQuickEdit'
 import { MoveTaskModal } from './MoveTaskModal'
@@ -73,7 +73,7 @@ function taskStatusTextClass(task: Task, boards: Board[]): string {
 
 type TaskBadge = { label: string; cls: string }
 type TaskGroup = { id: string; label: string; tasks: Task[]; boardLabel?: string }
-type TaskListFilter = 'active' | 'all' | 'archived'
+type TaskListFilter = 'active' | 'not_started' | 'in_progress' | 'all' | 'archived'
 
 // ─── CompactTaskRow ───────────────────────────────────────────────────────────
 
@@ -141,7 +141,7 @@ function MyStatusSection({
   // safe UI localization, not touching user/admin content.
   const label = tr(STATUS_LABEL_HE[col.id] ?? col.label, col.label)
   return (
-    <div className={`h-full flex flex-col border-l-2 rounded-xl overflow-hidden ${STATUS_LEFT[col.id] ?? 'border-l-gray-300'} bg-white`}>
+    <div className="h-full flex flex-col rounded-xl overflow-hidden bg-white">
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 bg-gray-50/80 px-4 py-2.5">
         <button type="button" onClick={() => setOpen(o => !o)} className="flex min-w-0 items-center gap-2.5 text-left transition-colors hover:text-primary">
           <ChevronDown size={13} className={`text-gray-500 transition-transform shrink-0 ${open ? '' : '-rotate-90'}`} />
@@ -153,14 +153,22 @@ function MyStatusSection({
           </span>
         </button>
         <span className="ml-auto flex items-center gap-1">
-          {(['active', 'all', 'archived'] as TaskListFilter[]).map(filter => (
+          {(['active', 'not_started', 'in_progress', 'all', 'archived'] as TaskListFilter[]).map(filter => (
             <button
               key={filter}
               type="button"
               onClick={() => onFilterChange(filter)}
               className={`rounded-sm border px-2 py-1 text-xs font-bold transition-colors ${taskFilter === filter ? 'border-primary bg-primary text-white' : 'border-gray-200 bg-white text-gray-500 hover:border-primary/40 hover:text-primary'}`}
             >
-              {filter === 'active' ? tr('פעיל', 'Active') : filter === 'all' ? tr('הכל', 'All') : tr('ארכיון', 'Archived')}
+              {filter === 'active'
+                ? tr('פעיל', 'Active')
+                : filter === 'not_started'
+                  ? tr('טרם התחיל', 'Not Started')
+                  : filter === 'in_progress'
+                    ? tr('בתהליך', 'In Progress')
+                    : filter === 'all'
+                      ? tr('הכל', 'All')
+                      : tr('ארכיון', 'Archived')}
             </button>
           ))}
         </span>
@@ -438,6 +446,10 @@ export function MyBoard({
   const selectedGroup = [...summaryGroups, ...allGroups].find(g => g.id === selectedGroupId) ?? allGroups[0] ?? summaryGroups[0]
   const selectedTasks = taskFilter === 'archived'
     ? displayTasks.filter(task => task.status === 'archived')
+    : taskFilter === 'not_started'
+      ? displayTasks.filter(task => taskMatchesStatus(task, boards, 'not_started', 'Not Started'))
+      : taskFilter === 'in_progress'
+        ? displayTasks.filter(task => taskMatchesStatus(task, boards, 'in_progress', 'In Progress'))
     : taskFilter === 'active'
       ? (selectedGroup?.tasks ?? []).filter(task => task.status !== 'archived')
       : selectedGroup?.tasks ?? []
@@ -445,7 +457,9 @@ export function MyBoard({
 
   function changeTaskFilter(filter: TaskListFilter) {
     setTaskFilter(filter)
-    if (filter === 'archived') setSelectedGroupId('summary:my-tasks')
+    if (filter === 'archived' || filter === 'not_started' || filter === 'in_progress') {
+      setSelectedGroupId('summary:my-tasks')
+    }
   }
 
   function assignedBadge(task: Task): TaskBadge {
