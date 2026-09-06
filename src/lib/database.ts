@@ -922,6 +922,12 @@ export async function deleteTask(id: string): Promise<void> {
 // || new_comment, row-locked) means two people commenting at the same
 // moment can't silently clobber one another the way a client-side
 // read-merge-write against the full task row could.
+export async function getTaskComments(taskId: string): Promise<TaskComment[]> {
+  const { data, error } = await supabase.from('tasks').select('comments').eq('id', taskId).single()
+  if (error) throw error
+  return (data?.comments ?? []) as TaskComment[]
+}
+
 export async function addTaskComment(taskId: string, text: string, mentions: string[]): Promise<TaskComment[]> {
   const { data, error } = await supabase.rpc('add_task_comment', {
     task_id: taskId, comment_text: text, mentions,

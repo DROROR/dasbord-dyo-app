@@ -12,7 +12,7 @@ import type { Task, TaskPlatform, TaskSubtask, TaskSubtaskStatus, TimeEntry, Pri
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
 import {
   addSubtaskComment, addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask, deleteTaskComment,
-  deleteTask, deleteTaskSubtask, getTaskBoardMoves, updateTaskSubtask,
+  deleteTask, deleteTaskSubtask, getTaskBoardMoves, getTaskComments, updateTaskSubtask,
   updateTaskTimeEntry, handoffTaskAssignment,
   type TaskBoardMove,
 } from '../../lib/database'
@@ -72,7 +72,7 @@ export function TaskDetailModal({
   openTicketsForClient = 0, onTicketDone, readonly = false, canComment = false, canDelete = false,
   isTechnicalSupport = false, boardAllTasksToSupportQueue = false,
   canMoveBoard = false, eligibleMoveBoards = [], profiles = [], onMoved,
-  canManageSubtasks = false, canLogTime = false, canEditWork = false, onSubtasksChanged, onTimeEntriesChanged,
+  canManageSubtasks = false, canLogTime = false, canEditWork = false, onSubtasksChanged, onTimeEntriesChanged, onCommentsChanged,
 }: {
   task: Task
   onClose: () => void
@@ -128,6 +128,7 @@ export function TaskDetailModal({
   canEditWork?: boolean
   onSubtasksChanged?: (taskId: string, subtasks: TaskSubtask[]) => void
   onTimeEntriesChanged?: (taskId: string, entries: TimeEntry[]) => void
+  onCommentsChanged?: (taskId: string, comments: TaskComment[]) => void
 }) {
   const { addNotification } = useNotifications()
   const { t: tr } = useWorkLang()
@@ -149,6 +150,18 @@ export function TaskDetailModal({
 
   const [history,     setHistory]     = useState<StatusHistoryEntry[]>(task.statusHistory)
   const [comments,    setComments]    = useState<TaskComment[]>(task.comments)
+
+  // Always hydrate comments from the authoritative task row when the dialog
+  // opens. Parent state may predate comments added elsewhere or in an earlier
+  // modal session, while the dedicated RPC returns the current full list.
+  useEffect(() => {
+    let cancelled = false
+    setComments(task.comments ?? [])
+    void getTaskComments(task.id)
+      .then(fresh => { if (!cancelled) setComments(fresh) })
+      .catch(error => console.error('Failed to load task comments:', error))
+    return () => { cancelled = true }
+  }, [task.id])
   const [attachments, setAttachments] = useState<Attachment[]>(task.attachments)
   const [subtasks,    setSubtasks]    = useState<TaskSubtask[]>(task.subtasks ?? [])
 
@@ -573,6 +586,7 @@ export function TaskDetailModal({
     try {
       const updated = await addTaskComment(task.id, text, mentions)
       setComments(updated)
+      onCommentsChanged?.(task.id, updated)
       setNewComment('')
       setShowMention(false)
     } catch (err) {
@@ -589,7 +603,7 @@ export function TaskDetailModal({
     try {
       const updated = await deleteTaskComment(task.id, commentId)
       setComments(updated)
-      save({ comments: updated })
+      onCommentsChanged?.(task.id, updated)
     } catch (err) {
       setCommentDeleteError(err instanceof Error ? err.message : tr('מחיקת התגובה נכשלה', 'Failed to delete comment'))
     } finally {

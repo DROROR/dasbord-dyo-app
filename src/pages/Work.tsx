@@ -906,6 +906,10 @@ export function Work() {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, timeEntries } : t))
   }
 
+  function handleCommentsChanged(taskId: string, comments: Task['comments']) {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, comments } : t))
+  }
+
   // Called only after TaskDetailModal has already confirmed the DELETE
   // succeeded server-side — not optimistic, no separate DB call here.
   function handleTaskDeleted(id: string) {
@@ -1281,6 +1285,7 @@ export function Work() {
           canEditWork={canEdit}
           onSubtasksChanged={handleSubtasksChanged}
           onTimeEntriesChanged={handleTimeEntriesChanged}
+          onCommentsChanged={handleCommentsChanged}
         />
       )}
 
