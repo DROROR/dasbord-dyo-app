@@ -12,7 +12,7 @@ import type { Task, TaskPlatform, TaskSubtask, TaskSubtaskStatus, TimeEntry, Pri
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
 import {
   addSubtaskComment, addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask, deleteTaskComment,
-  deleteTask, deleteTaskSubtask, getTaskBoardMoves, getTaskComments, updateTaskSubtask,
+  deleteTask, deleteTaskSubtask, deployTask, getTaskBoardMoves, getTaskComments, updateTaskSubtask,
   updateTaskTimeEntry, handoffTaskAssignment,
   type TaskBoardMove,
 } from '../../lib/database'
@@ -184,6 +184,12 @@ export function TaskDetailModal({
   const [deleting,          setDeleting]          = useState(false)
   const [deleteError,       setDeleteError]       = useState<string | null>(null)
   const commentRef = useRef<HTMLTextAreaElement>(null)
+
+  const DEFAULT_DEPLOY_MSG = "We've resolved your issue. Please refresh the app and check again — let us know if everything is working correctly."
+  const [deployMessage,  setDeployMessage]  = useState(task.updateMessage ?? DEFAULT_DEPLOY_MSG)
+  const [deploying,      setDeploying]      = useState(false)
+  const [deployError,    setDeployError]    = useState<string | null>(null)
+  const [deployedToAdmin, setDeployedToAdmin] = useState(task.deployedToAdmin ?? false)
 
   const [attachUrl,  setAttachUrl]  = useState('')
   const [attachName, setAttachName] = useState('')
@@ -710,6 +716,30 @@ export function TaskDetailModal({
     }
   }
 
+  const NOTIFY_TICKET_DEPLOYED_URL = import.meta.env.VITE_NOTIFY_TICKET_DEPLOYED_URL as string
+  const DEPLOY_SECRET = import.meta.env.VITE_DEPLOY_SECRET as string
+
+  async function handleDeploy() {
+    if (deploying || deployedToAdmin || !task.ticketId || !task.appId) return
+    setDeploying(true)
+    setDeployError(null)
+    try {
+      const updated = await deployTask(task.id, deployMessage)
+      onUpdate(updated)
+      setDeployedToAdmin(true)
+      await fetch(NOTIFY_TICKET_DEPLOYED_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-webhook-secret': DEPLOY_SECRET },
+        body: JSON.stringify({ app_id: task.appId, ticket_id: task.ticketId, update_message: deployMessage }),
+      })
+    } catch (err) {
+      setDeployError(err instanceof Error ? err.message : 'Failed to deploy — please try again.')
+      setDeployedToAdmin(false)
+    } finally {
+      setDeploying(false)
+    }
+  }
+
   // Only the current main assignee may reach this — see
   // handoff_task_assignment() in
   // 20260816090000_time_entry_edit_and_assignee_handoff.sql, which
@@ -1074,6 +1104,46 @@ export function TaskDetailModal({
               <p className="text-xs text-red-600 flex items-center gap-1.5">
                 <AlertCircle size={11} /> {claimError}
               </p>
+            )}
+          </div>
+        )}
+
+        {/* Deploy to Admin — support board tasks only, once done and not yet deployed */}
+        {task.board === 'support' && !readonly && (
+          <div className={`px-6 py-3 shrink-0 border-b ${deployedToAdmin ? 'bg-green-50 border-green-100' : 'bg-violet-50 border-violet-100'}`}>
+            {deployedToAdmin ? (
+              <div className="flex items-center gap-2 text-green-700 text-sm font-medium">
+                <Check size={15} className="shrink-0" />
+                Deployed to admin — update message sent.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-bold text-violet-800 uppercase tracking-wide">Deploy to Admin</p>
+                <p className="text-xs text-violet-700">When the fix is live, write the release note and click deploy — the admin will see it on their homepage.</p>
+                <textarea
+                  value={deployMessage}
+                  onChange={e => setDeployMessage(e.target.value)}
+                  rows={3}
+                  disabled={task.status !== 'done'}
+                  placeholder="Write release note…"
+                  className="w-full text-sm border border-violet-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-violet-400 bg-white placeholder:text-gray-400 disabled:bg-gray-50 disabled:text-gray-400"
+                />
+                {task.status !== 'done' && (
+                  <p className="text-[11px] text-violet-500">Mark the task as Done first before deploying.</p>
+                )}
+                {!task.ticketId && (
+                  <p className="text-[11px] text-violet-500">No linked Firebase ticket — deploy button unavailable for manually created tasks.</p>
+                )}
+                {deployError && <p className="text-xs text-red-600">{deployError}</p>}
+                <button
+                  onClick={() => void handleDeploy()}
+                  disabled={deploying || task.status !== 'done' || !task.ticketId}
+                  className="self-start flex items-center gap-1.5 px-4 py-1.5 bg-violet-600 text-white text-xs font-bold rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {deploying && <Loader2 size={11} className="animate-spin" />}
+                  {deploying ? 'Deploying…' : 'Deploy to Admin'}
+                </button>
+              </div>
             )}
           </div>
         )}

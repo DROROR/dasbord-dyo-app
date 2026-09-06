@@ -143,6 +143,14 @@ export interface Task {
   requiresAppUpdate?: boolean
   /** On an app-update task, the support ticket that caused it. */
   sourceTaskId?: string
+  /** Firebase ticket ID — populated for support board tasks created via the edge function. */
+  ticketId?: string
+  /** Firebase app ID — populated for support board tasks created via the edge function. */
+  appId?: string
+  /** True once the developer marks the fix as deployed to the admin's app. */
+  deployedToAdmin?: boolean
+  /** Release note written by the developer when marking as deployed. */
+  updateMessage?: string
 }
 
 export type DocAccessLevel = 'none' | 'view' | 'full'

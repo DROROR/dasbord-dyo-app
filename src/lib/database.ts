@@ -682,6 +682,10 @@ interface DbTask {
   claimed_by_id: string | null
   platforms: Task['platforms'] | null
   task_subtasks?: DbTaskSubtask[]
+  ticket_id: string | null
+  app_id: string | null
+  deployed_to_admin: boolean | null
+  update_message: string | null
 }
 
 interface DbTaskSubtask {
@@ -748,6 +752,10 @@ function dbToTask(db: DbTask): Task {
     sourceTaskId:    db.source_task_id ?? undefined,
     assigneeId:      db.assignee_id ?? undefined,
     claimedById:     db.claimed_by_id ?? undefined,
+    ticketId:        db.ticket_id ?? undefined,
+    appId:           db.app_id ?? undefined,
+    deployedToAdmin: db.deployed_to_admin ?? false,
+    updateMessage:   db.update_message ?? undefined,
   }
 }
 
@@ -782,8 +790,12 @@ function taskToRow(t: Partial<Task>): Record<string, unknown> {
   // already know the real profile UUID (e.g. self-assignment on task
   // creation) should send it directly rather than relying on a secondary
   // name match.
-  if (t.assigneeId     !== undefined) r.assignee_id      = t.assigneeId || null
-  if (t.claimedById    !== undefined) r.claimed_by_id    = t.claimedById || null
+  if (t.assigneeId       !== undefined) r.assignee_id       = t.assigneeId || null
+  if (t.claimedById      !== undefined) r.claimed_by_id     = t.claimedById || null
+  if (t.ticketId         !== undefined) r.ticket_id         = t.ticketId || null
+  if (t.appId            !== undefined) r.app_id            = t.appId || null
+  if (t.deployedToAdmin  !== undefined) r.deployed_to_admin = t.deployedToAdmin
+  if (t.updateMessage    !== undefined) r.update_message    = t.updateMessage || null
   return r
 }
 
@@ -810,6 +822,18 @@ export async function updateTask(id: string, updates: Partial<Task>): Promise<Ta
     .from('tasks')
     .update({ ...taskToRow(updates), updated_at: new Date().toISOString() })
     .eq('id', id)
+    .select('*, task_subtasks(*)')
+    .single()
+  if (error) throw error
+  return dbToTask(data as DbTask)
+}
+
+export async function deployTask(taskId: string, updateMessage: string): Promise<Task> {
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('tasks')
+    .update({ deployed_to_admin: true, update_message: updateMessage, updated_at: now })
+    .eq('id', taskId)
     .select('*, task_subtasks(*)')
     .single()
   if (error) throw error

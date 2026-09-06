@@ -120,11 +120,14 @@ Deno.serve(async (req: Request) => {
         time_entries:   [],
         status_history: [{ status: 'not_started', timestamp: now, changedBy: 'System' }],
         comments:       [],
+        ticket_id:      ticket_id ?? null,
+        app_id:         app_id    ?? null,
         created_by:     'System',
         created_at:     now,
         updated_at:     now,
         claimed:        false,
         whatsapp_pending: false,
+        deployed_to_admin: false,
       })
       .select('id')
       .single()
