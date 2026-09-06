@@ -238,7 +238,7 @@ export function VerticalBoard({
   const [assignee,     setAssignee]     = useState('')
   const [priority,     setPriority]     = useState('')
   const [client,       setClient]       = useState('')
-  const [boardFilter,  setBoardFilter]  = useState(activeBoardId)
+  const [boardFilter,  setBoardFilter]  = useState('')
   const [showArchived, setShowArchived] = useState(true)
 
   // Keeps this dropdown in sync when the board is changed from OUTSIDE
@@ -322,7 +322,7 @@ export function VerticalBoard({
     .filter(s => showArchived ? true : s.id !== 'archived')
     .sort((a, b) => a.order - b.order)
 
-  const anyFilterActive = search || assignee || priority || client || boardFilter
+  const anyFilterActive = !!(search || assignee || priority || client || boardFilter || !showArchived)
 
   return (
     <div className="flex flex-col gap-3 flex-1 min-h-0">
@@ -373,7 +373,7 @@ export function VerticalBoard({
           {showArchived ? 'Hide Archived' : 'Show Archived'}
         </button>
         {anyFilterActive && (
-          <button onClick={() => { onSearchChange(''); setAssignee(''); setPriority(''); setClient(''); changeBoardFilter('') }} className="flex items-center gap-1 text-sm text-gray-500 hover:text-primary transition-colors">
+          <button onClick={() => { onSearchChange(''); setAssignee(''); setPriority(''); setClient(''); setShowArchived(true); changeBoardFilter('') }} className="flex items-center gap-1 text-sm text-gray-500 hover:text-primary transition-colors">
             <X size={12} /> Clear
           </button>
         )}
