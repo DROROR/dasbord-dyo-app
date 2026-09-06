@@ -272,8 +272,16 @@ export function VerticalBoard({
   // priorityDefs in StatusSection above — never from this union).
   const priorityFilterOptions = useMemo(() => {
     if (activeBoardObj) return priorityDefsForBoard(activeBoardObj)
-    return Array.from(new Map(boards.flatMap(b => priorityDefsForBoard(b)).map(p => [p.id, p])).values())
-  }, [activeBoardObj, boards])
+
+    // In All Boards mode, preserve the current board's configured labels for
+    // duplicate stable ids (for example development's critical priority is named
+    // "Urgent"). Other boards still contribute ids that are not present
+    // there; only display precedence changes, never task data.
+    const merged = new Map(boards.flatMap(b => priorityDefsForBoard(b)).map(p => [p.id, p]))
+    const preferredBoard = boards.find(board => board.id === activeBoardId)
+    priorityDefsForBoard(preferredBoard).forEach(priority => merged.set(priority.id, priority))
+    return Array.from(merged.values())
+  }, [activeBoardId, activeBoardObj, boards])
 
   // Status sections: the single active board's own statuses when one
   // is selected (unchanged, exact behavior); a deduplicated-by-id
