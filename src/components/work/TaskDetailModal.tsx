@@ -28,7 +28,10 @@ function taskAttachmentPath(url: string) {
 }
 
 function isImageAttachment(attachment: Attachment) {
-  return attachment.url.startsWith('data:image/') || /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(attachment.name)
+  const urlBeforeQuery = attachment.url.split('?')[0]
+  return attachment.url.startsWith('data:image/')
+    || /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(attachment.name)
+    || /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(urlBeforeQuery)
 }
 
 function fmtDateTime(iso: string) {
