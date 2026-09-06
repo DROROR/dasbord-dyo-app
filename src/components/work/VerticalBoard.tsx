@@ -59,8 +59,9 @@ function TaskCard({
   canMove: boolean
   onMoveClick: (task: Task) => void
 }) {
-  const overdue   = isOverdue(task.dueDate)
-  const unclaimed = task.board === 'support' && task.claimed === false
+  const overdue         = isOverdue(task.dueDate)
+  const isSupport       = task.board === 'support'
+  const unclaimed       = isSupport && task.claimed === false
 
   return (
     // A div, not a button: the priority/assignee quick-edit controls
@@ -74,13 +75,18 @@ function TaskCard({
       onClick={onClick}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
       style={{ padding: '12px 14px', minHeight: '80px' }}
-      className="flex flex-col gap-2 w-full bg-white hover:bg-gray-50/80 border border-gray-100 rounded-lg text-left transition-colors shadow-sm hover:shadow hover:border-gray-200 cursor-pointer"
+      className={`flex flex-col gap-2 w-full bg-white hover:bg-gray-50/80 border rounded-lg text-left transition-colors shadow-sm hover:shadow cursor-pointer ${isSupport ? 'border-violet-200 hover:border-violet-300' : 'border-gray-100 hover:border-gray-200'}`}
     >
       {/* Row 1 — title + badges */}
       <div className="flex items-start gap-2 w-full min-w-0">
         <span className="flex-1 text-[14px] font-medium text-gray-800 leading-snug min-w-0 text-left">
           {task.title}
         </span>
+        {isSupport && (
+          <span className="text-[9px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded font-bold shrink-0">
+            SUPPORT TICKET
+          </span>
+        )}
         {unclaimed && (
           <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold animate-pulse shrink-0">
             UNCLAIMED
