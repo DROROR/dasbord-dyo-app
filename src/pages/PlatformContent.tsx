@@ -643,14 +643,9 @@ function PackageEditor({ packageId }: { packageId: string }) {
 
       {/* Sticky save bar */}
       <div className="px-5 py-4 bg-white border-t border-gray-100 flex items-center justify-end gap-3">
-        {saved && (
-          <span className="text-sm text-emerald-600 font-semibold flex items-center gap-1.5">
-            <Check size={14} /> Saved successfully
-          </span>
-        )}
-        {saveError && (
-          <span className="text-sm text-red-500 font-semibold">Failed to save — try again</span>
-        )}
+        <span aria-live="polite" className="min-w-0 text-sm font-semibold">
+          {saved ? <span className="flex items-center gap-1.5 text-emerald-600"><Check size={14} /> Saved successfully</span> : saveError ? <span className="text-red-500">Failed to save — try again</span> : <span aria-hidden="true" className="text-transparent">Save status</span>}
+        </span>
         <button
           onClick={handleSave}
           disabled={saving}
@@ -673,7 +668,7 @@ export function PlatformContent() {
   const active = PACKAGES.find(p => p.id === activeTab) ?? PACKAGES[0]
 
   return (
-    <div className="flex h-full">
+    <div translate="no" className="notranslate flex h-full">
       {/* Left sidebar — package list */}
       <div className="w-56 shrink-0 border-r border-gray-100 bg-white flex flex-col">
         {/* Sidebar header */}
