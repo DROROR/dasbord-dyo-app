@@ -92,6 +92,9 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
             >
               <Icon size={18} className="shrink-0" />
               {!collapsed && <span>{label}</span>}
+              {!collapsed && id === 'platform_content' && (
+                <span className="rounded-md bg-accent px-1.5 py-0.5 text-[9px] font-extrabold leading-none tracking-wide text-white">NEW</span>
+              )}
               {isActive && !collapsed && (
                 <span className="me-auto w-1.5 h-1.5 rounded-full bg-secondary" />
               )}

@@ -645,6 +645,22 @@ export function Work() {
     try {
       if (openId) window.sessionStorage.setItem(WORK_OPEN_TASK_STORAGE_KEY, openId)
       else window.sessionStorage.removeItem(WORK_OPEN_TASK_STORAGE_KEY)
+
+      // Keep the durable deep link aligned with the task that is actually
+      // open. Previously an older ?task= value outranked the newer session
+      // value on refresh, reopening the wrong task.
+      const url = new URL(window.location.href)
+      const urlTaskId = url.searchParams.get('task')
+      if (openId) {
+        if (urlTaskId !== openId) {
+          url.searchParams.set('task', openId)
+          url.searchParams.delete('subtask')
+        }
+      } else {
+        url.searchParams.delete('task')
+        url.searchParams.delete('subtask')
+      }
+      window.history.replaceState(window.history.state, '', url)
     } catch {
       // Dialog persistence is best-effort when browser storage is restricted.
     }
