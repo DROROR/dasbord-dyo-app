@@ -11,6 +11,7 @@ import { Agents } from './pages/Agents'
 import { BotTraining } from './pages/BotTraining'
 import { Permissions } from './pages/Permissions'
 import { Work } from './pages/Work'
+import { PlatformContent } from './pages/PlatformContent'
 import { Login } from './pages/Login'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AccessDenied } from './components/AccessDenied'
@@ -34,8 +35,9 @@ const buildPages = (navigate: (page: string) => void): Record<string, () => Reac
   agents:      () => <Agents />,
   bots:        () => <BotTraining />,
   permissions: () => <Permissions />,
-  work:        () => <Work />,
-  settings:    () => <Settings />,
+  work:             () => <Work />,
+  platform_content: () => <PlatformContent />,
+  settings:         () => <Settings />,
 })
 
 export default function App() {

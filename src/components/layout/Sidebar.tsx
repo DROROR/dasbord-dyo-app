@@ -75,7 +75,7 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
       {/* Navigation */}
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
         {NAV_ITEMS.filter(item =>
-          item.managePermissionsOnly ? canManagePermissions : !!item.module && hasPermission(item.module, 'view'),
+          item.managePermissionsOnly ? canManagePermissions : item.module === null || hasPermission(item.module, 'view'),
         ).map(({ id, labelHe, labelEn, icon: Icon }) => {
           const label = t(labelHe, labelEn)
           const isActive = active === id

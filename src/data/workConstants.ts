@@ -11,6 +11,7 @@ export const COLUMNS: { id: string; label: string }[] = [
 ]
 
 export const STATUS_PILL: Record<string, string> = {
+  to_ask:              'bg-indigo-100 text-indigo-700',
   not_started:         'bg-gray-100 text-gray-600',
   in_progress:         'bg-blue-100 text-blue-700',
   fixing:              'bg-orange-100 text-orange-700',
@@ -21,6 +22,7 @@ export const STATUS_PILL: Record<string, string> = {
 }
 
 export const STATUS_LABEL: Record<string, string> = {
+  to_ask:              'To Ask',
   not_started:         'Not Started',
   in_progress:         'In Progress',
   fixing:              'Fixing / Round',
@@ -47,6 +49,7 @@ export const STATUS_LABEL_HE: Record<string, string> = {
 }
 
 export const STATUS_LEFT: Record<string, string> = {
+  to_ask:              'border-l-indigo-400',
   not_started:         'border-l-gray-300',
   in_progress:         'border-l-blue-400',
   fixing:              'border-l-orange-400',
@@ -146,5 +149,19 @@ export const INITIAL_BOARDS: Board[] = [
     statuses: DEFAULT_BOARD_STATUSES,
     priorities: DEFAULT_PRIORITY_DEFS,
     createdAt: '2026-07-27T00:00:00Z',
+  },
+  {
+    id: 'app_deployment_request',
+    name: 'App Deployment Request',
+    isDefault: true,
+    access: { Fahad: 'full', Alexander: 'full', Dana: 'full', Roi: 'full', Dror: 'full' },
+    statuses: [
+      { id: 'to_ask',      label: 'To Ask',       pillCls: 'bg-indigo-100 text-indigo-700', leftBorderCls: 'border-l-indigo-400', canDelete: false, order: 0 },
+      { id: 'in_progress', label: 'In Progress',   pillCls: 'bg-blue-100 text-blue-700',    leftBorderCls: 'border-l-blue-400',   canDelete: true,  order: 1 },
+      { id: 'done',        label: 'Done',           pillCls: 'bg-green-100 text-green-700',  leftBorderCls: 'border-l-green-500',  canDelete: false, order: 2 },
+      { id: 'archived',    label: 'Archive',        pillCls: 'bg-gray-100 text-gray-400',   leftBorderCls: 'border-l-gray-200',   canDelete: false, order: 3 },
+    ],
+    priorities: DEFAULT_PRIORITY_DEFS,
+    createdAt: '2026-09-08T00:00:00Z',
   },
 ]
