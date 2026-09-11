@@ -7,6 +7,7 @@ import {
 import { getLeads, updateLead as dbUpdateLead, archiveLead as dbArchiveLead } from '../lib/database'
 import type { DbLead } from '../lib/database'
 import { useCan } from '../hooks/useCan'
+import { useLang } from '../contexts/LanguageContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,11 +34,11 @@ interface Lead {
 
 const TODAY = new Date()
 
-const COLUMNS: Array<{ id: ActiveStatus; label: string; desc: string; accent: string }> = [
-  { id: 'new',         label: 'ליד חדש',    desc: 'הגיע אוטומטית מפרסום',          accent: 'border-t-blue-400'   },
-  { id: 'meeting_set', label: 'נקבעה שיחה', desc: 'הבוט זיהה תיאום ב-Calendly',    accent: 'border-t-secondary'  },
-  { id: 'producer',    label: 'מעוניין — בהפקה', desc: 'ליד מעוניין בתהליך הפקת קורס',  accent: 'border-t-violet-400' },
-  { id: 'follow_up',   label: 'לחזור אליו', desc: 'ממתין לחזרה ידנית',              accent: 'border-t-amber-400'  },
+const COLUMNS: Array<{ id: ActiveStatus; labelHe: string; labelEn: string; descHe: string; descEn: string; accent: string }> = [
+  { id: 'new', labelHe: 'ליד חדש', labelEn: 'New lead', descHe: 'הגיע אוטומטית מפרסום', descEn: 'Arrived automatically from advertising', accent: 'border-t-blue-400' },
+  { id: 'meeting_set', labelHe: 'נקבעה שיחה', labelEn: 'Meeting scheduled', descHe: 'הבוט זיהה תיאום ב-Calendly', descEn: 'The bot detected a Calendly booking', accent: 'border-t-secondary' },
+  { id: 'producer', labelHe: 'מעוניין — בהפקה', labelEn: 'Interested — production', descHe: 'ליד מעוניין בתהליך הפקת קורס', descEn: 'Interested in the course production process', accent: 'border-t-violet-400' },
+  { id: 'follow_up', labelHe: 'לחזור אליו', labelEn: 'Follow up', descHe: 'ממתין לחזרה ידנית', descEn: 'Waiting for manual follow-up', accent: 'border-t-amber-400' },
 ]
 
 const SOURCE_COLOR: Record<LeadSource, string> = {
@@ -50,22 +51,25 @@ const LEAD_TYPE_COLOR: Record<LeadType, string> = {
   producing:  'bg-violet-100 text-violet-700',
 }
 
-const LEAD_TYPE_LABEL: Record<LeadType, string> = {
-  has_course: 'יש קורס',
-  producing:  'מעוניין — בהפקה',
+const LEAD_TYPE_LABEL: Record<LeadType, { he: string; en: string }> = {
+  has_course: { he: 'יש קורס', en: 'Has a course' },
+  producing: { he: 'מעוניין — בהפקה', en: 'Interested — production' },
 }
 
 // Sequence A = existing-course leads, Sequence B = producing leads
-const SEQUENCE_LABEL: Record<LeadType, string>  = { has_course: 'שרשרת א׳', producing: 'שרשרת ב׳'  }
+const SEQUENCE_LABEL: Record<LeadType, { he: string; en: string }> = {
+  has_course: { he: 'שרשרת א׳', en: 'Sequence A' },
+  producing: { he: 'שרשרת ב׳', en: 'Sequence B' },
+}
 const SEQUENCE_COLOR: Record<LeadType, string>  = {
   has_course: 'bg-teal-100 text-teal-700',
   producing:  'bg-purple-100 text-purple-700',
 }
 
-const TONE_OPTIONS: Array<{ value: FollowUpTone; label: string }> = [
-  { value: 'friendly',     label: 'ידידותי'  },
-  { value: 'professional', label: 'מקצועי'   },
-  { value: 'urgent',       label: 'דחוף'     },
+const TONE_OPTIONS: Array<{ value: FollowUpTone; labelHe: string; labelEn: string }> = [
+  { value: 'friendly', labelHe: 'ידידותי', labelEn: 'Friendly' },
+  { value: 'professional', labelHe: 'מקצועי', labelEn: 'Professional' },
+  { value: 'urgent', labelHe: 'דחוף', labelEn: 'Urgent' },
 ]
 
 // ─── DB → UI mapping ──────────────────────────────────────────────────────────
@@ -114,21 +118,23 @@ function dbLeadToLead(row: DbLead): Lead {
 // ─── Loading / error states ───────────────────────────────────────────────────
 
 function LoadingScreen() {
+  const { t } = useLang()
   return (
     <div className="flex flex-col items-center justify-center h-64 gap-3 text-gray-400">
       <Loader2 size={32} className="animate-spin text-primary/40" />
-      <p className="text-sm">טוען לידים...</p>
+      <p className="text-sm">{t('טוען לידים...', 'Loading leads...')}</p>
     </div>
   )
 }
 
 function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const { t } = useLang()
   return (
     <div className="flex flex-col items-center justify-center h-64 gap-4">
       <AlertCircle size={32} className="text-red-300" />
       <p className="text-sm text-red-500">{message}</p>
       <button onClick={onRetry} className="flex items-center gap-2 text-xs text-primary border border-primary/30 px-3 py-2 rounded-lg hover:bg-primary/5 transition-colors">
-        <RefreshCw size={13} />נסה שוב
+        <RefreshCw size={13} />{t('נסה שוב', 'Try again')}
       </button>
     </div>
   )
@@ -145,8 +151,8 @@ function isStale(lead: Lead): boolean {
     daysDiff(new Date(lead.meetingDate), TODAY) >= 3
 }
 
-function fmtDate(iso: string, withYear = false): string {
-  return new Date(iso).toLocaleDateString('he-IL', {
+function fmtDate(iso: string, withYear = false, lang: 'he' | 'en' = 'he'): string {
+  return new Date(iso).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB', {
     day: '2-digit', month: '2-digit',
     ...(withYear ? { year: '2-digit' } : {}),
   })
@@ -181,6 +187,7 @@ function StatCard({ icon, label, value, alert = false }: {
 // ─── Lead card ────────────────────────────────────────────────────────────────
 
 function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
+  const { t, lang } = useLang()
   const stale = isStale(lead)
 
   return (
@@ -203,20 +210,20 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
       <div className="flex flex-wrap gap-1.5 mb-2.5">
         {/* Lead type */}
         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${LEAD_TYPE_COLOR[lead.leadType]}`}>
-          {LEAD_TYPE_LABEL[lead.leadType]}
+          {t(LEAD_TYPE_LABEL[lead.leadType].he, LEAD_TYPE_LABEL[lead.leadType].en)}
         </span>
 
         {/* Stale alert */}
         {stale && (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">
-            <AlertTriangle size={10} />ממתין לעדכון
+            <AlertTriangle size={10} />{t('ממתין לעדכון', 'Waiting for update')}
           </span>
         )}
 
         {/* Warming sequence */}
         {lead.inSequence && (
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SEQUENCE_COLOR[lead.leadType]}`}>
-            {SEQUENCE_LABEL[lead.leadType]}
+            {t(SEQUENCE_LABEL[lead.leadType].he, SEQUENCE_LABEL[lead.leadType].en)}
           </span>
         )}
 
@@ -229,13 +236,13 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
               urg === 'today'   ? 'bg-amber-100 text-amber-700' :
                                   'bg-gray-100 text-gray-500'
             }`}>
-              <Clock size={10} />{fmtDate(lead.followUpDate!)}
+              <Clock size={10} />{fmtDate(lead.followUpDate!, false, lang)}
             </span>
           )
         })()}
       </div>
 
-      <p className="text-xs text-gray-300">{fmtDate(lead.entryDate, true)}</p>
+      <p className="text-xs text-gray-300">{fmtDate(lead.entryDate, true, lang)}</p>
     </button>
   )
 }
@@ -247,18 +254,19 @@ function KanbanColumn({ col, leads, onLeadClick }: {
   leads: Lead[]
   onLeadClick: (l: Lead) => void
 }) {
+  const { t } = useLang()
   return (
     <div className={`bg-surface rounded-2xl border border-gray-100 shadow-sm border-t-4 ${col.accent} flex flex-col`}>
       <div className="px-4 py-3 border-b border-gray-100">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-gray-700">{col.label}</h3>
+          <h3 className="text-sm font-bold text-gray-700">{t(col.labelHe, col.labelEn)}</h3>
           <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full font-medium">{leads.length}</span>
         </div>
-        <p className="text-xs text-gray-400 mt-0.5">{col.desc}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{t(col.descHe, col.descEn)}</p>
       </div>
       <div className="p-3 space-y-2.5 flex-1 min-h-36 bg-gray-50/30">
         {leads.length === 0
-          ? <p className="text-xs text-gray-300 text-center py-8">אין לידים</p>
+          ? <p className="text-xs text-gray-300 text-center py-8">{t('אין לידים', 'No leads')}</p>
           : leads.map(l => <LeadCard key={l.id} lead={l} onClick={() => onLeadClick(l)} />)
         }
       </div>
@@ -275,6 +283,7 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
   onConvert: (id: string) => void
   canEdit: boolean
 }) {
+  const { t, lang } = useLang()
   const [tab,          setTab]          = useState<ModalTab>('details')
   const [converted,    setConverted]    = useState(false)
   const [followUpDate, setFollowUpDate] = useState(lead.followUpDate ?? '')
@@ -306,9 +315,9 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
   }
 
   const MODAL_TABS: Array<{ id: ModalTab; label: string }> = [
-    { id: 'details',  label: 'פרטים'       },
+    { id: 'details', label: t('פרטים', 'Details') },
     { id: 'whatsapp', label: 'WhatsApp'    },
-    { id: 'followup', label: 'תזכורת חזרה' },
+    { id: 'followup', label: t('תזכורת חזרה', 'Follow-up reminder') },
   ]
 
   const StatusBtn = ({
@@ -342,16 +351,16 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
                 {lead.source}
               </span>
               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${LEAD_TYPE_COLOR[lead.leadType]}`}>
-                {LEAD_TYPE_LABEL[lead.leadType]}
+                {t(LEAD_TYPE_LABEL[lead.leadType].he, LEAD_TYPE_LABEL[lead.leadType].en)}
               </span>
               {lead.inSequence && (
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SEQUENCE_COLOR[lead.leadType]}`}>
-                  {SEQUENCE_LABEL[lead.leadType]}
+                  {t(SEQUENCE_LABEL[lead.leadType].he, SEQUENCE_LABEL[lead.leadType].en)}
                 </span>
               )}
               {isStale(lead) && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">
-                  <AlertTriangle size={10} />ממתין לעדכון
+                  <AlertTriangle size={10} />{t('ממתין לעדכון', 'Waiting for update')}
                 </span>
               )}
             </div>
@@ -386,15 +395,15 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
                 <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
                   <Check size={32} className="text-green-600" />
                 </div>
-                <p className="text-lg font-bold text-gray-800">הועבר ללקוחות בהצלחה!</p>
-                <p className="text-sm text-gray-400">הליד הפך ללקוח פעיל במערכת</p>
+                <p className="text-lg font-bold text-gray-800">{t('הועבר ללקוחות בהצלחה!', 'Moved to clients successfully!')}</p>
+                <p className="text-sm text-gray-400">{t('הליד הפך ללקוח פעיל במערכת', 'The lead is now an active client')}</p>
               </div>
             ) : (
               <div className="space-y-5">
 
                 {/* Contact */}
                 <div className="space-y-2.5">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">פרטי יצירת קשר</p>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{t('פרטי יצירת קשר', 'Contact details')}</p>
                   <div className="flex items-center gap-2.5 text-sm text-gray-700">
                     <Phone size={14} className="text-gray-400 shrink-0" />
                     <span dir="ltr">{lead.phone}</span>
@@ -405,19 +414,19 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
                   </div>
                   <div className="flex items-center gap-2.5 text-sm text-gray-700">
                     <Calendar size={14} className="text-gray-400 shrink-0" />
-                    <span>נכנס ב-{fmtDate(lead.entryDate, true)}</span>
+                    <span>{t('נכנס ב-', 'Added on ')}{fmtDate(lead.entryDate, true, lang)}</span>
                   </div>
                   {lead.meetingDate && (
                     <div className="flex items-center gap-2.5 text-sm text-gray-700">
                       <Clock size={14} className="text-gray-400 shrink-0" />
-                      <span>שיחה: {fmtDate(lead.meetingDate, true)}</span>
+                      <span>{t('שיחה: ', 'Meeting: ')}{fmtDate(lead.meetingDate, true, lang)}</span>
                     </div>
                   )}
                 </div>
 
                 {/* Lead type selector */}
                 <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">סוג ליד</p>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{t('סוג ליד', 'Lead type')}</p>
                   <div className="flex gap-2">
                     {(['has_course', 'producing'] as LeadType[]).map(lt => (
                       <button
@@ -433,34 +442,34 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
                         }`}
                       >
                         {lead.leadType === lt && <span className="me-1">✓</span>}
-                        {LEAD_TYPE_LABEL[lt]}
+                        {t(LEAD_TYPE_LABEL[lt].he, LEAD_TYPE_LABEL[lt].en)}
                       </button>
                     ))}
                   </div>
                   <p className="text-xs text-gray-400 mt-1.5">
-                    קובע איזו שרשרת חימום תוגדר: {lead.leadType === 'has_course' ? 'שרשרת א' : 'שרשרת ב'}
+                    {t('קובע איזו שרשרת חימום תוגדר: ', 'Determines the warming sequence: ')}{lead.leadType === 'has_course' ? t('שרשרת א', 'Sequence A') : t('שרשרת ב', 'Sequence B')}
                   </p>
                 </div>
 
                 {/* Notes */}
                 {lead.notes && (
                   <div className="p-3 bg-gray-50 rounded-xl">
-                    <p className="text-xs text-gray-400 mb-1">הערות</p>
+                    <p className="text-xs text-gray-400 mb-1">{t('הערות', 'Notes')}</p>
                     <p className="text-sm text-gray-700">{lead.notes}</p>
                   </div>
                 )}
 
                 {/* Status buttons */}
                 <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">עדכן סטטוס</p>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">{t('עדכן סטטוס', 'Update status')}</p>
                   <div className="grid grid-cols-2 gap-2">
                     <StatusBtn
-                      status="meeting_set" label="נקבעה שיחה"
+                      status="meeting_set" label={t('נקבעה שיחה', 'Meeting scheduled')}
                       activeClass="bg-secondary/20 border-secondary/40 text-secondary-dark"
                       hoverClass="hover:border-secondary/40 hover:bg-secondary/10"
                     />
                     <StatusBtn
-                      status="producer" label="מעוניין — בהפקה"
+                      status="producer" label={t('מעוניין — בהפקה', 'Interested — production')}
                       activeClass="bg-violet-100 border-violet-300 text-violet-700"
                       hoverClass="hover:border-violet-200 hover:bg-violet-50"
                     />
@@ -474,10 +483,10 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
                       }`}
                     >
                       {lead.status === 'follow_up' && <Check size={13} />}
-                      לחזור אליו
+                      {t('לחזור אליו', 'Follow up')}
                     </button>
                     <StatusBtn
-                      status="archived" label="לא רלוונטי"
+                      status="archived" label={t('לא רלוונטי', 'Not relevant')}
                       activeClass="bg-gray-200 border-gray-300 text-gray-600"
                       hoverClass="hover:border-gray-300 hover:bg-gray-50"
                     />
@@ -486,7 +495,7 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
                       disabled={!canEdit}
                       className="col-span-2 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-semibold bg-accent text-white hover:bg-accent-dark transition-all border border-accent disabled:opacity-50 disabled:cursor-default"
                     >
-                      <UserCheck size={15} />הפוך ללקוח
+                      <UserCheck size={15} />{t('הפוך ללקוח', 'Convert to client')}
                     </button>
                   </div>
                 </div>
@@ -497,7 +506,7 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
           {/* ── WhatsApp ── */}
           {tab === 'whatsapp' && (
             <div>
-              <p className="text-xs text-gray-400 text-center mb-4">היסטוריית שיחה עם {lead.name}</p>
+              <p className="text-xs text-gray-400 text-center mb-4">{t('היסטוריית שיחה עם ', 'Conversation history with ')}{lead.name}</p>
               <div className="space-y-2" dir="ltr">
                 {lead.chat.map((msg, i) => (
                   <div key={i} className={`flex ${msg.from === 'us' ? 'justify-end' : 'justify-start'}`}>
@@ -525,7 +534,7 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
           {tab === 'followup' && (
             <div className="space-y-5">
               <div>
-                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">תאריך חזרה</label>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{t('תאריך חזרה', 'Follow-up date')}</label>
                 <input
                   type="date"
                   value={followUpDate}
@@ -536,17 +545,17 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">הערת הקשר לבוט</label>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{t('הערת הקשר לבוט', 'Context note for the bot')}</label>
                 <textarea
                   value={followUpNote}
                   onChange={e => setFollowUpNote(e.target.value)}
                   rows={3}
-                  placeholder="מה לאמר כשמתקשרים בחזרה? הבוט ישתמש בהערה זו."
+                  placeholder={t('מה לאמר כשמתקשרים בחזרה? הבוט ישתמש בהערה זו.', 'What should be said when following up? The bot will use this note.')}
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary leading-relaxed"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">טון הפנייה</label>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{t('טון הפנייה', 'Message tone')}</label>
                 <div className="flex gap-2">
                   {TONE_OPTIONS.map(opt => (
                     <button
@@ -558,7 +567,7 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
                           : 'border-gray-200 text-gray-600 hover:border-primary/40 hover:bg-primary/5'
                       }`}
                     >
-                      {opt.label}
+                      {t(opt.labelHe, opt.labelEn)}
                     </button>
                   ))}
                 </div>
@@ -570,7 +579,7 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
                   fupSaved ? 'bg-green-500 text-white' : 'bg-primary text-white hover:bg-primary-dark'
                 }`}
               >
-                {fupSaved ? <><Check size={14} />נשמר!</> : 'שמור תזכורת'}
+                {fupSaved ? <><Check size={14} />{t('נשמר!', 'Saved!')}</> : t('שמור תזכורת', 'Save reminder')}
               </button>
             </div>
           )}
@@ -583,11 +592,12 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
 // ─── Archive view ─────────────────────────────────────────────────────────────
 
 function ArchiveView({ leads, onLeadClick }: { leads: Lead[]; onLeadClick: (l: Lead) => void }) {
+  const { t, lang } = useLang()
   if (leads.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center bg-surface rounded-2xl border border-gray-100 shadow-sm">
         <p className="text-3xl mb-3">📭</p>
-        <p className="text-sm text-gray-400">אין לידים בארכיב</p>
+        <p className="text-sm text-gray-400">{t('אין לידים בארכיב', 'No archived leads')}</p>
       </div>
     )
   }
@@ -597,7 +607,7 @@ function ArchiveView({ leads, onLeadClick }: { leads: Lead[]; onLeadClick: (l: L
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/60">
-              {['שם', 'טלפון', 'מקור', 'סוג', 'נכנס', 'הערה'].map(h => (
+              {[t('שם', 'Name'), t('טלפון', 'Phone'), t('מקור', 'Source'), t('סוג', 'Type'), t('נכנס', 'Added'), t('הערה', 'Note')].map(h => (
                 <th key={h} className="text-right text-xs font-medium text-gray-400 px-4 py-3 whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -621,10 +631,10 @@ function ArchiveView({ leads, onLeadClick }: { leads: Lead[]; onLeadClick: (l: L
                 </td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${LEAD_TYPE_COLOR[lead.leadType]}`}>
-                    {LEAD_TYPE_LABEL[lead.leadType]}
+                    {t(LEAD_TYPE_LABEL[lead.leadType].he, LEAD_TYPE_LABEL[lead.leadType].en)}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmtDate(lead.entryDate, true)}</td>
+                <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmtDate(lead.entryDate, true, lang)}</td>
                 <td className="px-4 py-3 text-xs text-gray-500 max-w-xs truncate">{lead.notes || '—'}</td>
               </tr>
             ))}
@@ -640,6 +650,7 @@ function ArchiveView({ leads, onLeadClick }: { leads: Lead[]; onLeadClick: (l: L
 const TODAY_ISO = new Date().toISOString().slice(0, 10)
 
 export function Leads() {
+  const { t } = useLang()
   const canEdit = useCan('leads', 'edit')
   const [leads,        setLeads]        = useState<Lead[]>([])
   const [loading,      setLoading]      = useState(true)
@@ -655,7 +666,7 @@ export function Leads() {
       const rows = await getLeads()
       setLeads(rows.map(dbLeadToLead))
     } catch (err) {
-      setFetchError(err instanceof Error ? err.message : 'שגיאה בטעינת לידים')
+      setFetchError(err instanceof Error ? err.message : t('שגיאה בטעינת לידים', 'Failed to load leads'))
     } finally {
       setLoading(false)
     }
@@ -711,7 +722,7 @@ export function Leads() {
       {convertName && (
         <div className="flex items-center gap-3 px-4 py-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">
           <Check size={16} className="text-green-600 shrink-0" />
-          <span><strong>{convertName}</strong> הועבר ללקוחות בהצלחה!</span>
+          <span><strong>{convertName}</strong> {t('הועבר ללקוחות בהצלחה!', 'was moved to clients successfully!')}</span>
           <button onClick={() => setConvertName(null)} className="ms-auto text-green-400 hover:text-green-600 transition-colors">
             <X size={14} />
           </button>
@@ -720,11 +731,11 @@ export function Leads() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatCard icon={<Users size={16} />}         label="לידים פעילים"    value={stats.active}    />
-        <StatCard icon={<UserPlus size={16} />}      label="חדש היום"        value={stats.newToday}  />
-        <StatCard icon={<Calendar size={16} />}      label="שיחות מתוזמנות" value={stats.meetings}  />
-        <StatCard icon={<Clock size={16} />}         label="ממתינים לחזרה"  value={stats.followUps} />
-        <StatCard icon={<AlertTriangle size={16} />} label="ממתין לעדכון"    value={stats.stale}     alert />
+        <StatCard icon={<Users size={16} />}         label={t('לידים פעילים', 'Active leads')}    value={stats.active}    />
+        <StatCard icon={<UserPlus size={16} />}      label={t('חדש היום', 'New today')}        value={stats.newToday}  />
+        <StatCard icon={<Calendar size={16} />}      label={t('שיחות מתוזמנות', 'Scheduled meetings')} value={stats.meetings}  />
+        <StatCard icon={<Clock size={16} />}         label={t('ממתינים לחזרה', 'Waiting for follow-up')}  value={stats.followUps} />
+        <StatCard icon={<AlertTriangle size={16} />} label={t('ממתין לעדכון', 'Waiting for update')}    value={stats.stale}     alert />
       </div>
 
       {/* View toggle */}
@@ -735,7 +746,7 @@ export function Leads() {
             view === 'kanban' ? 'bg-surface text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'
           }`}
         >
-          לוח קנבן
+          {t('לוח קנבן', 'Kanban board')}
         </button>
         <button
           onClick={() => setView('archive')}
@@ -743,7 +754,7 @@ export function Leads() {
             view === 'archive' ? 'bg-surface text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'
           }`}
         >
-          <Archive size={13} />ארכיב
+          <Archive size={13} />{t('ארכיב', 'Archive')}
           {archived.length > 0 && (
             <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full leading-none">
               {archived.length}

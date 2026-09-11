@@ -57,25 +57,26 @@ const NOTIF_COLOR: Record<NotificationType, string> = {
 const FALLBACK_ICON  = Bell
 const FALLBACK_COLOR = 'bg-gray-100 text-gray-600'
 
-function fmtRelative(iso: string) {
+function fmtRelative(iso: string, lang: 'he' | 'en') {
   const diff = Date.now() - new Date(iso).getTime()
   const m = Math.floor(diff / 60_000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m}m ago`
+  if (m < 1) return lang === 'he' ? 'עכשיו' : 'just now'
+  if (m < 60) return lang === 'he' ? 'לפני ' + m + ' דק׳' : m + 'm ago'
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  return `${Math.floor(h / 24)}d ago`
+  if (h < 24) return lang === 'he' ? 'לפני ' + h + ' שעות' : h + 'h ago'
+  return lang === 'he' ? 'לפני ' + Math.floor(h / 24) + ' ימים' : Math.floor(h / 24) + 'd ago'
 }
 
 // ─── WA approval inline panel ────────────────────────────────────────────────
 
 function WaApprovalPanel({ n, onDone }: { n: AppNotification; onDone: () => void }) {
+  const { t } = useLang()
   const [msg, setMsg] = useState(n.waDetails?.message ?? '')
 
   return (
     <div className="px-4 py-3 bg-green-50 border-t border-green-100" dir="rtl">
       <p className="text-[11px] font-semibold text-green-800 mb-2">
-        📱 שלח WhatsApp ל{n.waDetails?.clientName}
+        {t('📱 שלח WhatsApp ל', '📱 Send WhatsApp to ')}{n.waDetails?.clientName}
       </p>
       <textarea
         value={msg}
@@ -88,13 +89,13 @@ function WaApprovalPanel({ n, onDone }: { n: AppNotification; onDone: () => void
           onClick={onDone}
           className="px-3 py-1.5 text-xs font-semibold bg-white border border-green-200 text-green-700 rounded-lg hover:bg-green-50 transition-colors"
         >
-          בטל
+          {t('בטל', 'Cancel')}
         </button>
         <button
           onClick={onDone}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
         >
-          <Send size={11} /> אשר ושלח
+          <Send size={11} /> {t('אשר ושלח', 'Approve and send')}
         </button>
       </div>
     </div>
@@ -179,8 +180,8 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
       <div className="relative z-10 flex items-center gap-2">
         <button
           onClick={toggleTheme}
-          title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
-          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          title={theme === 'dark' ? t('מצב בהיר', 'Light mode') : t('מצב כהה', 'Dark mode')}
+          aria-label={theme === 'dark' ? t('עבור למצב בהיר', 'Switch to light mode') : t('עבור למצב כהה', 'Switch to dark mode')}
           className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary"
         >
           {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
@@ -229,15 +230,15 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                 <div className="flex items-center gap-2">
                   <Bell size={14} className="text-gray-500" />
-                  <span className="text-sm font-semibold text-gray-800">Notifications</span>
+                  <span className="text-sm font-semibold text-gray-800">{t('התראות', 'Notifications')}</span>
                   {unreadCount > 0 && (
-                    <span className="text-[10px] font-bold bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">{unreadCount} new</span>
+                    <span className="text-[10px] font-bold bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">{unreadCount} {t('חדשות', 'new')}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-1">
                   {unreadCount > 0 && (
                     <button onClick={markAllRead} className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-primary transition-colors px-2 py-1 rounded-lg hover:bg-gray-100">
-                      <Check size={10} /> Mark all read
+                      <Check size={10} /> {t('סמן הכל כנקרא', 'Mark all read')}
                     </button>
                   )}
                   <button onClick={() => setPanelOpen(false)} className="p-1 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors">
@@ -251,7 +252,7 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
                 {notifications.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 gap-2 text-center">
                     <Bell size={24} className="text-gray-200" />
-                    <p className="text-sm text-gray-400">No notifications yet</p>
+                    <p className="text-sm text-gray-400">{t('אין התראות עדיין', 'No notifications yet')}</p>
                   </div>
                 ) : (
                   notifications.map(n => {
@@ -279,7 +280,7 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
                             {/* Who it is about, and how to get to them */}
                             {(n.clientName || n.phone) && (
                               <p className="text-[10px] text-gray-500 mt-1 truncate">
-                                <span className="font-semibold">{n.clientName || 'לקוח לא מזוהה'}</span>
+                                <span className="font-semibold">{n.clientName || t('לקוח לא מזוהה', 'Unknown client')}</span>
                                 {n.phone && <span className="text-gray-400"> · {n.phone}</span>}
                               </p>
                             )}
@@ -293,7 +294,7 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
                                     onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); openTicket(n) } }}
                                     className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline cursor-pointer"
                                   >
-                                    <ExternalLink size={9} />פתח קריאה
+                                    <ExternalLink size={9} />{t('פתח קריאה', 'Open ticket')}
                                   </span>
                                 )}
                                 {n.clientId && (
@@ -304,7 +305,7 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
                                     onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); openClient(n) } }}
                                     className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline cursor-pointer"
                                   >
-                                    <ExternalLink size={9} />כרטיס לקוח
+                                    <ExternalLink size={9} />{t('כרטיס לקוח', 'Client profile')}
                                   </span>
                                 )}
                               </span>

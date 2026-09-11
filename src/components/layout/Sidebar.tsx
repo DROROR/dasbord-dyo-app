@@ -59,8 +59,8 @@ export function Sidebar({ active, onNavigate, collapsed, profile, onSignOut }: P
               <select
                 value={workLang}
                 onChange={event => setWorkLang(event.target.value as WorkLang)}
-                aria-label="Work language"
-                title="Work language"
+                aria-label={t('שפת המערכת', 'Application language')}
+                title={t('שפת המערכת', 'Application language')}
                 className="w-[104px] appearance-none rounded-lg border border-white/15 bg-white/10 py-1.5 pl-9 pr-8 text-[11px] font-semibold text-white outline-none focus:border-secondary/60"
               >
                 <option value="en" className="text-gray-800">English</option>

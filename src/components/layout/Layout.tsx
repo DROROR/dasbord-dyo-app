@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import type { UserProfile } from '../../hooks/useAuth'
-import { useWorkLang } from '../../contexts/WorkLanguageContext'
+import { useLang } from '../../contexts/LanguageContext'
 
 interface Props {
   children: ReactNode
@@ -14,10 +14,10 @@ interface Props {
 
 export function Layout({ children, activePage, onNavigate, profile, onSignOut }: Props) {
   const [collapsed, setCollapsed] = useState(false)
-  const { lang: workLang } = useWorkLang()
+  const { dir } = useLang()
 
   return (
-    <div dir={workLang === 'he' ? 'rtl' : 'ltr'} className="flex h-screen overflow-hidden bg-background">
+    <div dir={dir} className="flex h-screen overflow-hidden bg-background">
       <Sidebar
         active={activePage}
         onNavigate={onNavigate}

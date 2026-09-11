@@ -18,6 +18,9 @@ function initialLang(): Lang {
   try {
     const s = localStorage.getItem(KEY)
     if (s === 'en' || s === 'he') return s
+    // Preserve the language selected by users before the app-wide language switch.
+    const legacyWorkLang = localStorage.getItem('workLang')
+    if (legacyWorkLang === 'en' || legacyWorkLang === 'he') return legacyWorkLang
   } catch {
     // Storage can be unavailable in privacy-restricted browser contexts.
   }
@@ -33,6 +36,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.dir = dir
     try {
       localStorage.setItem(KEY, lang)
+      localStorage.setItem('workLang', lang)
     } catch {
       // Language preference remains in memory when persistence is unavailable.
     }
