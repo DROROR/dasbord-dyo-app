@@ -12,6 +12,7 @@ import { AddLeadStatusModal, LEAD_STATUS_COLORS } from '../components/leads/AddL
 import { DeleteLeadStatusModal } from '../components/leads/DeleteLeadStatusModal'
 import { AddLeadModal } from '../components/leads/AddLeadModal'
 import { LeadCalendar } from '../components/leads/LeadCalendar'
+import { getGoogleSheetSyncStatus, syncGoogleSheetLeads, type GoogleSheetSyncResult } from '../lib/googleSheets'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -644,9 +645,14 @@ export function Leads() {
   const [leadSourceFilter, setLeadSourceFilter] = useState('all')
   const [leadCategoryFilter, setLeadCategoryFilter] = useState('all')
   const [attentionOnly, setAttentionOnly] = useState(false)
+  const [syncingSheet, setSyncingSheet] = useState(false)
+  const [sheetSyncResult, setSheetSyncResult] = useState<GoogleSheetSyncResult | null>(null)
+  const [sheetSyncError, setSheetSyncError] = useState('')
+  const [sheetSyncedAt, setSheetSyncedAt] = useState<Date | null>(null)
+  const [sheetConfigured, setSheetConfigured] = useState(false)
 
-  const load = async () => {
-    setLoading(true)
+  const load = async (showLoading = true) => {
+    if (showLoading) setLoading(true)
     setFetchError(null)
     try {
       const [rows, pipelineStatuses] = await Promise.all([getLeads(), getLeadPipelineStatuses()])
@@ -655,11 +661,32 @@ export function Leads() {
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : t('שגיאה בטעינת לידים', 'Failed to load leads'))
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { void load() }, [])
+  useEffect(() => {
+    if (!canDeleteStatuses) return
+    void getGoogleSheetSyncStatus().then(status => setSheetConfigured(status.configured)).catch(() => setSheetConfigured(false))
+  }, [canDeleteStatuses])
+
+  const handleSheetSync = async () => {
+    if (syncingSheet) return
+    setSyncingSheet(true)
+    setSheetSyncError('')
+    try {
+      const result = await syncGoogleSheetLeads()
+      setSheetSyncResult(result)
+      setSheetSyncedAt(new Date())
+      await load(false)
+    } catch (error) {
+      setSheetSyncResult(null)
+      setSheetSyncError(error instanceof Error ? error.message : t('סנכרון Google Sheets נכשל', 'Google Sheets sync failed'))
+    } finally {
+      setSyncingSheet(false)
+    }
+  }
 
   const pipelineFor = (lead: Lead) => statuses.find(status => status.id === lead.pipelineStatusId)
   const hasLegacyStatus = (lead: Lead, status: DbLead['status']) =>
@@ -762,9 +789,15 @@ export function Leads() {
         <button onClick={() => setView('kanban')} className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${view === 'kanban' ? 'bg-surface text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{t('לוח קנבן', 'Kanban board')}</button>
         <button onClick={() => setView('calendar')} className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${view === 'calendar' ? 'bg-surface text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}><CalendarDays size={13} />{t('יומן', 'Calendar')}</button>
         <button onClick={() => setView('archive')} className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${view === 'archive' ? 'bg-surface text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}><Archive size={13} />{t('ארכיב', 'Archive')}{archived.length > 0 && <span className="rounded-md bg-gray-200 px-1.5 py-0.5 text-xs text-gray-500">{archived.length}</span>}</button>
-        {canEdit && <button onClick={() => setAddingLead(true)} className="ms-auto flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white"><UserPlus size={14} />{t('הוסף ליד', 'Add Lead')}</button>}
-        {view === 'kanban' && canEdit && <button onClick={() => setAddingStatus(true)} className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white"><Plus size={14} />{t('הוסף סטטוס', 'Add Status')}</button>}
+        <div dir="ltr" className="ms-auto flex flex-wrap items-center gap-1.5">
+          {canDeleteStatuses && <button onClick={() => void handleSheetSync()} disabled={syncingSheet || !sheetConfigured} title={!sheetConfigured ? t('ממתין להגדרת חשבון השירות', 'Waiting for service-account configuration') : undefined} className={`flex h-9 items-center gap-2 rounded-lg border px-3.5 text-sm font-semibold transition-colors ${sheetConfigured ? 'border-[#0F9D58] bg-[#0F9D58] text-white hover:bg-[#0B8043]' : 'cursor-not-allowed border-green-200 bg-green-50 text-green-700'}`}><img src="/google-sheets-logo.svg" alt="" className="h-[18px] w-[14px] shrink-0 object-contain" />{syncingSheet ? t('מסנכרן...', 'Syncing...') : !sheetConfigured ? t('Google Sheet לא מוגדר', 'Google Sheet not configured') : t('סנכרן Google Sheet', 'Sync Google Sheet')}</button>}
+          {canEdit && <button onClick={() => setAddingLead(true)} className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"><UserPlus size={15} />{t('הוסף ליד', 'Add Lead')}</button>}
+          {view === 'kanban' && canEdit && <><span className="mx-1 h-6 w-px bg-gray-300" aria-hidden="true" /><button onClick={() => setAddingStatus(true)} className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"><Plus size={15} />{t('הוסף סטטוס', 'Add Status')}</button></>}
+        </div>
       </div>
+
+      {sheetSyncResult && <div className="flex flex-wrap items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700"><Check size={14} /><strong>{t('הסנכרון הושלם', 'Sheet sync complete')}</strong><span>{sheetSyncResult.created} {t('נוצרו', 'created')} · {sheetSyncResult.existing} {t('כבר קיימים', 'already existed')} · {sheetSyncResult.skipped} {t('דולגו', 'skipped')}</span>{sheetSyncedAt && <span className="ms-auto text-green-600">{sheetSyncedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}<button onClick={() => setSheetSyncResult(null)}><X size={13} /></button></div>}
+      {sheetSyncError && <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"><AlertTriangle size={14} /><span>{sheetSyncError}</span><button onClick={() => setSheetSyncError('')} className="ms-auto"><X size={13} /></button></div>}
 
       {view !== 'calendar' && (
         <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-gray-100 bg-surface p-2">

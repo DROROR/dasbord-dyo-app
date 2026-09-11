@@ -8,6 +8,11 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss()],
     server: {
       proxy: {
+        '/api/leads/google-sheet': {
+          target: 'http://127.0.0.1:3003',
+          changeOrigin: true,
+          rewrite: path => path.replace(/^\/api\/leads\/google-sheet/, ''),
+        },
         '/api/claude': {
           target: 'https://api.anthropic.com',
           changeOrigin: true,
