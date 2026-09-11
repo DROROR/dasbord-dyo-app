@@ -40,10 +40,17 @@ const buildPages = (navigate: (page: string) => void): Record<string, () => Reac
   settings:         () => <Settings />,
 })
 
+const PAGE_STORAGE_KEY = 'dyo-active-page'
+
+function initialPage() {
+  const params = new URLSearchParams(window.location.search)
+  if (params.has('task')) return 'work'
+  const requested = params.get('page') ?? window.localStorage.getItem(PAGE_STORAGE_KEY)
+  return requested && requested in PAGE_MODULE ? requested : 'dashboard'
+}
+
 export default function App() {
-  const [activePage, setActivePage] = useState(() =>
-    new URLSearchParams(window.location.search).has('task') ? 'work' : 'dashboard',
-  )
+  const [activePage, setActivePage] = useState(initialPage)
   const { user, profile, loading, canViewPage, isDeactivated, signOut } = useAuth()
   const landingSelectedRef = useRef(false)
   const [workMounted, setWorkMounted] = useState(activePage === 'work')
@@ -53,6 +60,11 @@ export default function App() {
   // for that specific page id, rather than silently doing nothing.
   const navigate = useCallback((page: string) => {
     if (page === 'work') setWorkMounted(true)
+    window.localStorage.setItem(PAGE_STORAGE_KEY, page)
+    const url = new URL(window.location.href)
+    url.searchParams.set('page', page)
+    if (page !== 'work') url.searchParams.delete('task')
+    window.history.replaceState(null, '', url)
     setActivePage(page)
   }, [])
 
@@ -68,11 +80,13 @@ export default function App() {
     const hasTaskDeepLink = new URLSearchParams(window.location.search).has('task')
     const landingPage = hasTaskDeepLink && canViewPage('work')
       ? 'work'
-      : !profile.is_owner && canViewPage('work') ? 'work' : firstAllowed
+      : canViewPage(activePage) ? activePage
+        : !profile.is_owner && canViewPage('work') ? 'work' : firstAllowed
     if (!landingPage) return
 
     const timer = window.setTimeout(() => {
       if (landingPage === 'work') setWorkMounted(true)
+      window.localStorage.setItem(PAGE_STORAGE_KEY, landingPage)
       setActivePage(landingPage)
     }, 0)
     return () => window.clearTimeout(timer)

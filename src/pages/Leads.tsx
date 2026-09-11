@@ -1,20 +1,24 @@
 import { useState, useEffect } from 'react'
 import {
   Users, UserPlus, Calendar, Clock, AlertTriangle,
-  X, Check, CheckCheck, Phone, Mail, Archive, UserCheck,
-  Loader2, RefreshCw, AlertCircle,
+  X, Check, CheckCheck, Phone, Mail, Archive,
+  Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search,
 } from 'lucide-react'
-import { getLeads, updateLead as dbUpdateLead, archiveLead as dbArchiveLead } from '../lib/database'
-import type { DbLead } from '../lib/database'
+import { getLeads, getLeadPipelineStatuses, createLeadPipelineStatus, deleteLeadPipelineStatus, createManualLead, updateLead as dbUpdateLead, deleteLead as dbDeleteLead } from '../lib/database'
+import type { DbLead, DbLeadPipelineStatus, LeadStatusColor } from '../lib/database'
 import { useCan } from '../hooks/useCan'
 import { useLang } from '../contexts/LanguageContext'
+import { AddLeadStatusModal, LEAD_STATUS_COLORS } from '../components/leads/AddLeadStatusModal'
+import { DeleteLeadStatusModal } from '../components/leads/DeleteLeadStatusModal'
+import { AddLeadModal } from '../components/leads/AddLeadModal'
+import { LeadCalendar } from '../components/leads/LeadCalendar'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type LeadStatus   = 'new' | 'meeting_set' | 'producer' | 'follow_up' | 'archived'
 type ActiveStatus = Exclude<LeadStatus, 'archived'>
 type LeadType     = 'has_course' | 'producing'
-type LeadSource   = 'Facebook' | 'Instagram'
+type LeadSource   = 'Facebook' | 'Instagram' | 'Manual'
 type FollowUpTone = 'friendly' | 'professional' | 'urgent'
 type ModalTab     = 'details' | 'whatsapp' | 'followup'
 
@@ -23,6 +27,10 @@ interface ChatMessage { from: 'us' | 'lead'; text: string; time: string }
 interface Lead {
   id: string; name: string; phone: string; email: string
   source: LeadSource; leadType: LeadType; status: LeadStatus
+  pipelineStatusId: string | null
+  formAnswer: string
+  dueAt: string | null
+  statusUpdatedAt: string
   entryDate: string; lastUpdate: string
   meetingDate?: string; followUpDate?: string
   followUpNote?: string; followUpTone?: FollowUpTone
@@ -34,16 +42,10 @@ interface Lead {
 
 const TODAY = new Date()
 
-const COLUMNS: Array<{ id: ActiveStatus; labelHe: string; labelEn: string; descHe: string; descEn: string; accent: string }> = [
-  { id: 'new', labelHe: 'ליד חדש', labelEn: 'New lead', descHe: 'הגיע אוטומטית מפרסום', descEn: 'Arrived automatically from advertising', accent: 'border-t-blue-400' },
-  { id: 'meeting_set', labelHe: 'נקבעה שיחה', labelEn: 'Meeting scheduled', descHe: 'הבוט זיהה תיאום ב-Calendly', descEn: 'The bot detected a Calendly booking', accent: 'border-t-secondary' },
-  { id: 'producer', labelHe: 'מעוניין — בהפקה', labelEn: 'Interested — production', descHe: 'ליד מעוניין בתהליך הפקת קורס', descEn: 'Interested in the course production process', accent: 'border-t-violet-400' },
-  { id: 'follow_up', labelHe: 'לחזור אליו', labelEn: 'Follow up', descHe: 'ממתין לחזרה ידנית', descEn: 'Waiting for manual follow-up', accent: 'border-t-amber-400' },
-]
-
 const SOURCE_COLOR: Record<LeadSource, string> = {
   Facebook:  'bg-blue-100 text-blue-700',
   Instagram: 'bg-pink-100 text-pink-700',
+  Manual:    'bg-gray-100 text-gray-600',
 }
 
 const LEAD_TYPE_COLOR: Record<LeadType, string> = {
@@ -100,17 +102,21 @@ function dbLeadToLead(row: DbLead): Lead {
     id:            row.id,
     name:          row.name,
     phone:         row.phone,
-    email:         '',
-    source:        row.source ? DB_SOURCE_MAP[row.source] : 'Facebook',
+    email:         row.email ?? '',
+    source:        row.source ? DB_SOURCE_MAP[row.source] : 'Manual',
     leadType:      row.lead_type ?? 'has_course',
     status:        DB_STATUS_MAP[row.status],
-    entryDate:     row.created_at.slice(0, 10),
-    lastUpdate:    row.follow_up_date ?? row.created_at.slice(0, 10),
+    pipelineStatusId: row.pipeline_status_id,
+    formAnswer: row.form_answer ?? '',
+    dueAt: row.due_at,
+    statusUpdatedAt: row.status_updated_at,
+    entryDate:     row.created_at,
+    lastUpdate:    row.follow_up_date ?? row.status_updated_at ?? row.created_at,
     followUpDate:  row.follow_up_date ?? undefined,
     followUpNote:  row.follow_up_note ?? undefined,
     followUpTone:  (row.follow_up_tone as FollowUpTone | undefined) ?? undefined,
     inSequence:    false,
-    notes:         row.follow_up_note ?? '',
+    notes:         row.notes ?? row.follow_up_note ?? '',
     chat:          [],
   }
 }
@@ -158,12 +164,29 @@ function fmtDate(iso: string, withYear = false, lang: 'he' | 'en' = 'he'): strin
   })
 }
 
+function fmtDateTime(iso: string, lang: 'he' | 'en'): string {
+  return new Date(iso).toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function isLeadDueOverdue(lead: Lead): boolean {
+  return lead.status === 'meeting_set' && !!lead.dueAt && new Date(lead.dueAt).getTime() < Date.now()
+}
+
 function followUpUrgency(iso: string): 'overdue' | 'today' | 'upcoming' {
   const d = new Date(iso)
   if (d.toDateString() === TODAY.toDateString()) return 'today'
   if (d < TODAY) return 'overdue'
   return 'upcoming'
 }
+function leadCategoryColor(answer: string): string {
+  const value = answer.toLowerCase()
+  if (value.includes('community') || value.includes('קהילה')) return 'bg-purple-100 text-purple-700'
+  if (value.includes('create') || value.includes('ליצור')) return 'bg-blue-100 text-blue-700'
+  return 'bg-green-100 text-green-600'
+}
+
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
@@ -172,7 +195,7 @@ function StatCard({ icon, label, value, alert = false }: {
 }) {
   const hot = alert && value > 0
   return (
-    <div className={`bg-surface rounded-2xl border shadow-sm p-4 flex items-start gap-3 ${hot ? 'border-red-200 bg-red-50/30' : 'border-gray-100'}`}>
+    <div className={`bg-surface rounded-2xl border shadow-sm p-3 flex items-start gap-2.5 ${hot ? 'border-red-200 bg-red-50/30' : 'border-gray-100'}`}>
       <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${hot ? 'bg-red-100 text-red-500' : 'bg-primary/10 text-primary'}`}>
         {icon}
       </div>
@@ -188,130 +211,144 @@ function StatCard({ icon, label, value, alert = false }: {
 
 function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
   const { t, lang } = useLang()
-  const stale = isStale(lead)
-
+  const alert = isStale(lead) || isLeadDueOverdue(lead)
+  const category = lead.formAnswer || t(LEAD_TYPE_LABEL[lead.leadType].he, LEAD_TYPE_LABEL[lead.leadType].en)
   return (
-    <button
-      onClick={onClick}
-      className="w-full text-start bg-surface rounded-2xl border border-gray-100 shadow-sm p-3.5 hover:border-primary/30 hover:shadow-md transition-all"
-    >
-      {/* Name + source */}
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-800 truncate">{lead.name}</p>
-          <p className="text-xs text-gray-400 mt-0.5" dir="ltr">{lead.phone}</p>
-        </div>
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${SOURCE_COLOR[lead.source]}`}>
-          {lead.source}
-        </span>
-      </div>
-
-      {/* Tags row */}
-      <div className="flex flex-wrap gap-1.5 mb-2.5">
-        {/* Lead type */}
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${LEAD_TYPE_COLOR[lead.leadType]}`}>
-          {t(LEAD_TYPE_LABEL[lead.leadType].he, LEAD_TYPE_LABEL[lead.leadType].en)}
-        </span>
-
-        {/* Stale alert */}
-        {stale && (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">
-            <AlertTriangle size={10} />{t('ממתין לעדכון', 'Waiting for update')}
-          </span>
-        )}
-
-        {/* Warming sequence */}
-        {lead.inSequence && (
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SEQUENCE_COLOR[lead.leadType]}`}>
-            {t(SEQUENCE_LABEL[lead.leadType].he, SEQUENCE_LABEL[lead.leadType].en)}
-          </span>
-        )}
-
-        {/* Follow-up date */}
-        {lead.followUpDate && (() => {
-          const urg = followUpUrgency(lead.followUpDate!)
-          return (
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-              urg === 'overdue' ? 'bg-red-100 text-red-600' :
-              urg === 'today'   ? 'bg-amber-100 text-amber-700' :
-                                  'bg-gray-100 text-gray-500'
-            }`}>
-              <Clock size={10} />{fmtDate(lead.followUpDate!, false, lang)}
-            </span>
-          )
-        })()}
-      </div>
-
-      <p className="text-xs text-gray-300">{fmtDate(lead.entryDate, true, lang)}</p>
+    <button onClick={onClick} className="grid min-h-11 w-full min-w-[620px] grid-cols-[minmax(180px,1.5fr)_150px_minmax(170px,1fr)_170px] items-center gap-3 border-b border-gray-100 bg-surface px-3 py-2 text-start transition-colors last:border-b-0 hover:bg-gray-50">
+      <span className="flex min-w-0 items-center gap-2"><strong className="truncate text-sm text-gray-800">{lead.name}</strong>{alert && <AlertTriangle size={13} className="shrink-0 text-red-500" />}</span>
+      <span dir="ltr" className="truncate text-xs text-gray-500">{lead.phone}</span>
+      <span className={`w-fit max-w-full truncate rounded-md px-2 py-1 text-xs font-semibold ${leadCategoryColor(category)}`}>{category}</span>
+      <span className={`flex items-center gap-1 text-xs ${isLeadDueOverdue(lead) ? 'font-semibold text-red-600' : 'text-gray-400'}`}>
+        {lead.dueAt ? <><CalendarDays size={11} />{new Date(lead.dueAt).toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</> : '—'}
+      </span>
     </button>
   )
 }
 
 // ─── Kanban column ────────────────────────────────────────────────────────────
 
-function KanbanColumn({ col, leads, onLeadClick }: {
-  col: typeof COLUMNS[number]
+function KanbanColumn({ col, leads, onLeadClick, onDelete }: {
+  col: DbLeadPipelineStatus
+  onDelete?: () => void
   leads: Lead[]
   onLeadClick: (l: Lead) => void
 }) {
   const { t } = useLang()
+  const [open, setOpen] = useState(false)
   return (
-    <div className={`bg-surface rounded-2xl border border-gray-100 shadow-sm border-t-4 ${col.accent} flex flex-col`}>
-      <div className="px-4 py-3 border-b border-gray-100">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-gray-700">{t(col.labelHe, col.labelEn)}</h3>
-          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full font-medium">{leads.length}</span>
-        </div>
-        <p className="text-xs text-gray-400 mt-0.5">{t(col.descHe, col.descEn)}</p>
+    <div className="flex w-full flex-col overflow-hidden rounded-xl border border-gray-100 bg-surface">
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <button onClick={() => setOpen(value => !value)} className="flex min-w-0 flex-1 items-center gap-2 text-start">
+          <ChevronDown size={15} className={`shrink-0 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+          <h3 className={`truncate rounded-md px-2 py-1 text-xs font-semibold ${LEAD_STATUS_COLORS[col.color].badge}`}>{t(col.label_he, col.label_en)}</h3>
+          <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">{leads.length}</span>
+        </button>
+        {onDelete && (
+          <button onClick={onDelete} className="ms-auto rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600" title={t('מחק סטטוס', 'Delete status')}>
+            <Trash2 size={14} />
+          </button>
+        )}
       </div>
-      <div className="p-3 space-y-2.5 flex-1 min-h-36 bg-gray-50/30">
+      {open && <div className="overflow-x-auto bg-gray-50/30 p-2">
         {leads.length === 0
-          ? <p className="text-xs text-gray-300 text-center py-8">{t('אין לידים', 'No leads')}</p>
+          ? <p className="py-5 text-center text-xs text-gray-400">{t('אין לידים', 'No leads')}</p>
           : leads.map(l => <LeadCard key={l.id} lead={l} onClick={() => onLeadClick(l)} />)
         }
-      </div>
+      </div>}
     </div>
   )
 }
 
 // ─── Lead modal ───────────────────────────────────────────────────────────────
 
-function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
+function LeadModal({ lead, onClose, onUpdate, onDelete, canEdit, canDelete, statuses }: {
   lead: Lead
   onClose: () => void
-  onUpdate: (id: string, patch: Partial<Lead>) => void
-  onConvert: (id: string) => void
+  onUpdate: (id: string, patch: Partial<Lead>) => Promise<void>
+  onDelete: (id: string) => Promise<void>
   canEdit: boolean
+  canDelete: boolean
+  statuses: DbLeadPipelineStatus[]
 }) {
   const { t, lang } = useLang()
   const [tab,          setTab]          = useState<ModalTab>('details')
-  const [converted,    setConverted]    = useState(false)
   const [followUpDate, setFollowUpDate] = useState(lead.followUpDate ?? '')
   const [followUpNote, setFollowUpNote] = useState(lead.followUpNote ?? '')
   const [tone,         setTone]         = useState<FollowUpTone>(lead.followUpTone ?? 'friendly')
   const [fupSaved,     setFupSaved]     = useState(false)
+  const [detailNotes, setDetailNotes] = useState(lead.notes)
+  const [detailFormAnswer, setDetailFormAnswer] = useState(lead.formAnswer)
+  const [detailDueAt, setDetailDueAt] = useState(lead.dueAt ? lead.dueAt.slice(0, 16) : '')
+  const [detailsSaved, setDetailsSaved] = useState(false)
+  const [schedulingMeeting, setSchedulingMeeting] = useState(false)
+  const [saving, setSaving] = useState<'details' | 'followup' | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  const modalPipeline = statuses.find(status => status.id === lead.pipelineStatusId)
+  const needsAttention = (modalPipeline?.legacy_status === 'meeting' || (!modalPipeline && lead.status === 'meeting_set')) && !!lead.dueAt && new Date(lead.dueAt).getTime() < Date.now()
 
-  const changeStatus = (status: LeadStatus) => {
-    if (!canEdit) return
-    onUpdate(lead.id, { status, lastUpdate: new Date().toISOString().slice(0, 10) })
+  const confirmMeeting = () => {
+    if (!detailDueAt) return
+    const dueAt = new Date(detailDueAt).toISOString()
+    onUpdate(lead.id, { status: 'meeting_set', pipelineStatusId: statuses.find(item => item.legacy_status === 'meeting')?.id ?? lead.pipelineStatusId, dueAt, statusUpdatedAt: new Date().toISOString(), lastUpdate: new Date().toISOString().slice(0, 10) })
+    setSchedulingMeeting(false)
   }
 
-  const changeLeadType = (leadType: LeadType) => {
-    if (!canEdit) return
-    onUpdate(lead.id, { leadType })
+  const changePipelineStatus = (pipelineStatusId: string) => {
+    const pipeline = statuses.find(item => item.id === pipelineStatusId)
+    if (!pipeline) return
+    const isMeetingStatus = pipeline.legacy_status === 'meeting'
+    const mappedStatus = pipeline.legacy_status ? DB_STATUS_MAP[pipeline.legacy_status] : lead.status
+    setSchedulingMeeting(false)
+    if (isMeetingStatus && !detailDueAt) {
+      setSchedulingMeeting(true)
+      return
+    }
+    void onUpdate(lead.id, {
+      pipelineStatusId,
+      status: mappedStatus,
+      ...(isMeetingStatus && detailDueAt ? { dueAt: new Date(detailDueAt).toISOString() } : {}),
+      statusUpdatedAt: new Date().toISOString(),
+      lastUpdate: new Date().toISOString(),
+    })
+    if (pipeline.legacy_status === 'followup') setTab('followup')
   }
 
-  const handleConvert = () => {
-    if (!canEdit) return
-    setConverted(true)
-    setTimeout(() => { onConvert(lead.id); onClose() }, 2000)
+  const handleDelete = async () => {
+    if (!canDelete || deleting) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await onDelete(lead.id)
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : t('מחיקת הליד נכשלה', 'Could not delete lead'))
+      setDeleting(false)
+    }
   }
 
-  const saveFollowUp = () => {
-    if (!canEdit) return
-    onUpdate(lead.id, { followUpDate, followUpNote, followUpTone: tone })
-    setFupSaved(true)
-    setTimeout(() => setFupSaved(false), 2500)
+  const saveFollowUp = async () => {
+    if (!canEdit || saving) return
+    setSaving('followup')
+    try {
+      await onUpdate(lead.id, { followUpDate, followUpNote, followUpTone: tone })
+      setFupSaved(true)
+      setTimeout(() => setFupSaved(false), 2500)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const saveDetails = async () => {
+    if (!canEdit || saving) return
+    setSaving('details')
+    try {
+      await onUpdate(lead.id, { notes: detailNotes, formAnswer: detailFormAnswer, dueAt: detailDueAt ? new Date(detailDueAt).toISOString() : null })
+      setDetailsSaved(true)
+      setTimeout(() => setDetailsSaved(false), 2000)
+    } finally {
+      setSaving(null)
+    }
   }
 
   const MODAL_TABS: Array<{ id: ModalTab; label: string }> = [
@@ -320,27 +357,10 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
     { id: 'followup', label: t('תזכורת חזרה', 'Follow-up reminder') },
   ]
 
-  const StatusBtn = ({
-    status, label, activeClass, hoverClass,
-  }: {
-    status: LeadStatus; label: string; activeClass: string; hoverClass: string
-  }) => (
-    <button
-      onClick={() => changeStatus(status)}
-      disabled={!canEdit}
-      className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-sm font-medium transition-all border disabled:opacity-50 disabled:cursor-default ${
-        lead.status === status ? activeClass : `border-gray-200 text-gray-600 ${hoverClass}`
-      }`}
-    >
-      {lead.status === status && <Check size={13} />}
-      {label}
-    </button>
-  )
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+      <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[88vh]">
 
         {/* Header */}
         <div className="flex items-start justify-between p-5 border-b border-gray-100 shrink-0">
@@ -348,17 +368,17 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
             <h2 className="text-base font-bold text-primary">{lead.name}</h2>
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SOURCE_COLOR[lead.source]}`}>
-                {lead.source}
+                {lead.source === 'Manual' ? t('ידני', 'Manual') : lead.source}
               </span>
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${LEAD_TYPE_COLOR[lead.leadType]}`}>
-                {t(LEAD_TYPE_LABEL[lead.leadType].he, LEAD_TYPE_LABEL[lead.leadType].en)}
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${leadCategoryColor(lead.formAnswer || LEAD_TYPE_LABEL[lead.leadType].en)}`}>
+                {lead.formAnswer || t(LEAD_TYPE_LABEL[lead.leadType].he, LEAD_TYPE_LABEL[lead.leadType].en)}
               </span>
               {lead.inSequence && (
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SEQUENCE_COLOR[lead.leadType]}`}>
                   {t(SEQUENCE_LABEL[lead.leadType].he, SEQUENCE_LABEL[lead.leadType].en)}
                 </span>
               )}
-              {isStale(lead) && (
+              {needsAttention && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">
                   <AlertTriangle size={10} />{t('ממתין לעדכון', 'Waiting for update')}
                 </span>
@@ -387,19 +407,16 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
 
         {/* Content */}
         <div className="overflow-y-auto flex-1 p-5">
+          {needsAttention && (
+            <div className="mb-3 flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-red-700">
+              <AlertTriangle size={20} className="mt-0.5 shrink-0" />
+              <div><p className="text-sm font-bold">{t('הפגישה עברה — נדרש עדכון', 'Meeting passed — update required')}</p><p className="mt-0.5 text-xs">{t('עדכן את סטטוס הליד או קבע מועד חדש לפגישה.', 'Update the lead status or schedule a new meeting time.')}</p></div>
+            </div>
+          )}
 
           {/* ── פרטים ── */}
           {tab === 'details' && (
-            converted ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
-                  <Check size={32} className="text-green-600" />
-                </div>
-                <p className="text-lg font-bold text-gray-800">{t('הועבר ללקוחות בהצלחה!', 'Moved to clients successfully!')}</p>
-                <p className="text-sm text-gray-400">{t('הליד הפך ללקוח פעיל במערכת', 'The lead is now an active client')}</p>
-              </div>
-            ) : (
-              <div className="space-y-5">
+              <div className="space-y-2">
 
                 {/* Contact */}
                 <div className="space-y-2.5">
@@ -412,95 +429,56 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
                     <Mail size={14} className="text-gray-400 shrink-0" />
                     <span dir="ltr">{lead.email}</span>
                   </div>
-                  <div className="flex items-center gap-2.5 text-sm text-gray-700">
-                    <Calendar size={14} className="text-gray-400 shrink-0" />
-                    <span>{t('נכנס ב-', 'Added on ')}{fmtDate(lead.entryDate, true, lang)}</span>
-                  </div>
-                  {lead.meetingDate && (
-                    <div className="flex items-center gap-2.5 text-sm text-gray-700">
-                      <Clock size={14} className="text-gray-400 shrink-0" />
-                      <span>{t('שיחה: ', 'Meeting: ')}{fmtDate(lead.meetingDate, true, lang)}</span>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                      <Calendar size={14} className="shrink-0 text-gray-400" />
+                      <span><strong className="block text-[10px] text-gray-400">{t('נוצר', 'Created')}</strong>{fmtDateTime(lead.entryDate, lang)}</span>
                     </div>
-                  )}
-                </div>
-
-                {/* Lead type selector */}
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{t('סוג ליד', 'Lead type')}</p>
-                  <div className="flex gap-2">
-                    {(['has_course', 'producing'] as LeadType[]).map(lt => (
-                      <button
-                        key={lt}
-                        onClick={() => changeLeadType(lt)}
-                        disabled={!canEdit}
-                        className={`flex-1 py-2 px-3 rounded-xl text-sm font-medium transition-all border disabled:opacity-50 disabled:cursor-default ${
-                          lead.leadType === lt
-                            ? lt === 'has_course'
-                              ? 'bg-emerald-100 border-emerald-300 text-emerald-700'
-                              : 'bg-violet-100 border-violet-300 text-violet-700'
-                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                        }`}
-                      >
-                        {lead.leadType === lt && <span className="me-1">✓</span>}
-                        {t(LEAD_TYPE_LABEL[lt].he, LEAD_TYPE_LABEL[lt].en)}
-                      </button>
-                    ))}
+                    <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                      <Clock size={14} className="shrink-0 text-gray-400" />
+                      <span><strong className="block text-[10px] text-gray-400">{t('תאריך ושעת יעד', 'Due date & time')}</strong>{lead.dueAt ? fmtDateTime(lead.dueAt, lang) : t('לא נקבע', 'Not set')}</span>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                      <RefreshCw size={14} className="shrink-0 text-gray-400" />
+                      <span><strong className="block text-[10px] text-gray-400">{t('עדכון סטטוס אחרון', 'Last status update')}</strong>{fmtDateTime(lead.statusUpdatedAt, lang)}</span>
+                    </div>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1.5">
-                    {t('קובע איזו שרשרת חימום תוגדר: ', 'Determines the warming sequence: ')}{lead.leadType === 'has_course' ? t('שרשרת א', 'Sequence A') : t('שרשרת ב', 'Sequence B')}
-                  </p>
                 </div>
 
-                {/* Notes */}
-                {lead.notes && (
-                  <div className="p-3 bg-gray-50 rounded-xl">
-                    <p className="text-xs text-gray-400 mb-1">{t('הערות', 'Notes')}</p>
-                    <p className="text-sm text-gray-700">{lead.notes}</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-semibold text-gray-500 sm:col-span-2">{t('תשובת הטופס / קטגוריה', 'Form answer / category')}
+                    <input value={detailFormAnswer} onChange={e => setDetailFormAnswer(e.target.value)} disabled={!canEdit} className="mt-1.5 h-10 w-full rounded-lg border border-gray-200 bg-surface px-3 text-sm text-gray-700 outline-none focus:border-primary disabled:opacity-50" />
+                  </label>
+                  <label className="text-xs font-semibold text-gray-500 sm:col-span-2">{t('תאריך ושעת יעד', 'Due date and time')}
+                    <input type="datetime-local" value={detailDueAt} onChange={e => setDetailDueAt(e.target.value)} disabled={!canEdit} className="mt-1.5 h-10 w-full rounded-lg border border-gray-200 bg-surface px-3 text-sm text-gray-700 outline-none focus:border-primary disabled:opacity-50" />
+                  </label>
+                  <label className="text-xs font-semibold text-gray-500 sm:col-span-2">{t('הערות', 'Notes')}
+                    <textarea value={detailNotes} onChange={e => setDetailNotes(e.target.value)} disabled={!canEdit} rows={4} placeholder={t('מה למדת על הליד ומה דיברתם?', 'What did you learn and discuss with this lead?')} className="mt-1.5 w-full resize-y rounded-lg border border-gray-200 bg-surface px-3 py-2 text-sm text-gray-700 outline-none focus:border-primary disabled:opacity-50" />
+                  </label>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-400">{t('סטטוס צינור', 'Pipeline status')}</label>
+                  <select value={lead.pipelineStatusId ?? ''} onChange={e => changePipelineStatus(e.target.value)} disabled={!canEdit}
+                    className="h-10 w-full rounded-lg border border-gray-200 bg-surface px-3 text-sm text-gray-700 outline-none focus:border-primary disabled:opacity-50">
+                    {statuses.map(status => (
+                      <option key={status.id} value={status.id}>{t(status.label_he, status.label_en)}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {schedulingMeeting && (
+                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+                    <p className="mb-2 text-xs font-semibold text-blue-700">{t('בחר תאריך ושעה לפגישה', 'Select meeting date and time')}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input type="datetime-local" value={detailDueAt} onChange={e => setDetailDueAt(e.target.value)} className="h-9 min-w-[220px] flex-1 rounded-lg border border-blue-200 bg-surface px-3 text-sm" />
+                      <button onClick={() => setSchedulingMeeting(false)} className="h-9 px-3 text-sm text-gray-500">{t('ביטול', 'Cancel')}</button>
+                      <button onClick={confirmMeeting} disabled={!detailDueAt} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:opacity-40">{t('אשר פגישה', 'Confirm meeting')}</button>
+                    </div>
                   </div>
                 )}
 
-                {/* Status buttons */}
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">{t('עדכן סטטוס', 'Update status')}</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <StatusBtn
-                      status="meeting_set" label={t('נקבעה שיחה', 'Meeting scheduled')}
-                      activeClass="bg-secondary/20 border-secondary/40 text-secondary-dark"
-                      hoverClass="hover:border-secondary/40 hover:bg-secondary/10"
-                    />
-                    <StatusBtn
-                      status="producer" label={t('מעוניין — בהפקה', 'Interested — production')}
-                      activeClass="bg-violet-100 border-violet-300 text-violet-700"
-                      hoverClass="hover:border-violet-200 hover:bg-violet-50"
-                    />
-                    <button
-                      onClick={() => { changeStatus('follow_up'); setTab('followup') }}
-                      disabled={!canEdit}
-                      className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-sm font-medium transition-all border disabled:opacity-50 disabled:cursor-default ${
-                        lead.status === 'follow_up'
-                          ? 'bg-amber-100 border-amber-300 text-amber-700'
-                          : 'border-gray-200 text-gray-600 hover:border-amber-300 hover:bg-amber-50'
-                      }`}
-                    >
-                      {lead.status === 'follow_up' && <Check size={13} />}
-                      {t('לחזור אליו', 'Follow up')}
-                    </button>
-                    <StatusBtn
-                      status="archived" label={t('לא רלוונטי', 'Not relevant')}
-                      activeClass="bg-gray-200 border-gray-300 text-gray-600"
-                      hoverClass="hover:border-gray-300 hover:bg-gray-50"
-                    />
-                    <button
-                      onClick={handleConvert}
-                      disabled={!canEdit}
-                      className="col-span-2 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-semibold bg-accent text-white hover:bg-accent-dark transition-all border border-accent disabled:opacity-50 disabled:cursor-default"
-                    >
-                      <UserCheck size={15} />{t('הפוך ללקוח', 'Convert to client')}
-                    </button>
-                  </div>
-                </div>
               </div>
-            )
           )}
 
           {/* ── WhatsApp ── */}
@@ -532,7 +510,7 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
 
           {/* ── Follow-up ── */}
           {tab === 'followup' && (
-            <div className="space-y-5">
+            <div className="space-y-2">
               <div>
                 <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{t('תאריך חזרה', 'Follow-up date')}</label>
                 <input
@@ -572,17 +550,16 @@ function LeadModal({ lead, onClose, onUpdate, onConvert, canEdit }: {
                   ))}
                 </div>
               </div>
-              <button
-                onClick={saveFollowUp}
-                disabled={!canEdit}
-                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-default ${
-                  fupSaved ? 'bg-green-500 text-white' : 'bg-primary text-white hover:bg-primary-dark'
-                }`}
-              >
-                {fupSaved ? <><Check size={14} />{t('נשמר!', 'Saved!')}</> : t('שמור תזכורת', 'Save reminder')}
-              </button>
             </div>
           )}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-gray-100 bg-surface px-5 py-3">
+          {canDelete && !confirmDelete && <button onClick={() => setConfirmDelete(true)} className="me-auto flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-red-600 hover:bg-red-50"><Trash2 size={14} />{t('מחק ליד', 'Delete lead')}</button>}
+          {canDelete && confirmDelete && <div className="me-auto flex items-center gap-2"><span className="text-xs font-semibold text-red-600">{t('למחוק לצמיתות?', 'Delete permanently?')}</span><button onClick={() => void handleDelete()} disabled={deleting} className="h-8 rounded-lg bg-red-600 px-3 text-xs font-semibold text-white disabled:opacity-50">{deleting ? t('מוחק...', 'Deleting...') : t('כן, מחק', 'Yes, delete')}</button><button onClick={() => setConfirmDelete(false)} disabled={deleting} className="h-8 px-2 text-xs text-gray-500">{t('ביטול', 'Cancel')}</button></div>}
+          {deleteError && <span className="me-auto text-xs text-red-600">{deleteError}</span>}
+          <button onClick={onClose} className="h-9 px-3 text-sm text-gray-500">{t('סגור', 'Close')}</button>
+          {tab === 'details' && canEdit && <button onClick={() => void saveDetails()} disabled={saving !== null} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving === 'details' ? t('שומר...', 'Saving...') : detailsSaved ? t('נשמר', 'Saved') : t('שמור פרטים', 'Save details')}</button>}
+          {tab === 'followup' && canEdit && <button onClick={() => void saveFollowUp()} disabled={saving !== null} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving === 'followup' ? t('שומר...', 'Saving...') : fupSaved ? t('נשמר!', 'Saved!') : t('שמור תזכורת', 'Save reminder')}</button>}
         </div>
       </div>
     </div>
@@ -626,15 +603,15 @@ function ArchiveView({ leads, onLeadClick }: { leads: Lead[]; onLeadClick: (l: L
                 <td className="px-4 py-3 text-xs text-gray-400" dir="ltr">{lead.phone}</td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SOURCE_COLOR[lead.source]}`}>
-                    {lead.source}
+                    {lead.source === 'Manual' ? t('ידני', 'Manual') : lead.source}
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${LEAD_TYPE_COLOR[lead.leadType]}`}>
-                    {t(LEAD_TYPE_LABEL[lead.leadType].he, LEAD_TYPE_LABEL[lead.leadType].en)}
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${leadCategoryColor(lead.formAnswer || LEAD_TYPE_LABEL[lead.leadType].en)}`}>
+                    {lead.formAnswer || t(LEAD_TYPE_LABEL[lead.leadType].he, LEAD_TYPE_LABEL[lead.leadType].en)}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmtDate(lead.entryDate, true, lang)}</td>
+                <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmtDateTime(lead.entryDate, lang)}</td>
                 <td className="px-4 py-3 text-xs text-gray-500 max-w-xs truncate">{lead.notes || '—'}</td>
               </tr>
             ))}
@@ -652,19 +629,29 @@ const TODAY_ISO = new Date().toISOString().slice(0, 10)
 export function Leads() {
   const { t } = useLang()
   const canEdit = useCan('leads', 'edit')
+  const canDeleteStatuses = useCan('leads', 'full')
   const [leads,        setLeads]        = useState<Lead[]>([])
   const [loading,      setLoading]      = useState(true)
   const [fetchError,   setFetchError]   = useState<string | null>(null)
-  const [view,         setView]         = useState<'kanban' | 'archive'>('kanban')
+  const [view, setView] = useState<'kanban' | 'calendar' | 'archive'>('kanban')
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
-  const [convertName,  setConvertName]  = useState<string | null>(null)
+  const [statuses, setStatuses] = useState<DbLeadPipelineStatus[]>([])
+  const [addingStatus, setAddingStatus] = useState(false)
+  const [addingLead, setAddingLead] = useState(false)
+  const [deletingStatus, setDeletingStatus] = useState<DbLeadPipelineStatus | null>(null)
+  const [leadQuery, setLeadQuery] = useState('')
+  const [leadStatusFilter, setLeadStatusFilter] = useState('all')
+  const [leadSourceFilter, setLeadSourceFilter] = useState('all')
+  const [leadCategoryFilter, setLeadCategoryFilter] = useState('all')
+  const [attentionOnly, setAttentionOnly] = useState(false)
 
   const load = async () => {
     setLoading(true)
     setFetchError(null)
     try {
-      const rows = await getLeads()
+      const [rows, pipelineStatuses] = await Promise.all([getLeads(), getLeadPipelineStatuses()])
       setLeads(rows.map(dbLeadToLead))
+      setStatuses(pipelineStatuses)
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : t('שגיאה בטעינת לידים', 'Failed to load leads'))
     } finally {
@@ -674,14 +661,33 @@ export function Leads() {
 
   useEffect(() => { load() }, [])
 
-  const archived = leads.filter(l => l.status === 'archived')
+  const pipelineFor = (lead: Lead) => statuses.find(status => status.id === lead.pipelineStatusId)
+  const hasLegacyStatus = (lead: Lead, status: DbLead['status']) =>
+    pipelineFor(lead)?.legacy_status === status || (!pipelineFor(lead) && UI_STATUS_MAP[lead.status] === status)
+  const isArchivedLead = (lead: Lead) => pipelineFor(lead)?.is_archived || hasLegacyStatus(lead, 'irrelevant')
+  const isPendingMeeting = (lead: Lead) => hasLegacyStatus(lead, 'meeting')
+  const isOverdueMeeting = (lead: Lead) => isPendingMeeting(lead) && !!lead.dueAt && new Date(lead.dueAt).getTime() < Date.now()
+
+  const archived = leads.filter(isArchivedLead)
+  const categoryOptions = Array.from(new Set(leads.map(lead => lead.formAnswer || LEAD_TYPE_LABEL[lead.leadType].en).filter(Boolean))).sort()
+  const normalizedLeadQuery = leadQuery.trim().toLowerCase()
+  const filteredBoardLeads = leads.filter(lead => {
+    const category = lead.formAnswer || LEAD_TYPE_LABEL[lead.leadType].en
+    if (normalizedLeadQuery && !(lead.name + ' ' + lead.phone + ' ' + lead.email).toLowerCase().includes(normalizedLeadQuery)) return false
+    if (leadStatusFilter !== 'all' && lead.pipelineStatusId !== leadStatusFilter) return false
+    if (leadSourceFilter !== 'all' && lead.source !== leadSourceFilter) return false
+    if (leadCategoryFilter !== 'all' && category !== leadCategoryFilter) return false
+    if (attentionOnly && !isOverdueMeeting(lead) && !isStale(lead)) return false
+    return true
+  })
+  const boardFiltersActive = Boolean(leadQuery || leadStatusFilter !== 'all' || leadSourceFilter !== 'all' || leadCategoryFilter !== 'all' || attentionOnly)
 
   const stats = {
-    active:    leads.filter(l => l.status !== 'archived').length,
-    newToday:  leads.filter(l => l.entryDate === TODAY_ISO).length,
-    meetings:  leads.filter(l => l.status === 'meeting_set').length,
-    followUps: leads.filter(l => l.status === 'follow_up').length,
-    stale:     leads.filter(isStale).length,
+    active:    leads.filter(lead => !isArchivedLead(lead)).length,
+    newToday:  leads.filter(lead => lead.entryDate.slice(0, 10) === TODAY_ISO).length,
+    meetings:  leads.filter(isPendingMeeting).length,
+    followUps: leads.filter(lead => hasLegacyStatus(lead, 'followup')).length,
+    stale:     leads.filter(lead => isStale(lead) || isOverdueMeeting(lead)).length,
   }
 
   const handleUpdate = async (id: string, patch: Partial<Lead>) => {
@@ -691,46 +697,59 @@ export function Leads() {
     setSelectedLead(prev => prev?.id === id ? { ...prev, ...patch } : prev)
     // Persist to DB
     try {
-      if (patch.status === 'archived') { await dbArchiveLead(id); return }
+      if (patch.status === 'archived') {
+        await dbUpdateLead(id, { status: 'irrelevant', ...(patch.pipelineStatusId !== undefined ? { pipeline_status_id: patch.pipelineStatusId } : {}) })
+        return
+      }
       type DbPatch = Parameters<typeof dbUpdateLead>[1]
       const dbPatch: DbPatch = {}
       if (patch.status      !== undefined) dbPatch.status         = UI_STATUS_MAP[patch.status]
+      if (patch.pipelineStatusId !== undefined) dbPatch.pipeline_status_id = patch.pipelineStatusId
       if (patch.leadType    !== undefined) dbPatch.lead_type      = patch.leadType
       if (patch.followUpDate !== undefined) dbPatch.follow_up_date = patch.followUpDate ?? null
       if (patch.followUpNote !== undefined) dbPatch.follow_up_note = patch.followUpNote ?? null
       if (patch.followUpTone !== undefined) dbPatch.follow_up_tone = patch.followUpTone ?? null
+      if (patch.formAnswer !== undefined) dbPatch.form_answer = patch.formAnswer || null
+      if (patch.notes !== undefined) dbPatch.notes = patch.notes || null
+      if (patch.dueAt !== undefined) dbPatch.due_at = patch.dueAt
       if (Object.keys(dbPatch).length > 0) await dbUpdateLead(id, dbPatch)
     } catch {
       // Silent: optimistic update stands; reload on next visit
     }
   }
 
-  const handleConvert = (id: string) => {
-    if (!canEdit) return
-    const name = leads.find(l => l.id === id)?.name ?? ''
-    setLeads(prev => prev.filter(l => l.id !== id))
-    setConvertName(name)
-    setTimeout(() => setConvertName(null), 4000)
+
+  const handleDeleteLead = async (id: string) => {
+    await dbDeleteLead(id)
+    setLeads(prev => prev.filter(lead => lead.id !== id))
+    setSelectedLead(null)
+  }
+
+  const handleAddStatus = async (label: string, color: LeadStatusColor) => {
+    const created = await createLeadPipelineStatus({
+      label_he: label, label_en: label, color,
+      position: (statuses.at(-1)?.position ?? 0) + 10,
+    })
+    setStatuses(prev => [...prev, created])
+  }
+
+  const handleDeleteStatus = async (status: DbLeadPipelineStatus) => {
+    await deleteLeadPipelineStatus(status.id)
+    setStatuses(prev => prev.filter(item => item.id !== status.id))
+  }
+
+  const handleAddLead = async (data: { name: string; phone: string; email: string; formAnswer: string; statusId: string }) => {
+    const created = await createManualLead({ name: data.name, phone: data.phone, email: data.email, form_answer: data.formAnswer, pipeline_status_id: data.statusId })
+    setLeads(prev => [dbLeadToLead(created), ...prev])
   }
 
   if (loading) return <LoadingScreen />
   if (fetchError) return <ErrorScreen message={fetchError} onRetry={load} />
 
   return (
-    <div className="space-y-5">
-      {/* Conversion banner */}
-      {convertName && (
-        <div className="flex items-center gap-3 px-4 py-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">
-          <Check size={16} className="text-green-600 shrink-0" />
-          <span><strong>{convertName}</strong> {t('הועבר ללקוחות בהצלחה!', 'was moved to clients successfully!')}</span>
-          <button onClick={() => setConvertName(null)} className="ms-auto text-green-400 hover:text-green-600 transition-colors">
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
+    <div className="space-y-2">
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard icon={<Users size={16} />}         label={t('לידים פעילים', 'Active leads')}    value={stats.active}    />
         <StatCard icon={<UserPlus size={16} />}      label={t('חדש היום', 'New today')}        value={stats.newToday}  />
         <StatCard icon={<Calendar size={16} />}      label={t('שיחות מתוזמנות', 'Scheduled meetings')} value={stats.meetings}  />
@@ -738,60 +757,56 @@ export function Leads() {
         <StatCard icon={<AlertTriangle size={16} />} label={t('ממתין לעדכון', 'Waiting for update')}    value={stats.stale}     alert />
       </div>
 
-      {/* View toggle */}
-      <div className="flex gap-1 bg-gray-100/60 p-1 rounded-xl w-fit">
-        <button
-          onClick={() => setView('kanban')}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-            view === 'kanban' ? 'bg-surface text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'
-          }`}
-        >
-          {t('לוח קנבן', 'Kanban board')}
-        </button>
-        <button
-          onClick={() => setView('archive')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-            view === 'archive' ? 'bg-surface text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'
-          }`}
-        >
-          <Archive size={13} />{t('ארכיב', 'Archive')}
-          {archived.length > 0 && (
-            <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full leading-none">
-              {archived.length}
-            </span>
-          )}
-        </button>
+      {/* View controls */}
+      <div className="flex w-full flex-wrap items-center gap-1 rounded-xl bg-gray-100/60 p-1">
+        <button onClick={() => setView('kanban')} className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${view === 'kanban' ? 'bg-surface text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{t('לוח קנבן', 'Kanban board')}</button>
+        <button onClick={() => setView('calendar')} className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${view === 'calendar' ? 'bg-surface text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}><CalendarDays size={13} />{t('יומן', 'Calendar')}</button>
+        <button onClick={() => setView('archive')} className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${view === 'archive' ? 'bg-surface text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}><Archive size={13} />{t('ארכיב', 'Archive')}{archived.length > 0 && <span className="rounded-md bg-gray-200 px-1.5 py-0.5 text-xs text-gray-500">{archived.length}</span>}</button>
+        {canEdit && <button onClick={() => setAddingLead(true)} className="ms-auto flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white"><UserPlus size={14} />{t('הוסף ליד', 'Add Lead')}</button>}
+        {view === 'kanban' && canEdit && <button onClick={() => setAddingStatus(true)} className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white"><Plus size={14} />{t('הוסף סטטוס', 'Add Status')}</button>}
       </div>
 
-      {/* Kanban — 4 columns on large screens, 2×2 on medium, stacked on mobile */}
+      {view !== 'calendar' && (
+        <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-gray-100 bg-surface p-2">
+          <label className="relative min-w-44 flex-1 sm:max-w-64"><Search size={14} className="absolute start-2.5 top-2 text-gray-400" /><input value={leadQuery} onChange={e => setLeadQuery(e.target.value)} placeholder={t('חפש שם, טלפון או אימייל', 'Search name, phone or email')} className="h-8 w-full rounded-lg border border-gray-200 bg-surface ps-8 pe-3 text-xs outline-none focus:border-primary" /></label>
+          <select value={leadStatusFilter} onChange={e => setLeadStatusFilter(e.target.value)} className="h-8 min-w-36 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל הסטטוסים', 'All statuses')}</option>{statuses.map(status => <option key={status.id} value={status.id}>{t(status.label_he, status.label_en)}</option>)}</select>
+          <select value={leadSourceFilter} onChange={e => setLeadSourceFilter(e.target.value)} className="h-8 min-w-28 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל המקורות', 'All sources')}</option><option value="Manual">{t('ידני', 'Manual')}</option><option value="Facebook">Facebook</option><option value="Instagram">Instagram</option></select>
+          <select value={leadCategoryFilter} onChange={e => setLeadCategoryFilter(e.target.value)} className="h-8 min-w-32 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל הקטגוריות', 'All categories')}</option>{categoryOptions.map(category => <option key={category} value={category}>{category}</option>)}</select>
+          <button onClick={() => setAttentionOnly(value => !value)} className={`flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold ${attentionOnly ? 'bg-red-100 text-red-600' : 'border border-gray-200 text-gray-500'}`}><AlertTriangle size={13} />{t('דורש עדכון', 'Needs attention')}</button>
+          {boardFiltersActive && <button onClick={() => { setLeadQuery(''); setLeadStatusFilter('all'); setLeadSourceFilter('all'); setLeadCategoryFilter('all'); setAttentionOnly(false) }} className="h-8 px-2 text-xs text-gray-500">{t('נקה', 'Clear')}</button>}
+        </div>
+      )}
+
       {view === 'kanban' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          {COLUMNS.map(col => (
-            <KanbanColumn
-              key={col.id}
-              col={col}
-              leads={leads.filter(l => l.status === col.id)}
-              onLeadClick={setSelectedLead}
-            />
+        <div className="flex w-full flex-col gap-2">
+          {statuses.filter(status => !status.is_archived).map(col => (
+            <KanbanColumn key={col.id} col={col} leads={filteredBoardLeads.filter(lead => lead.pipelineStatusId === col.id)} onLeadClick={setSelectedLead}
+              onDelete={canDeleteStatuses && col.legacy_status === null ? () => setDeletingStatus(col) : undefined} />
           ))}
         </div>
       )}
 
-      {/* Archive */}
-      {view === 'archive' && (
-        <ArchiveView leads={archived} onLeadClick={setSelectedLead} />
+      {view === 'calendar' && (
+        <LeadCalendar leads={leads.filter(lead => lead.dueAt).map(lead => ({ id: lead.id, name: lead.name, phone: lead.phone, dueAt: lead.dueAt!, pipelineStatusId: lead.pipelineStatusId, statusUpdatedAt: lead.statusUpdatedAt, meetingPending: isPendingMeeting(lead) }))} statuses={statuses} onOpen={id => setSelectedLead(leads.find(lead => lead.id === id) ?? null)} />
       )}
 
+      {view === 'archive' && <ArchiveView leads={filteredBoardLeads.filter(isArchivedLead)} onLeadClick={setSelectedLead} />}
+
+      {addingLead && <AddLeadModal statuses={statuses} onClose={() => setAddingLead(false)} onAdd={handleAddLead} />}
       {/* Modal */}
       {selectedLead && (
         <LeadModal
           lead={selectedLead}
           onClose={() => setSelectedLead(null)}
           onUpdate={handleUpdate}
-          onConvert={handleConvert}
+          onDelete={handleDeleteLead}
           canEdit={canEdit}
+          canDelete={canDeleteStatuses}
+          statuses={statuses}
         />
       )}
+      {addingStatus && <AddLeadStatusModal onClose={() => setAddingStatus(false)} onAdd={handleAddStatus} />}
+      {deletingStatus && <DeleteLeadStatusModal status={deletingStatus} leadCount={leads.filter(lead => lead.pipelineStatusId === deletingStatus.id).length} onClose={() => setDeletingStatus(null)} onDelete={() => handleDeleteStatus(deletingStatus)} />}
     </div>
   )
 }

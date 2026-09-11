@@ -65,6 +65,27 @@ export interface DbLead {
   follow_up_note: string | null
   follow_up_tone: string | null
   created_at: string
+  pipeline_status_id: string | null
+  email: string | null
+  form_answer: string | null
+  notes: string | null
+  due_at: string | null
+  status_updated_at: string
+  sheet_row_key: string | null
+}
+
+export type LeadStatusColor = 'blue' | 'green' | 'violet' | 'amber' | 'rose' | 'cyan' | 'orange' | 'slate'
+
+export interface DbLeadPipelineStatus {
+  id: string
+  legacy_status: DbLead['status'] | null
+  label_he: string
+  label_en: string
+  color: LeadStatusColor
+  position: number
+  is_archived: boolean
+  created_at: string
+  created_by: string | null
 }
 
 export interface DbMessage {
@@ -254,10 +275,55 @@ export async function getLeads(): Promise<DbLead[]> {
   const { data, error } = await supabase
     .from('leads')
     .select('*')
-    .neq('status', 'irrelevant')
     .order('created_at', { ascending: false })
   if (error) throw error
   return data as DbLead[]
+}
+
+export async function getLeadPipelineStatuses(): Promise<DbLeadPipelineStatus[]> {
+  const { data, error } = await supabase
+    .from('lead_pipeline_statuses')
+    .select('*')
+    .order('position', { ascending: true })
+  if (error) throw error
+  return data as DbLeadPipelineStatus[]
+}
+
+export async function createLeadPipelineStatus(data: {
+  label_he: string
+  label_en: string
+  color: LeadStatusColor
+  position: number
+}): Promise<DbLeadPipelineStatus> {
+  const { data: created, error } = await supabase
+    .from('lead_pipeline_statuses')
+    .insert(data)
+    .select()
+    .single()
+  if (error) throw error
+  return created as DbLeadPipelineStatus
+}
+
+export async function deleteLeadPipelineStatus(id: string): Promise<void> {
+  const { error } = await supabase.from('lead_pipeline_statuses').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function createManualLead(data: {
+  name: string
+  phone: string
+  email?: string
+  form_answer?: string
+  pipeline_status_id: string
+}): Promise<DbLead> {
+  const { data: created, error } = await supabase.from('leads').insert({
+    name: data.name, phone: data.phone, email: data.email || null,
+    form_answer: data.form_answer || null, pipeline_status_id: data.pipeline_status_id,
+    status: 'new', source: null, lead_type: null, follow_up_date: null,
+    follow_up_note: null, follow_up_tone: null,
+  }).select().single()
+  if (error) throw error
+  return created as DbLead
 }
 
 export async function getLead(id: string): Promise<DbLead | null> {
@@ -304,6 +370,11 @@ export async function archiveLead(id: string): Promise<void> {
     .from('leads')
     .update({ status: 'irrelevant' })
     .eq('id', id)
+  if (error) throw error
+}
+
+export async function deleteLead(id: string): Promise<void> {
+  const { error } = await supabase.from('leads').delete().eq('id', id)
   if (error) throw error
 }
 
