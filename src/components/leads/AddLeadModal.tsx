@@ -6,7 +6,7 @@ import type { DbLeadPipelineStatus } from '../../lib/database'
 export function AddLeadModal({ statuses, onClose, onAdd }: {
   statuses: DbLeadPipelineStatus[]
   onClose: () => void
-  onAdd: (data: { name: string; phone: string; email: string; formAnswer: string; statusId: string }) => Promise<void>
+  onAdd: (data: { name: string; phone: string; email: string; formAnswer: string; statusId: string; source: 'Manual' | 'Facebook' | 'Instagram'; createdAt: string }) => Promise<void>
 }) {
   const { t } = useLang()
   const firstStatus = statuses.find(status => !status.is_archived)?.id ?? ''
@@ -15,6 +15,8 @@ export function AddLeadModal({ statuses, onClose, onAdd }: {
   const [email, setEmail] = useState('')
   const [formAnswer, setFormAnswer] = useState('')
   const [statusId, setStatusId] = useState(firstStatus)
+  const [source, setSource] = useState<'Manual' | 'Facebook' | 'Instagram'>('Manual')
+  const [createdAt, setCreatedAt] = useState(() => { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16) })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -23,7 +25,7 @@ export function AddLeadModal({ statuses, onClose, onAdd }: {
     setSaving(true)
     setError('')
     try {
-      await onAdd({ name: name.trim(), phone: phone.trim(), email: email.trim(), formAnswer: formAnswer.trim(), statusId })
+      await onAdd({ name: name.trim(), phone: phone.trim(), email: email.trim(), formAnswer: formAnswer.trim(), statusId, source, createdAt: new Date(createdAt).toISOString() })
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('שמירת הליד נכשלה', 'Could not save lead'))
@@ -46,6 +48,14 @@ export function AddLeadModal({ statuses, onClose, onAdd }: {
           <label className="text-xs font-semibold text-gray-500">{t('טלפון', 'Phone')} *<input dir="ltr" value={phone} onChange={e => setPhone(e.target.value)} className={`${inputClass} mt-1.5`} /></label>
           <label className="text-xs font-semibold text-gray-500">{t('אימייל', 'Email')}<input dir="ltr" type="email" value={email} onChange={e => setEmail(e.target.value)} className={`${inputClass} mt-1.5`} /></label>
           <label className="text-xs font-semibold text-gray-500">{t('תשובת הטופס', 'Form answer')}<input value={formAnswer} onChange={e => setFormAnswer(e.target.value)} placeholder={t('קורסים / קהילה / יצירת קורס', 'Courses / community / create courses')} className={`${inputClass} mt-1.5`} /></label>
+          <label className="text-xs font-semibold text-gray-500">{t('מקור / פלטפורמה', 'Source / platform')}
+            <select value={source} onChange={e => setSource(e.target.value as 'Manual' | 'Facebook' | 'Instagram')} className={`${inputClass} mt-1.5`}>
+              <option value="Manual">{t('ידני', 'Manual')}</option><option value="Facebook">Facebook</option><option value="Instagram">Instagram</option>
+            </select>
+          </label>
+          <label className="text-xs font-semibold text-gray-500">{t('תאריך ושעת יצירה', 'Created date & time')}
+            <input type="datetime-local" value={createdAt} onChange={e => setCreatedAt(e.target.value)} className={`${inputClass} mt-1.5`} />
+          </label>
           <label className="text-xs font-semibold text-gray-500 sm:col-span-2">{t('סטטוס', 'Status')}
             <select value={statusId} onChange={e => setStatusId(e.target.value)} className={`${inputClass} mt-1.5`}>
               {statuses.filter(status => !status.is_archived).map(status => <option key={status.id} value={status.id}>{t(status.label_he, status.label_en)}</option>)}
@@ -55,7 +65,7 @@ export function AddLeadModal({ statuses, onClose, onAdd }: {
         {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
         <div className="mt-5 flex justify-end gap-2 border-t border-gray-100 pt-4">
           <button onClick={onClose} className="h-9 px-3 text-sm text-gray-500">{t('ביטול', 'Cancel')}</button>
-          <button onClick={() => void save()} disabled={!name.trim() || !phone.trim() || !statusId || saving} className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:opacity-40">
+          <button onClick={() => void save()} disabled={!name.trim() || !phone.trim() || !statusId || !createdAt || saving} className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:opacity-40">
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}{t('הוסף ליד', 'Add Lead')}
           </button>
         </div>

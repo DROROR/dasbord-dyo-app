@@ -780,8 +780,9 @@ export function Leads() {
     setStatuses(prev => prev.filter(item => item.id !== status.id))
   }
 
-  const handleAddLead = async (data: { name: string; phone: string; email: string; formAnswer: string; statusId: string }) => {
-    const created = await createManualLead({ name: data.name, phone: data.phone, email: data.email, form_answer: data.formAnswer, pipeline_status_id: data.statusId })
+  const handleAddLead = async (data: { name: string; phone: string; email: string; formAnswer: string; statusId: string; source: LeadSource; createdAt: string }) => {
+    const selectedStatus = statuses.find(status => status.id === data.statusId)
+    const created = await createManualLead({ name: data.name, phone: data.phone, email: data.email, form_answer: data.formAnswer, pipeline_status_id: data.statusId, source: data.source === 'Manual' ? null : data.source.toLowerCase() as 'facebook' | 'instagram', status: selectedStatus?.legacy_status ?? 'new', created_at: data.createdAt })
     setLeads(prev => [dbLeadToLead(created), ...prev])
   }
 
