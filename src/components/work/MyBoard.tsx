@@ -473,15 +473,15 @@ export function MyBoard({
   return (
     <div className="flex flex-col gap-2 flex-1 min-h-0">
       {/* Active timer banner */}
-      {activeTimer && (
-        <button
-          onClick={() => onOpenTask(activeTimer.taskId)}
-          className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl text-sm font-medium text-primary hover:bg-primary/20 transition-colors animate-pulse shrink-0 text-right"
-        >
-          <Clock size={14} className="shrink-0 animate-none" />
-          <span>{tr('שעון פעיל', 'Active timer')}: {activeTimer.taskTitle}</span>
-        </button>
-      )}
+      <button
+        onClick={() => activeTimer && onOpenTask(activeTimer.taskId)}
+        disabled={!activeTimer}
+        style={{ display: activeTimer ? 'flex' : 'none' }}
+        className="items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl text-sm font-medium text-primary hover:bg-primary/20 transition-colors animate-pulse shrink-0 text-right"
+      >
+        <Clock size={14} className="shrink-0 animate-none" />
+        <span>{tr('שעון פעיל', 'Active timer')}: {activeTimer?.taskTitle ?? ''}</span>
+      </button>
 
       {/* Real personal metrics stay first; alerts and the responsive
           task workspace follow in a stable dashboard hierarchy. */}

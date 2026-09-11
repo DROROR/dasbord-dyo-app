@@ -55,10 +55,8 @@ export function FloatingTimerWidget({ onNavigate }: { onNavigate: (page: string)
     }
   }, [dragging])
 
-  if (!timerState) return null
-
   function onGripMouseDown(e: React.MouseEvent) {
-    if (e.button !== 0) return
+    if (e.button !== 0 || !timerState) return
     e.preventDefault()
     setDragging(true)
     dragOffset.current = { dx: e.clientX - posRef.current.x, dy: e.clientY - posRef.current.y }
@@ -77,7 +75,7 @@ export function FloatingTimerWidget({ onNavigate }: { onNavigate: (page: string)
 
   return (
     <div
-      style={{ left: pos.x, top: pos.y, position: 'fixed', zIndex: 100 }}
+      style={{ left: pos.x, top: pos.y, position: 'fixed', zIndex: 100, display: timerState ? 'flex' : 'none' }}
       className="flex flex-col gap-1.5 bg-white border border-gray-200 rounded-2xl shadow-xl px-3 py-3 select-none max-w-[280px]"
     >
       <div className="flex items-center gap-2">
@@ -101,7 +99,7 @@ export function FloatingTimerWidget({ onNavigate }: { onNavigate: (page: string)
             Active Timer
           </span>
           <span className="text-sm font-semibold text-gray-800 max-w-[170px] truncate">
-            {timerState.taskTitle}
+            {timerState?.taskTitle ?? ''}
           </span>
           <span className="text-lg font-bold font-mono text-primary tabular-nums leading-tight">
             {fmtTimer(elapsed)}
@@ -111,7 +109,7 @@ export function FloatingTimerWidget({ onNavigate }: { onNavigate: (page: string)
         {/* Stop button */}
         <button
           onClick={() => void stopTimer()}
-          disabled={saving}
+          disabled={saving || !timerState}
           className="flex items-center gap-1.5 px-3 py-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-xl text-xs font-bold transition-colors shrink-0 disabled:opacity-50"
           title="Stop and save"
         >
