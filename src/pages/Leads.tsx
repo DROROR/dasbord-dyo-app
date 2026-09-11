@@ -554,15 +554,30 @@ function LeadModal({ lead, onClose, onUpdate, onDelete, canEdit, canDelete, stat
             </div>
           )}
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-gray-100 bg-surface px-5 py-3">
-          {canDelete && !confirmDelete && <button onClick={() => setConfirmDelete(true)} className="me-auto flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-red-600 hover:bg-red-50"><Trash2 size={14} />{t('מחק ליד', 'Delete lead')}</button>}
-          {canDelete && confirmDelete && <div className="me-auto flex items-center gap-2"><span className="text-xs font-semibold text-red-600">{t('למחוק לצמיתות?', 'Delete permanently?')}</span><button onClick={() => void handleDelete()} disabled={deleting} className="h-8 rounded-lg bg-red-600 px-3 text-xs font-semibold text-white disabled:opacity-50">{deleting ? t('מוחק...', 'Deleting...') : t('כן, מחק', 'Yes, delete')}</button><button onClick={() => setConfirmDelete(false)} disabled={deleting} className="h-8 px-2 text-xs text-gray-500">{t('ביטול', 'Cancel')}</button></div>}
-          {deleteError && <span className="me-auto text-xs text-red-600">{deleteError}</span>}
-          <button onClick={onClose} className="h-9 px-3 text-sm text-gray-500">{t('סגור', 'Close')}</button>
-          {tab === 'details' && canEdit && <button onClick={() => void saveDetails()} disabled={saving !== null} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving === 'details' ? t('שומר...', 'Saving...') : detailsSaved ? t('נשמר', 'Saved') : t('שמור פרטים', 'Save details')}</button>}
-          {tab === 'followup' && canEdit && <button onClick={() => void saveFollowUp()} disabled={saving !== null} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving === 'followup' ? t('שומר...', 'Saving...') : fupSaved ? t('נשמר!', 'Saved!') : t('שמור תזכורת', 'Save reminder')}</button>}
+        <div className="flex shrink-0 items-center gap-2 border-t border-gray-100 bg-surface px-5 py-3">
+          {canDelete && <button onClick={() => { setDeleteError(''); setConfirmDelete(true) }} className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"><Trash2 size={14} />{t('מחק ליד', 'Delete lead')}</button>}
+          <div className="ms-auto flex items-center gap-2">
+            <button onClick={onClose} className="h-9 px-3 text-sm text-gray-500">{t('סגור', 'Close')}</button>
+            {tab === 'details' && canEdit && <button onClick={() => void saveDetails()} disabled={saving !== null} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving === 'details' ? t('שומר...', 'Saving...') : detailsSaved ? t('נשמר', 'Saved') : t('שמור פרטים', 'Save details')}</button>}
+            {tab === 'followup' && canEdit && <button onClick={() => void saveFollowUp()} disabled={saving !== null} className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving === 'followup' ? t('שומר...', 'Saving...') : fupSaved ? t('נשמר!', 'Saved!') : t('שמור תזכורת', 'Save reminder')}</button>}
+          </div>
         </div>
       </div>
+      {confirmDelete && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
+          <button className="absolute inset-0 bg-black/50 backdrop-blur-[1px]" onClick={() => !deleting && setConfirmDelete(false)} aria-label={t('ביטול', 'Cancel')} />
+          <div className="relative w-full max-w-sm rounded-2xl border border-gray-100 bg-surface p-5 shadow-2xl">
+            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-red-100 text-red-600"><Trash2 size={20} /></div>
+            <h3 className="text-base font-bold text-gray-800">{t('למחוק את הליד?', 'Delete this lead?')}</h3>
+            <p className="mt-1.5 text-sm leading-6 text-gray-500">{t('פעולה זו תמחק לצמיתות את', 'This will permanently delete')} <strong className="text-gray-700">{lead.name}</strong>. {t('לא ניתן לבטל פעולה זו.', 'This action cannot be undone.')}</p>
+            {deleteError && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{deleteError}</p>}
+            <div className="mt-5 flex justify-end gap-2 border-t border-gray-100 pt-4">
+              <button onClick={() => setConfirmDelete(false)} disabled={deleting} className="h-9 rounded-lg border border-gray-200 px-4 text-sm font-medium text-gray-600 disabled:opacity-50">{t('ביטול', 'Cancel')}</button>
+              <button onClick={() => void handleDelete()} disabled={deleting} className="flex h-9 items-center gap-1.5 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50">{deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}{deleting ? t('מוחק...', 'Deleting...') : t('מחק לצמיתות', 'Delete permanently')}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
