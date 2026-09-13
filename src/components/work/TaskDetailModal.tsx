@@ -720,18 +720,20 @@ export function TaskDetailModal({
   const DEPLOY_SECRET = import.meta.env.VITE_DEPLOY_SECRET as string
 
   async function handleDeploy() {
-    if (deploying || deployedToAdmin || !task.ticketId || !task.appId) return
+    if (deploying || deployedToAdmin) return
     setDeploying(true)
     setDeployError(null)
     try {
       const updated = await deployTask(task.id, deployMessage)
       onUpdate(updated)
       setDeployedToAdmin(true)
-      await fetch(NOTIFY_TICKET_DEPLOYED_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-webhook-secret': DEPLOY_SECRET },
-        body: JSON.stringify({ app_id: task.appId, ticket_id: task.ticketId, update_message: deployMessage }),
-      })
+      if (task.ticketId && task.appId) {
+        await fetch(NOTIFY_TICKET_DEPLOYED_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-webhook-secret': DEPLOY_SECRET },
+          body: JSON.stringify({ app_id: task.appId, ticket_id: task.ticketId, update_message: deployMessage }),
+        })
+      }
     } catch (err) {
       setDeployError(err instanceof Error ? err.message : 'Failed to deploy — please try again.')
       setDeployedToAdmin(false)
@@ -1109,7 +1111,7 @@ export function TaskDetailModal({
         )}
 
         {/* Deploy to Admin — support board tasks only, once done and not yet deployed */}
-        {task.board === 'support' && !readonly && (
+        {task.board === 'support' && (
           <div className={`px-6 py-3 shrink-0 border-b ${deployedToAdmin ? 'bg-green-50 border-green-100' : 'bg-violet-50 border-violet-100'}`}>
             {deployedToAdmin ? (
               <div className="flex items-center gap-2 text-green-700 text-sm font-medium">
@@ -1131,13 +1133,10 @@ export function TaskDetailModal({
                 {task.status !== 'done' && (
                   <p className="text-[11px] text-violet-500">Mark the task as Done first before deploying.</p>
                 )}
-                {!task.ticketId && (
-                  <p className="text-[11px] text-violet-500">No linked Firebase ticket — deploy button unavailable for manually created tasks.</p>
-                )}
                 {deployError && <p className="text-xs text-red-600">{deployError}</p>}
                 <button
                   onClick={() => void handleDeploy()}
-                  disabled={deploying || task.status !== 'done' || !task.ticketId}
+                  disabled={deploying || task.status !== 'done'}
                   className="self-start flex items-center gap-1.5 px-4 py-1.5 bg-violet-600 text-white text-xs font-bold rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {deploying && <Loader2 size={11} className="animate-spin" />}
