@@ -127,13 +127,14 @@ async function syncSheet() {
   const existingResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads?sheet_row_key=not.is.null&select=sheet_row_key`, { headers: adminHeaders() })
   if (!existingResponse.ok) throw new Error('Could not check existing imported leads')
   const existing = new Set((await existingResponse.json()).map(row => row.sheet_row_key))
-  const created = leads.filter(lead => !existing.has(lead.sheet_row_key)).length
+  const newLeads = leads.filter(lead => !existing.has(lead.sheet_row_key))
+  const created = newLeads.length
   const existingCount = leads.length - created
-  if (leads.length) {
-    const upsertResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads?on_conflict=sheet_row_key`, {
-      method: 'POST', headers: { ...adminHeaders(), Prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(leads),
+  if (newLeads.length) {
+    const insertResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads`, {
+      method: 'POST', headers: { ...adminHeaders(), Prefer: 'return=minimal' }, body: JSON.stringify(newLeads),
     })
-    if (!upsertResponse.ok) throw new Error(`Supabase lead sync failed (${upsertResponse.status})`)
+    if (!insertResponse.ok) throw new Error(`Supabase lead sync failed (${insertResponse.status})`)
   }
   return { created, existing: existingCount, skipped, total: leads.length }
 }
