@@ -72,6 +72,19 @@ export interface DbLead {
   due_at: string | null
   status_updated_at: string
   sheet_row_key: string | null
+  campaign_name: string | null
+  client_name: string | null
+}
+
+export interface DbLeadHistory {
+  id: string
+  lead_id: string
+  kind: 'note' | 'completed_call' | 'no_answer'
+  body: string | null
+  occurred_at: string
+  recorded_at: string
+  author_id: string | null
+  author_name: string
 }
 
 export type LeadStatusColor = 'blue' | 'green' | 'violet' | 'amber' | 'rose' | 'cyan' | 'orange' | 'slate'

@@ -2,16 +2,19 @@ import { useState, useEffect } from 'react'
 import {
   Users, UserPlus, Calendar, Clock, AlertTriangle,
   X, Check, CheckCheck, Phone, Mail, Archive,
-  Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search,
+  Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search, ArrowUp, ArrowDown, Pencil,
 } from 'lucide-react'
-import { getLeads, getLeadPipelineStatuses, createLeadPipelineStatus, deleteLeadPipelineStatus, createManualLead, updateLead as dbUpdateLead, deleteLead as dbDeleteLead } from '../lib/database'
-import type { DbLead, DbLeadPipelineStatus, LeadStatusColor } from '../lib/database'
+import { getLeadPipelineStatuses, createLeadPipelineStatus, deleteLeadPipelineStatus, createManualLead, updateLead as dbUpdateLead, deleteLead as dbDeleteLead } from '../lib/database'
+import type { DbLead, DbLeadHistory, DbLeadPipelineStatus, LeadStatusColor } from '../lib/database'
 import { useCan } from '../hooks/useCan'
 import { useLang } from '../contexts/LanguageContext'
 import { AddLeadStatusModal, LEAD_STATUS_COLORS } from '../components/leads/AddLeadStatusModal'
+import { EditLeadStatusModal } from '../components/leads/EditLeadStatusModal'
 import { DeleteLeadStatusModal } from '../components/leads/DeleteLeadStatusModal'
 import { AddLeadModal } from '../components/leads/AddLeadModal'
 import { LeadCalendar } from '../components/leads/LeadCalendar'
+import { getAllLeads, getLeadHistory, addLeadHistory, updateLeadPipelineStatus } from '../lib/leadHistory'
+import { LeadHistoryPanel } from '../components/leads/LeadHistoryPanel'
 import { getGoogleSheetSyncStatus, syncGoogleSheetLeads, type GoogleSheetSyncResult } from '../lib/googleSheets'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -26,6 +29,7 @@ type ModalTab     = 'details' | 'whatsapp' | 'followup'
 interface ChatMessage { from: 'us' | 'lead'; text: string; time: string }
 
 interface Lead {
+  campaignName: string; clientName: string; history: DbLeadHistory[]
   id: string; name: string; phone: string; email: string
   source: LeadSource; leadType: LeadType; status: LeadStatus
   pipelineStatusId: string | null
@@ -108,6 +112,9 @@ function dbLeadToLead(row: DbLead): Lead {
     leadType:      row.lead_type ?? 'has_course',
     status:        DB_STATUS_MAP[row.status],
     pipelineStatusId: row.pipeline_status_id,
+    campaignName: row.campaign_name ?? '',
+    clientName: row.client_name ?? '',
+    history: [],
     formAnswer: row.form_answer ?? '',
     dueAt: row.due_at,
     statusUpdatedAt: row.status_updated_at,
@@ -214,23 +221,32 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
   const { t, lang } = useLang()
   const alert = isStale(lead) || isLeadDueOverdue(lead)
   const category = lead.formAnswer || t(LEAD_TYPE_LABEL[lead.leadType].he, LEAD_TYPE_LABEL[lead.leadType].en)
+  const calls = lead.history.filter(entry => entry.kind === 'completed_call').map(entry => entry.occurred_at).sort()
+  const attempts = lead.history.filter(entry => entry.kind === 'no_answer').length
+  const short = (iso?: string) => iso ? new Date(iso).toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
   return (
-    <button onClick={onClick} className="grid min-h-11 w-full min-w-[620px] grid-cols-[minmax(180px,1.5fr)_150px_minmax(170px,1fr)_170px] items-center gap-3 border-b border-gray-100 bg-surface px-3 py-2 text-start transition-colors last:border-b-0 hover:bg-gray-50">
+    <button onClick={onClick} className="grid min-h-14 w-full min-w-[1180px] grid-cols-[minmax(150px,1.5fr)_120px_minmax(130px,1fr)_110px_110px_110px_90px_minmax(120px,1fr)_110px] items-center gap-3 border-b border-gray-100 bg-surface px-3 py-2 text-start transition-colors last:border-b-0 hover:bg-gray-50">
       <span className="flex min-w-0 items-center gap-2"><strong className="truncate text-sm text-gray-800">{lead.name}</strong>{alert && <AlertTriangle size={13} className="shrink-0 text-red-500" />}</span>
       <span dir="ltr" className="truncate text-xs text-gray-500">{lead.phone}</span>
       <span className={`w-fit max-w-full truncate rounded-md px-2 py-1 text-xs font-semibold ${leadCategoryColor(category)}`}>{category}</span>
-      <span className={`flex items-center gap-1 text-xs ${isLeadDueOverdue(lead) ? 'font-semibold text-red-600' : 'text-gray-400'}`}>
-        {lead.dueAt ? <><CalendarDays size={11} />{new Date(lead.dueAt).toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</> : '—'}
-      </span>
+      <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('נכנס', 'Entry')}</small>{short(lead.entryDate)}</span>
+      <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('שיחה ראשונה', 'First Call')}</small>{short(calls[0])}</span>
+      <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('שיחה אחרונה', 'Last Call')}</small>{short(calls.at(-1))}</span>
+      <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('אין מענה', 'No Answer')}</small>{attempts}</span>
+      <span className="min-w-0 truncate text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('קמפיין', 'Campaign')}</small>{lead.campaignName || '—'}</span>
+      <span className={`text-xs ${isLeadDueOverdue(lead) ? 'font-semibold text-red-600' : 'text-gray-600'}`}><small className="block text-[10px] text-gray-400">{t('שיחה מתוזמנת', 'Scheduled')}</small>{short(lead.dueAt ?? undefined)}</span>
     </button>
   )
 }
 
 // ─── Kanban column ────────────────────────────────────────────────────────────
 
-function KanbanColumn({ col, leads, onLeadClick, onDelete }: {
+function KanbanColumn({ col, leads, onLeadClick, onDelete, onEdit, onMoveUp, onMoveDown }: {
   col: DbLeadPipelineStatus
   onDelete?: () => void
+  onEdit?: () => void
+  onMoveUp?: () => void
+  onMoveDown?: () => void
   leads: Lead[]
   onLeadClick: (l: Lead) => void
 }) {
@@ -244,6 +260,9 @@ function KanbanColumn({ col, leads, onLeadClick, onDelete }: {
           <h3 className={`truncate rounded-md px-2 py-1 text-xs font-semibold ${LEAD_STATUS_COLORS[col.color].badge}`}>{t(col.label_he, col.label_en)}</h3>
           <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">{leads.length}</span>
         </button>
+        {onMoveUp && <button onClick={onMoveUp} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-primary" title={t('העבר למעלה', 'Move up')}><ArrowUp size={14} /></button>}
+        {onMoveDown && <button onClick={onMoveDown} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-primary" title={t('העבר למטה', 'Move down')}><ArrowDown size={14} /></button>}
+        {onEdit && <button onClick={onEdit} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-primary" title={t('ערוך סטטוס', 'Edit status')}><Pencil size={14} /></button>}
         {onDelete && (
           <button onClick={onDelete} className="ms-auto rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600" title={t('מחק סטטוס', 'Delete status')}>
             <Trash2 size={14} />
@@ -262,10 +281,11 @@ function KanbanColumn({ col, leads, onLeadClick, onDelete }: {
 
 // ─── Lead modal ───────────────────────────────────────────────────────────────
 
-function LeadModal({ lead, onClose, onUpdate, onDelete, canEdit, canDelete, statuses }: {
+function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, canDelete, statuses }: {
   lead: Lead
   onClose: () => void
   onUpdate: (id: string, patch: Partial<Lead>) => Promise<void>
+  onAddHistory: (id: string, kind: DbLeadHistory['kind'], body?: string, occurredAt?: string) => Promise<void>
   onDelete: (id: string) => Promise<void>
   canEdit: boolean
   canDelete: boolean
@@ -277,10 +297,11 @@ function LeadModal({ lead, onClose, onUpdate, onDelete, canEdit, canDelete, stat
   const [followUpNote, setFollowUpNote] = useState(lead.followUpNote ?? '')
   const [tone,         setTone]         = useState<FollowUpTone>(lead.followUpTone ?? 'friendly')
   const [fupSaved,     setFupSaved]     = useState(false)
-  const [detailNotes, setDetailNotes] = useState(lead.notes)
   const [detailFormAnswer, setDetailFormAnswer] = useState(lead.formAnswer)
-  const [detailDueAt, setDetailDueAt] = useState(lead.dueAt ? lead.dueAt.slice(0, 16) : '')
+  const [detailClientName, setDetailClientName] = useState(lead.clientName)
+  const [detailDueAt, setDetailDueAt] = useState(lead.dueAt ? new Date(new Date(lead.dueAt).getTime() - new Date(lead.dueAt).getTimezoneOffset() * 60_000).toISOString().slice(0, 16) : '')
   const [detailsSaved, setDetailsSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [schedulingMeeting, setSchedulingMeeting] = useState(false)
   const [saving, setSaving] = useState<'details' | 'followup' | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -289,10 +310,15 @@ function LeadModal({ lead, onClose, onUpdate, onDelete, canEdit, canDelete, stat
   const modalPipeline = statuses.find(status => status.id === lead.pipelineStatusId)
   const needsAttention = (modalPipeline?.legacy_status === 'meeting' || (!modalPipeline && lead.status === 'meeting_set')) && !!lead.dueAt && new Date(lead.dueAt).getTime() < Date.now()
 
+  const persistPatch = async (patch: Partial<Lead>): Promise<boolean> => {
+    try { await onUpdate(lead.id, patch); setSaveError(''); return true }
+    catch (error) { setSaveError(error instanceof Error ? error.message : t('שמירת הליד נכשלה', 'Could not save lead')); return false }
+  }
+
   const confirmMeeting = () => {
     if (!detailDueAt) return
     const dueAt = new Date(detailDueAt).toISOString()
-    onUpdate(lead.id, { status: 'meeting_set', pipelineStatusId: statuses.find(item => item.legacy_status === 'meeting')?.id ?? lead.pipelineStatusId, dueAt, statusUpdatedAt: new Date().toISOString(), lastUpdate: new Date().toISOString().slice(0, 10) })
+    void persistPatch({ status: 'meeting_set', pipelineStatusId: statuses.find(item => item.legacy_status === 'meeting')?.id ?? lead.pipelineStatusId, dueAt, statusUpdatedAt: new Date().toISOString(), lastUpdate: new Date().toISOString().slice(0, 10) })
     setSchedulingMeeting(false)
   }
 
@@ -306,7 +332,7 @@ function LeadModal({ lead, onClose, onUpdate, onDelete, canEdit, canDelete, stat
       setSchedulingMeeting(true)
       return
     }
-    void onUpdate(lead.id, {
+    void persistPatch({
       pipelineStatusId,
       status: mappedStatus,
       ...(isMeetingStatus && detailDueAt ? { dueAt: new Date(detailDueAt).toISOString() } : {}),
@@ -332,7 +358,7 @@ function LeadModal({ lead, onClose, onUpdate, onDelete, canEdit, canDelete, stat
     if (!canEdit || saving) return
     setSaving('followup')
     try {
-      await onUpdate(lead.id, { followUpDate, followUpNote, followUpTone: tone })
+      if (!await persistPatch({ followUpDate, followUpNote, followUpTone: tone })) return
       setFupSaved(true)
       setTimeout(() => setFupSaved(false), 2500)
     } finally {
@@ -344,7 +370,7 @@ function LeadModal({ lead, onClose, onUpdate, onDelete, canEdit, canDelete, stat
     if (!canEdit || saving) return
     setSaving('details')
     try {
-      await onUpdate(lead.id, { notes: detailNotes, formAnswer: detailFormAnswer, dueAt: detailDueAt ? new Date(detailDueAt).toISOString() : null })
+      if (!await persistPatch({ clientName: detailClientName, formAnswer: detailFormAnswer, dueAt: detailDueAt ? new Date(detailDueAt).toISOString() : null })) return
       setDetailsSaved(true)
       setTimeout(() => setDetailsSaved(false), 2000)
     } finally {
@@ -453,8 +479,8 @@ function LeadModal({ lead, onClose, onUpdate, onDelete, canEdit, canDelete, stat
                   <label className="text-xs font-semibold text-gray-500 sm:col-span-2">{t('תאריך ושעת יעד', 'Due date and time')}
                     <input type="datetime-local" value={detailDueAt} onChange={e => setDetailDueAt(e.target.value)} disabled={!canEdit} className="mt-1.5 h-10 w-full rounded-lg border border-gray-200 bg-surface px-3 text-sm text-gray-700 outline-none focus:border-primary disabled:opacity-50" />
                   </label>
-                  <label className="text-xs font-semibold text-gray-500 sm:col-span-2">{t('הערות', 'Notes')}
-                    <textarea value={detailNotes} onChange={e => setDetailNotes(e.target.value)} disabled={!canEdit} rows={4} placeholder={t('מה למדת על הליד ומה דיברתם?', 'What did you learn and discuss with this lead?')} className="mt-1.5 w-full resize-y rounded-lg border border-gray-200 bg-surface px-3 py-2 text-sm text-gray-700 outline-none focus:border-primary disabled:opacity-50" />
+                  <label className="text-xs font-semibold text-gray-500 sm:col-span-2">{t('לקוח', 'Client')}
+                    <input value={detailClientName} onChange={e => setDetailClientName(e.target.value)} disabled={!canEdit} className="mt-1.5 h-10 w-full rounded-lg border border-gray-200 bg-surface px-3 text-sm text-gray-700 outline-none focus:border-primary disabled:opacity-50" />
                   </label>
                 </div>
 
@@ -482,6 +508,7 @@ function LeadModal({ lead, onClose, onUpdate, onDelete, canEdit, canDelete, stat
               </div>
           )}
 
+          {tab === 'details' && <LeadHistoryPanel entries={lead.history} canEdit={canEdit} onAdd={(kind, body, occurredAt) => onAddHistory(lead.id, kind, body, occurredAt)} />}
           {/* ── WhatsApp ── */}
           {tab === 'whatsapp' && (
             <div>
@@ -554,6 +581,7 @@ function LeadModal({ lead, onClose, onUpdate, onDelete, canEdit, canDelete, stat
             </div>
           )}
         </div>
+        {saveError && <p className="px-5 py-2 text-xs text-red-600">{saveError}</p>}
         <div className="flex shrink-0 items-center gap-2 border-t border-gray-100 bg-surface px-5 py-3">
           {canDelete && <button onClick={() => { setDeleteError(''); setConfirmDelete(true) }} className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"><Trash2 size={14} />{t('מחק ליד', 'Delete lead')}</button>}
           <div className="ms-auto flex items-center gap-2">
@@ -628,7 +656,7 @@ function ArchiveView({ leads, onLeadClick }: { leads: Lead[]; onLeadClick: (l: L
                   </span>
                 </td>
                 <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmtDateTime(lead.entryDate, lang)}</td>
-                <td className="px-4 py-3 text-xs text-gray-500 max-w-xs truncate">{lead.notes || '—'}</td>
+                <td className="px-4 py-3 text-xs text-gray-500 max-w-xs truncate">{lead.history.filter(entry => entry.kind === 'note').at(-1)?.body || lead.notes || '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -640,7 +668,6 @@ function ArchiveView({ leads, onLeadClick }: { leads: Lead[]; onLeadClick: (l: L
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
-const TODAY_ISO = new Date().toISOString().slice(0, 10)
 
 export function Leads() {
   const { t } = useLang()
@@ -655,23 +682,36 @@ export function Leads() {
   const [addingStatus, setAddingStatus] = useState(false)
   const [addingLead, setAddingLead] = useState(false)
   const [deletingStatus, setDeletingStatus] = useState<DbLeadPipelineStatus | null>(null)
+  const [editingStatus, setEditingStatus] = useState<DbLeadPipelineStatus | null>(null)
+  const [statusOrderError, setStatusOrderError] = useState('')
+  const [reorderingStatus, setReorderingStatus] = useState(false)
   const [leadQuery, setLeadQuery] = useState('')
   const [leadStatusFilter, setLeadStatusFilter] = useState('all')
   const [leadSourceFilter, setLeadSourceFilter] = useState('all')
   const [leadCategoryFilter, setLeadCategoryFilter] = useState('all')
+  const [campaignFilter, setCampaignFilter] = useState('all')
+  const [clientFilter, setClientFilter] = useState('all')
+  const [entryDateFilter, setEntryDateFilter] = useState('')
+  const [callDateFilter, setCallDateFilter] = useState('')
+  const [attemptFilter, setAttemptFilter] = useState('')
+  const [leadSort, setLeadSort] = useState<'entry_desc' | 'entry_asc' | 'call_desc' | 'call_asc'>('entry_desc')
   const [attentionOnly, setAttentionOnly] = useState(false)
   const [syncingSheet, setSyncingSheet] = useState(false)
   const [sheetSyncResult, setSheetSyncResult] = useState<GoogleSheetSyncResult | null>(null)
   const [sheetSyncError, setSheetSyncError] = useState('')
   const [sheetSyncedAt, setSheetSyncedAt] = useState<Date | null>(null)
   const [sheetConfigured, setSheetConfigured] = useState(false)
+  const [clockNow, setClockNow] = useState(() => Date.now())
+  useEffect(() => { const interval = window.setInterval(() => setClockNow(Date.now()), 60_000); return () => window.clearInterval(interval) }, [])
 
   const load = async (showLoading = true) => {
     if (showLoading) setLoading(true)
     setFetchError(null)
     try {
-      const [rows, pipelineStatuses] = await Promise.all([getLeads(), getLeadPipelineStatuses()])
-      setLeads(rows.map(dbLeadToLead))
+      const [rows, pipelineStatuses, history] = await Promise.all([getAllLeads(), getLeadPipelineStatuses(), getLeadHistory()])
+      const byLead = new Map<string, DbLeadHistory[]>()
+      history.forEach(entry => byLead.set(entry.lead_id, [...(byLead.get(entry.lead_id) ?? []), entry]))
+      setLeads(rows.map(row => ({ ...dbLeadToLead(row), history: byLead.get(row.id) ?? [] })))
       setStatuses(pipelineStatuses)
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : t('שגיאה בטעינת לידים', 'Failed to load leads'))
@@ -712,6 +752,8 @@ export function Leads() {
 
   const archived = leads.filter(isArchivedLead)
   const categoryOptions = Array.from(new Set(leads.map(lead => lead.formAnswer || LEAD_TYPE_LABEL[lead.leadType].en).filter(Boolean))).sort()
+  const campaignOptions = Array.from(new Set(leads.map(lead => lead.campaignName).filter(Boolean))).sort()
+  const clientOptions = Array.from(new Set(leads.map(lead => lead.clientName).filter(Boolean))).sort()
   const normalizedLeadQuery = leadQuery.trim().toLowerCase()
   const filteredBoardLeads = leads.filter(lead => {
     const category = lead.formAnswer || LEAD_TYPE_LABEL[lead.leadType].en
@@ -719,28 +761,39 @@ export function Leads() {
     if (leadStatusFilter !== 'all' && lead.pipelineStatusId !== leadStatusFilter) return false
     if (leadSourceFilter !== 'all' && lead.source !== leadSourceFilter) return false
     if (leadCategoryFilter !== 'all' && category !== leadCategoryFilter) return false
+    if (campaignFilter !== 'all' && lead.campaignName !== campaignFilter) return false
+    if (clientFilter !== 'all' && lead.clientName !== clientFilter) return false
+    if (entryDateFilter && new Date(lead.entryDate).toLocaleDateString('en-CA') !== entryDateFilter) return false
+    if (callDateFilter && !lead.history.some(entry => entry.kind === 'completed_call' && new Date(entry.occurred_at).toLocaleDateString('en-CA') === callDateFilter)) return false
+    if (attemptFilter !== '' && lead.history.filter(entry => entry.kind === 'no_answer').length < Number(attemptFilter)) return false
     if (attentionOnly && !isOverdueMeeting(lead) && !isStale(lead)) return false
     return true
   })
-  const boardFiltersActive = Boolean(leadQuery || leadStatusFilter !== 'all' || leadSourceFilter !== 'all' || leadCategoryFilter !== 'all' || attentionOnly)
+  filteredBoardLeads.sort((a, b) => {
+    const latestCall = (lead: Lead) => lead.history.filter(entry => entry.kind === 'completed_call').map(entry => entry.occurred_at).sort().at(-1) ?? ''
+    const left = leadSort.startsWith('call') ? latestCall(a) : a.entryDate
+    const right = leadSort.startsWith('call') ? latestCall(b) : b.entryDate
+    if (leadSort.startsWith('call') && !left) return right ? 1 : 0
+    if (leadSort.startsWith('call') && !right) return -1
+    return leadSort.endsWith('asc') ? left.localeCompare(right) : right.localeCompare(left)
+  })
+  const boardFiltersActive = Boolean(leadQuery || leadStatusFilter !== 'all' || leadSourceFilter !== 'all' || leadCategoryFilter !== 'all' || campaignFilter !== 'all' || clientFilter !== 'all' || entryDateFilter || callDateFilter || attemptFilter !== '' || attentionOnly || leadSort !== 'entry_desc')
 
   const stats = {
-    active:    leads.filter(lead => !isArchivedLead(lead)).length,
-    newToday:  leads.filter(lead => lead.entryDate.slice(0, 10) === TODAY_ISO).length,
-    meetings:  leads.filter(isPendingMeeting).length,
-    followUps: leads.filter(lead => hasLegacyStatus(lead, 'followup')).length,
-    stale:     leads.filter(lead => isStale(lead) || isOverdueMeeting(lead)).length,
+    active: leads.filter(lead => !isArchivedLead(lead)).length,
+    newToday: leads.filter(lead => new Date(lead.entryDate).toDateString() === new Date().toDateString()).length,
+    meetings: leads.filter(lead => !isArchivedLead(lead) && !!lead.dueAt && new Date(lead.dueAt).getTime() >= clockNow).length,
   }
 
   const handleUpdate = async (id: string, patch: Partial<Lead>) => {
     if (!canEdit) return
-    // Optimistic update
-    setLeads(prev => prev.map(l => l.id === id ? { ...l, ...patch } : l))
-    setSelectedLead(prev => prev?.id === id ? { ...prev, ...patch } : prev)
-    // Persist to DB
-    try {
+    const applySaved = (saved: DbLead) => {
+      const merge = (lead: Lead) => lead.id === id ? { ...lead, ...dbLeadToLead(saved), history: lead.history } : lead
+      setLeads(prev => prev.map(merge))
+      setSelectedLead(prev => prev ? merge(prev) : null)
+    }
       if (patch.status === 'archived') {
-        await dbUpdateLead(id, { status: 'irrelevant', ...(patch.pipelineStatusId !== undefined ? { pipeline_status_id: patch.pipelineStatusId } : {}) })
+        applySaved(await dbUpdateLead(id, { status: 'irrelevant', ...(patch.pipelineStatusId !== undefined ? { pipeline_status_id: patch.pipelineStatusId } : {}) }))
         return
       }
       type DbPatch = Parameters<typeof dbUpdateLead>[1]
@@ -752,14 +805,18 @@ export function Leads() {
       if (patch.followUpNote !== undefined) dbPatch.follow_up_note = patch.followUpNote ?? null
       if (patch.followUpTone !== undefined) dbPatch.follow_up_tone = patch.followUpTone ?? null
       if (patch.formAnswer !== undefined) dbPatch.form_answer = patch.formAnswer || null
-      if (patch.notes !== undefined) dbPatch.notes = patch.notes || null
+      if (patch.clientName !== undefined) dbPatch.client_name = patch.clientName || null
       if (patch.dueAt !== undefined) dbPatch.due_at = patch.dueAt
-      if (Object.keys(dbPatch).length > 0) await dbUpdateLead(id, dbPatch)
-    } catch {
-      // Silent: optimistic update stands; reload on next visit
-    }
+      if (Object.keys(dbPatch).length > 0) applySaved(await dbUpdateLead(id, dbPatch))
   }
 
+
+  const handleAddHistory = async (id: string, kind: DbLeadHistory['kind'], body?: string, occurredAt?: string) => {
+    const entry = await addLeadHistory({ lead_id: id, kind, ...(body ? { body } : {}), ...(occurredAt ? { occurred_at: occurredAt } : {}) })
+    const append = (lead: Lead) => lead.id === id ? { ...lead, history: [...lead.history, entry] } : lead
+    setLeads(prev => prev.map(append))
+    setSelectedLead(prev => prev ? append(prev) : null)
+  }
 
   const handleDeleteLead = async (id: string) => {
     await dbDeleteLead(id)
@@ -773,6 +830,31 @@ export function Leads() {
       position: (statuses.at(-1)?.position ?? 0) + 10,
     })
     setStatuses(prev => [...prev, created])
+  }
+
+  const handleSaveStatus = async (id: string, patch: { label_he: string; label_en: string; color: LeadStatusColor }) => {
+    const updated = await updateLeadPipelineStatus(id, patch)
+    setStatuses(prev => prev.map(status => status.id === id ? updated : status))
+  }
+
+  const handleMoveStatus = async (id: string, direction: -1 | 1) => {
+    if (reorderingStatus) return
+    const ordered = [...statuses].sort((a, b) => a.position - b.position)
+    const index = ordered.findIndex(status => status.id === id)
+    const target = index + direction
+    if (index < 0 || target < 0 || target >= ordered.length || ordered[target].is_archived) return
+    setStatusOrderError('')
+    setReorderingStatus(true)
+    ;[ordered[index], ordered[target]] = [ordered[target], ordered[index]]
+    try {
+      const updated = await Promise.all(ordered.map((status, position) => updateLeadPipelineStatus(status.id, { position: (position + 1) * 10 })))
+      setStatuses(updated.sort((a, b) => a.position - b.position))
+    } catch (error) {
+      setStatusOrderError(error instanceof Error ? error.message : 'Could not reorder statuses')
+      await load(false)
+    } finally {
+      setReorderingStatus(false)
+    }
   }
 
   const handleDeleteStatus = async (status: DbLeadPipelineStatus) => {
@@ -792,12 +874,10 @@ export function Leads() {
   return (
     <div className="space-y-2">
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-3">
         <StatCard icon={<Users size={16} />}         label={t('לידים פעילים', 'Active leads')}    value={stats.active}    />
         <StatCard icon={<UserPlus size={16} />}      label={t('חדש היום', 'New today')}        value={stats.newToday}  />
-        <StatCard icon={<Calendar size={16} />}      label={t('שיחות מתוזמנות', 'Scheduled meetings')} value={stats.meetings}  />
-        <StatCard icon={<Clock size={16} />}         label={t('ממתינים לחזרה', 'Waiting for follow-up')}  value={stats.followUps} />
-        <StatCard icon={<AlertTriangle size={16} />} label={t('ממתין לעדכון', 'Waiting for update')}    value={stats.stale}     alert />
+        <StatCard icon={<Calendar size={16} />}      label={t('שיחות מתוזמנות', 'Scheduled Calls')} value={stats.meetings}  />
       </div>
 
       {/* View controls */}
@@ -814,6 +894,7 @@ export function Leads() {
 
       {sheetSyncResult && <div className="flex flex-wrap items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700"><Check size={14} /><strong>{t('הסנכרון הושלם', 'Sheet sync complete')}</strong><span>{sheetSyncResult.created} {t('נוצרו', 'created')} · {sheetSyncResult.existing} {t('כבר קיימים', 'already existed')} · {sheetSyncResult.skipped} {t('דולגו', 'skipped')}</span>{sheetSyncedAt && <span className="ms-auto text-green-600">{sheetSyncedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}<button onClick={() => setSheetSyncResult(null)}><X size={13} /></button></div>}
       {sheetSyncError && <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"><AlertTriangle size={14} /><span>{sheetSyncError}</span><button onClick={() => setSheetSyncError('')} className="ms-auto"><X size={13} /></button></div>}
+      {statusOrderError && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{statusOrderError}</p>}
 
       {view !== 'calendar' && (
         <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-gray-100 bg-surface p-2">
@@ -821,8 +902,14 @@ export function Leads() {
           <select value={leadStatusFilter} onChange={e => setLeadStatusFilter(e.target.value)} className="h-8 min-w-36 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל הסטטוסים', 'All statuses')}</option>{statuses.map(status => <option key={status.id} value={status.id}>{t(status.label_he, status.label_en)}</option>)}</select>
           <select value={leadSourceFilter} onChange={e => setLeadSourceFilter(e.target.value)} className="h-8 min-w-28 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל המקורות', 'All sources')}</option><option value="Manual">{t('ידני', 'Manual')}</option><option value="Facebook">Facebook</option><option value="Instagram">Instagram</option></select>
           <select value={leadCategoryFilter} onChange={e => setLeadCategoryFilter(e.target.value)} className="h-8 min-w-32 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל הקטגוריות', 'All categories')}</option>{categoryOptions.map(category => <option key={category} value={category}>{category}</option>)}</select>
+          <select value={campaignFilter} onChange={e => setCampaignFilter(e.target.value)} aria-label={t('קמפיין', 'Campaign')} className="h-8 min-w-32 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל הקמפיינים', 'All campaigns')}</option>{campaignOptions.map(campaign => <option key={campaign} value={campaign}>{campaign}</option>)}</select>
+          <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} aria-label={t('לקוח', 'Client')} className="h-8 min-w-28 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל הלקוחות', 'All clients')}</option>{clientOptions.map(client => <option key={client} value={client}>{client}</option>)}</select>
+          <label className="flex items-center gap-1 text-xs text-gray-500">{t('תאריך כניסה', 'Entry date')}<input type="date" value={entryDateFilter} onChange={e => setEntryDateFilter(e.target.value)} className="h-8 rounded-lg border border-gray-200 bg-surface px-2 text-xs" /></label>
+          <label className="flex items-center gap-1 text-xs text-gray-500">{t('תאריך שיחה', 'Call date')}<input type="date" value={callDateFilter} onChange={e => setCallDateFilter(e.target.value)} className="h-8 rounded-lg border border-gray-200 bg-surface px-2 text-xs" /></label>
+          <label className="flex items-center gap-1 text-xs text-gray-500">{t('לפחות ניסיונות ללא מענה', 'Min no-answer attempts')}<input type="number" min="0" value={attemptFilter} onChange={e => setAttemptFilter(e.target.value)} className="h-8 w-14 rounded-lg border border-gray-200 bg-surface px-2 text-xs" /></label>
+          <select value={leadSort} onChange={e => setLeadSort(e.target.value as typeof leadSort)} aria-label={t('מיון', 'Sort')} className="h-8 min-w-40 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="entry_desc">{t('כניסה: חדש לישן', 'Entry: newest first')}</option><option value="entry_asc">{t('כניסה: ישן לחדש', 'Entry: oldest first')}</option><option value="call_desc">{t('שיחה אחרונה: חדש לישן', 'Last call: newest first')}</option><option value="call_asc">{t('שיחה אחרונה: ישן לחדש', 'Last call: oldest first')}</option></select>
           <button onClick={() => setAttentionOnly(value => !value)} className={`flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold ${attentionOnly ? 'bg-red-100 text-red-600' : 'border border-gray-200 text-gray-500'}`}><AlertTriangle size={13} />{t('דורש עדכון', 'Needs attention')}</button>
-          {boardFiltersActive && <button onClick={() => { setLeadQuery(''); setLeadStatusFilter('all'); setLeadSourceFilter('all'); setLeadCategoryFilter('all'); setAttentionOnly(false) }} className="h-8 px-2 text-xs text-gray-500">{t('נקה', 'Clear')}</button>}
+          {boardFiltersActive && <button onClick={() => { setLeadQuery(''); setLeadStatusFilter('all'); setLeadSourceFilter('all'); setLeadCategoryFilter('all'); setCampaignFilter('all'); setClientFilter('all'); setEntryDateFilter(''); setCallDateFilter(''); setAttemptFilter(''); setLeadSort('entry_desc'); setAttentionOnly(false) }} className="h-8 px-2 text-xs text-gray-500">{t('נקה', 'Clear')}</button>}
         </div>
       )}
 
@@ -830,7 +917,10 @@ export function Leads() {
         <div className="flex w-full flex-col gap-2">
           {statuses.filter(status => !status.is_archived).map(col => (
             <KanbanColumn key={col.id} col={col} leads={filteredBoardLeads.filter(lead => lead.pipelineStatusId === col.id)} onLeadClick={setSelectedLead}
-              onDelete={canDeleteStatuses && col.legacy_status === null ? () => setDeletingStatus(col) : undefined} />
+              onDelete={canDeleteStatuses && col.legacy_status === null ? () => setDeletingStatus(col) : undefined}
+              onEdit={canDeleteStatuses && !reorderingStatus ? () => setEditingStatus(col) : undefined}
+              onMoveUp={canDeleteStatuses && !reorderingStatus && statuses.filter(status => !status.is_archived).findIndex(status => status.id === col.id) > 0 ? () => void handleMoveStatus(col.id, -1) : undefined}
+              onMoveDown={canDeleteStatuses && !reorderingStatus && statuses.filter(status => !status.is_archived).findIndex(status => status.id === col.id) < statuses.filter(status => !status.is_archived).length - 1 ? () => void handleMoveStatus(col.id, 1) : undefined} />
           ))}
         </div>
       )}
@@ -848,6 +938,7 @@ export function Leads() {
           lead={selectedLead}
           onClose={() => setSelectedLead(null)}
           onUpdate={handleUpdate}
+          onAddHistory={handleAddHistory}
           onDelete={handleDeleteLead}
           canEdit={canEdit}
           canDelete={canDeleteStatuses}
@@ -856,6 +947,7 @@ export function Leads() {
       )}
       {addingStatus && <AddLeadStatusModal onClose={() => setAddingStatus(false)} onAdd={handleAddStatus} />}
       {deletingStatus && <DeleteLeadStatusModal status={deletingStatus} leadCount={leads.filter(lead => lead.pipelineStatusId === deletingStatus.id).length} onClose={() => setDeletingStatus(null)} onDelete={() => handleDeleteStatus(deletingStatus)} />}
+      {editingStatus && <EditLeadStatusModal status={editingStatus} onClose={() => setEditingStatus(null)} onSave={patch => handleSaveStatus(editingStatus.id, patch)} />}
     </div>
   )
 }

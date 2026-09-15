@@ -117,6 +117,7 @@ async function syncSheet() {
       phone,
       email: get('email') || null,
       form_answer: get('מה_מתאר_אותך_הכי_טוב_כרגע') || null,
+      campaign_name: get('campaign_name') || null,
       source: sourceFor(get('platform')),
       status: 'new',
       pipeline_status_id: newStatusId,
@@ -124,9 +125,10 @@ async function syncSheet() {
     }]
   })
 
-  const existingResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads?sheet_row_key=not.is.null&select=sheet_row_key`, { headers: adminHeaders() })
+  const existingResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads?sheet_row_key=not.is.null&select=id,sheet_row_key,campaign_name`, { headers: adminHeaders() })
   if (!existingResponse.ok) throw new Error('Could not check existing imported leads')
-  const existing = new Set((await existingResponse.json()).map(row => row.sheet_row_key))
+  const existingRows = await existingResponse.json()
+  const existing = new Set(existingRows.map(row => row.sheet_row_key))
   const newLeads = leads.filter(lead => !existing.has(lead.sheet_row_key))
   const created = newLeads.length
   const existingCount = leads.length - created
@@ -135,6 +137,16 @@ async function syncSheet() {
       method: 'POST', headers: { ...adminHeaders(), Prefer: 'return=minimal' }, body: JSON.stringify(newLeads),
     })
     if (!insertResponse.ok) throw new Error(`Supabase lead sync failed (${insertResponse.status})`)
+  }
+  const campaignByKey = new Map(leads.filter(lead => lead.campaign_name).map(lead => [lead.sheet_row_key, lead.campaign_name]))
+  const missingCampaigns = existingRows.filter(row => !row.campaign_name && campaignByKey.has(row.sheet_row_key))
+  for (let start = 0; start < missingCampaigns.length; start += 20) {
+    const batch = missingCampaigns.slice(start, start + 20)
+    const updates = await Promise.all(batch.map(row => fetch(`${SUPABASE_URL}/rest/v1/leads?id=eq.${encodeURIComponent(row.id)}`, {
+      method: 'PATCH', headers: { ...adminHeaders(), Prefer: 'return=minimal' },
+      body: JSON.stringify({ campaign_name: campaignByKey.get(row.sheet_row_key) }),
+    })))
+    if (updates.some(response => !response.ok)) throw new Error('Could not backfill imported lead campaign names')
   }
   return { created, existing: existingCount, skipped, total: leads.length }
 }
