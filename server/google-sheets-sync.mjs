@@ -130,9 +130,13 @@ async function syncSheet() {
   if (!existingResponse.ok) throw new Error('Could not check existing imported leads')
   const existingRows = await existingResponse.json()
   const existing = new Set(existingRows.map(row => row.sheet_row_key))
-  const newLeads = leads.filter(lead => !existing.has(lead.sheet_row_key))
+  const exclusionsResponse = await fetch(`${SUPABASE_URL}/rest/v1/lead_sync_exclusions?select=sheet_row_key`, { headers: adminHeaders() })
+  if (!exclusionsResponse.ok) throw new Error('Could not load permanently deleted leads')
+  const excluded = new Set((await exclusionsResponse.json()).map(row => row.sheet_row_key))
+  const newLeads = leads.filter(lead => !existing.has(lead.sheet_row_key) && !excluded.has(lead.sheet_row_key))
   const created = newLeads.length
-  const existingCount = leads.length - created
+  const existingCount = leads.filter(lead => existing.has(lead.sheet_row_key)).length
+  const excludedCount = leads.filter(lead => excluded.has(lead.sheet_row_key)).length
   if (newLeads.length) {
     const insertResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads`, {
       method: 'POST', headers: { ...adminHeaders(), Prefer: 'return=minimal' }, body: JSON.stringify(newLeads),
@@ -158,7 +162,7 @@ async function syncSheet() {
     })))
     if (updates.some(response => !response.ok)) throw new Error('Could not update imported lead details')
   }
-  return { created, existing: existingCount, skipped, total: leads.length }
+  return { created, existing: existingCount, excluded: excludedCount, skipped, total: leads.length }
 }
 
 async function runSync() {

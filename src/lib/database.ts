@@ -390,7 +390,7 @@ export async function archiveLead(id: string): Promise<void> {
 }
 
 export async function deleteLead(id: string): Promise<void> {
-  const { error } = await supabase.from('leads').delete().eq('id', id)
+  const { error } = await supabase.rpc('delete_lead_permanently', { lead_id_in: id })
   if (error) throw error
 }
 

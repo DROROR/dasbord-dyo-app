@@ -3,6 +3,7 @@ import { supabase } from './supabase'
 export interface GoogleSheetSyncResult {
   created: number
   existing: number
+  excluded?: number
   skipped: number
   total: number
 }
