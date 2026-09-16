@@ -31,7 +31,7 @@ interface ChatMessage { from: 'us' | 'lead'; text: string; time: string }
 interface Lead {
   campaignName: string; clientName: string; history: DbLeadHistory[]
   id: string; name: string; phone: string; email: string
-  source: LeadSource; leadType: LeadType; status: LeadStatus
+  source: LeadSource; imported: boolean; leadType: LeadType; status: LeadStatus
   pipelineStatusId: string | null
   formAnswer: string
   dueAt: string | null
@@ -109,6 +109,7 @@ function dbLeadToLead(row: DbLead): Lead {
     phone:         row.phone,
     email:         row.email ?? '',
     source:        row.source ? DB_SOURCE_MAP[row.source] : 'Manual',
+    imported:      row.sheet_row_key !== null,
     leadType:      row.lead_type ?? 'has_course',
     status:        DB_STATUS_MAP[row.status],
     pipelineStatusId: row.pipeline_status_id,
@@ -234,7 +235,7 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
       <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('שיחה אחרונה', 'Last Call')}</small>{short(calls.at(-1))}</span>
       <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('אין מענה', 'No Answer')}</small>{attempts}</span>
       <span className="min-w-0 truncate text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('קמפיין', 'Campaign')}</small>{lead.campaignName || '—'}</span>
-      <span className="min-w-0 truncate text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('פלטפורמה', 'Platform')}</small>{lead.source === 'Manual' ? t('ידני', 'Manual') : lead.source}</span>
+      <span className="min-w-0 truncate text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('פלטפורמה', 'Platform')}</small>{lead.source === 'Manual' ? (lead.imported ? '—' : t('ידני', 'Manual')) : lead.source}</span>
       <span className={`text-xs ${isLeadDueOverdue(lead) ? 'font-semibold text-red-600' : 'text-gray-600'}`}><small className="block text-[10px] text-gray-400">{t('שיחה מתוזמנת', 'Scheduled')}</small>{short(lead.dueAt ?? undefined)}</span>
     </button>
   )
@@ -396,7 +397,7 @@ function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, c
             <h2 className="text-base font-bold text-primary">{lead.name}</h2>
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SOURCE_COLOR[lead.source]}`}>
-                {lead.source === 'Manual' ? t('ידני', 'Manual') : lead.source}
+                {lead.source === 'Manual' ? (lead.imported ? '—' : t('ידני', 'Manual')) : lead.source}
               </span>
               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${leadCategoryColor(lead.formAnswer || LEAD_TYPE_LABEL[lead.leadType].en)}`}>
                 {lead.formAnswer || t(LEAD_TYPE_LABEL[lead.leadType].he, LEAD_TYPE_LABEL[lead.leadType].en)}
@@ -473,7 +474,7 @@ function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, c
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600"><strong className="block text-[10px] text-gray-400">{t('קמפיין', 'Campaign')}</strong>{lead.campaignName || '—'}</div>
-                    <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600"><strong className="block text-[10px] text-gray-400">{t('פלטפורמה', 'Platform')}</strong>{lead.source === 'Manual' ? t('ידני', 'Manual') : lead.source}</div>
+                    <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600"><strong className="block text-[10px] text-gray-400">{t('פלטפורמה', 'Platform')}</strong>{lead.source === 'Manual' ? (lead.imported ? '—' : t('ידני', 'Manual')) : lead.source}</div>
                   </div>
                 </div>
 
@@ -652,7 +653,7 @@ function ArchiveView({ leads, onLeadClick }: { leads: Lead[]; onLeadClick: (l: L
                 <td className="px-4 py-3 text-xs text-gray-400" dir="ltr">{lead.phone}</td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SOURCE_COLOR[lead.source]}`}>
-                    {lead.source === 'Manual' ? t('ידני', 'Manual') : lead.source}
+                    {lead.source === 'Manual' ? (lead.imported ? '—' : t('ידני', 'Manual')) : lead.source}
                   </span>
                 </td>
                 <td className="px-4 py-3">
