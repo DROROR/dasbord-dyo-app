@@ -333,7 +333,7 @@ export async function createManualLead(data: {
   created_at?: string
 }): Promise<DbLead> {
   const { data: created, error } = await supabase.from('leads').insert({
-    name: data.name, phone: data.phone, email: data.email || null,
+    name: data.name, client_name: data.name, phone: data.phone, email: data.email || null,
     form_answer: data.form_answer || null, pipeline_status_id: data.pipeline_status_id,
     status: data.status ?? 'new', source: data.source ?? null, created_at: data.created_at ?? new Date().toISOString(), lead_type: null, follow_up_date: null,
     follow_up_note: null, follow_up_tone: null,

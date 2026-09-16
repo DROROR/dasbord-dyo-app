@@ -48,7 +48,7 @@ export function LeadHistoryPanel({ entries, canEdit, onAdd }: {
     <ol className="space-y-2">
       {sorted.length === 0 && <li className="text-xs text-gray-400">{t('עדיין אין היסטוריה', 'No history yet')}</li>}
       {sorted.map(entry => <li key={entry.id} className="rounded-lg border border-gray-100 bg-gray-50/50 px-3 py-2">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500"><Calendar size={12} /><time>{new Date(entry.occurred_at).toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</time><strong className="text-gray-700">{entry.author_name}</strong><span className="ms-auto font-semibold text-primary">{entry.kind === 'note' ? t('הערה', 'Note') : entry.kind === 'completed_call' ? t('שיחה שהושלמה', 'Completed Call') : t('אין מענה', 'No Answer')}</span></div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500"><Calendar size={12} /><time>{new Date(entry.occurred_at).toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</time><strong className="text-gray-700">{entry.author_name}</strong><span className="ms-auto font-semibold text-primary">{entry.kind === 'note' ? t('הערה', 'Note') : entry.kind === 'completed_call' ? t('שיחה שהושלמה', 'Completed Call') : t('ניסיון קשר — אין מענה', 'Contact Attempt — No Answer')}</span></div>
         {entry.body && <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{entry.body}</p>}
       </li>)}
     </ol>

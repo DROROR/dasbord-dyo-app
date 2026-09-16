@@ -113,7 +113,7 @@ function dbLeadToLead(row: DbLead): Lead {
     status:        DB_STATUS_MAP[row.status],
     pipelineStatusId: row.pipeline_status_id,
     campaignName: row.campaign_name ?? '',
-    clientName: row.client_name ?? '',
+    clientName: row.client_name ?? row.name,
     history: [],
     formAnswer: row.form_answer ?? '',
     dueAt: row.due_at,
@@ -225,7 +225,7 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
   const attempts = lead.history.filter(entry => entry.kind === 'no_answer').length
   const short = (iso?: string) => iso ? new Date(iso).toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
   return (
-    <button onClick={onClick} className="grid min-h-14 w-full min-w-[1180px] grid-cols-[minmax(150px,1.5fr)_120px_minmax(130px,1fr)_110px_110px_110px_90px_minmax(120px,1fr)_110px] items-center gap-3 border-b border-gray-100 bg-surface px-3 py-2 text-start transition-colors last:border-b-0 hover:bg-gray-50">
+    <button onClick={onClick} className="grid min-h-14 w-full min-w-[1280px] grid-cols-[minmax(150px,1.5fr)_120px_minmax(130px,1fr)_110px_110px_110px_90px_minmax(120px,1fr)_90px_110px] items-center gap-3 border-b border-gray-100 bg-surface px-3 py-2 text-start transition-colors last:border-b-0 hover:bg-gray-50">
       <span className="flex min-w-0 items-center gap-2"><strong className="truncate text-sm text-gray-800">{lead.name}</strong>{alert && <AlertTriangle size={13} className="shrink-0 text-red-500" />}</span>
       <span dir="ltr" className="truncate text-xs text-gray-500">{lead.phone}</span>
       <span className={`w-fit max-w-full truncate rounded-md px-2 py-1 text-xs font-semibold ${leadCategoryColor(category)}`}>{category}</span>
@@ -234,6 +234,7 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
       <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('שיחה אחרונה', 'Last Call')}</small>{short(calls.at(-1))}</span>
       <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('אין מענה', 'No Answer')}</small>{attempts}</span>
       <span className="min-w-0 truncate text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('קמפיין', 'Campaign')}</small>{lead.campaignName || '—'}</span>
+      <span className="min-w-0 truncate text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('פלטפורמה', 'Platform')}</small>{lead.source === 'Manual' ? t('ידני', 'Manual') : lead.source}</span>
       <span className={`text-xs ${isLeadDueOverdue(lead) ? 'font-semibold text-red-600' : 'text-gray-600'}`}><small className="block text-[10px] text-gray-400">{t('שיחה מתוזמנת', 'Scheduled')}</small>{short(lead.dueAt ?? undefined)}</span>
     </button>
   )
@@ -470,6 +471,10 @@ function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, c
                       <span><strong className="block text-[10px] text-gray-400">{t('עדכון סטטוס אחרון', 'Last status update')}</strong>{fmtDateTime(lead.statusUpdatedAt, lang)}</span>
                     </div>
                   </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600"><strong className="block text-[10px] text-gray-400">{t('קמפיין', 'Campaign')}</strong>{lead.campaignName || '—'}</div>
+                    <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600"><strong className="block text-[10px] text-gray-400">{t('פלטפורמה', 'Platform')}</strong>{lead.source === 'Manual' ? t('ידני', 'Manual') : lead.source}</div>
+                  </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -479,7 +484,7 @@ function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, c
                   <label className="text-xs font-semibold text-gray-500 sm:col-span-2">{t('תאריך ושעת יעד', 'Due date and time')}
                     <input type="datetime-local" value={detailDueAt} onChange={e => setDetailDueAt(e.target.value)} disabled={!canEdit} className="mt-1.5 h-10 w-full rounded-lg border border-gray-200 bg-surface px-3 text-sm text-gray-700 outline-none focus:border-primary disabled:opacity-50" />
                   </label>
-                  <label className="text-xs font-semibold text-gray-500 sm:col-span-2">{t('לקוח', 'Client')}
+                  <label className="text-xs font-semibold text-gray-500 sm:col-span-2">{t('שם הלקוח', 'Customer name')}
                     <input value={detailClientName} onChange={e => setDetailClientName(e.target.value)} disabled={!canEdit} className="mt-1.5 h-10 w-full rounded-lg border border-gray-200 bg-surface px-3 text-sm text-gray-700 outline-none focus:border-primary disabled:opacity-50" />
                   </label>
                 </div>

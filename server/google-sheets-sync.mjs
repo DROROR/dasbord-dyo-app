@@ -114,6 +114,7 @@ async function syncSheet() {
     return [{
       sheet_row_key: `google:${SHEET_ID}:${externalId}`,
       name,
+      client_name: name,
       phone,
       email: get('email') || null,
       form_answer: get('מה_מתאר_אותך_הכי_טוב_כרגע') || null,
@@ -125,7 +126,7 @@ async function syncSheet() {
     }]
   })
 
-  const existingResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads?sheet_row_key=not.is.null&select=id,sheet_row_key,campaign_name`, { headers: adminHeaders() })
+  const existingResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads?sheet_row_key=not.is.null&select=id,sheet_row_key,name,client_name,campaign_name,source`, { headers: adminHeaders() })
   if (!existingResponse.ok) throw new Error('Could not check existing imported leads')
   const existingRows = await existingResponse.json()
   const existing = new Set(existingRows.map(row => row.sheet_row_key))
@@ -138,15 +139,24 @@ async function syncSheet() {
     })
     if (!insertResponse.ok) throw new Error(`Supabase lead sync failed (${insertResponse.status})`)
   }
-  const campaignByKey = new Map(leads.filter(lead => lead.campaign_name).map(lead => [lead.sheet_row_key, lead.campaign_name]))
-  const missingCampaigns = existingRows.filter(row => !row.campaign_name && campaignByKey.has(row.sheet_row_key))
-  for (let start = 0; start < missingCampaigns.length; start += 20) {
-    const batch = missingCampaigns.slice(start, start + 20)
+  const sheetLeadByKey = new Map(leads.map(lead => [lead.sheet_row_key, lead]))
+  const pendingUpdates = existingRows.flatMap(row => {
+    const sheetLead = sheetLeadByKey.get(row.sheet_row_key)
+    if (!sheetLead) return []
+    const patch = {}
+    if (row.name !== sheetLead.name) patch.name = sheetLead.name
+    if (row.client_name !== sheetLead.name) patch.client_name = sheetLead.name
+    if (!row.campaign_name && sheetLead.campaign_name) patch.campaign_name = sheetLead.campaign_name
+    if (row.source !== sheetLead.source && sheetLead.source) patch.source = sheetLead.source
+    return Object.keys(patch).length ? [{ id: row.id, patch }] : []
+  })
+  for (let start = 0; start < pendingUpdates.length; start += 20) {
+    const batch = pendingUpdates.slice(start, start + 20)
     const updates = await Promise.all(batch.map(row => fetch(`${SUPABASE_URL}/rest/v1/leads?id=eq.${encodeURIComponent(row.id)}`, {
       method: 'PATCH', headers: { ...adminHeaders(), Prefer: 'return=minimal' },
-      body: JSON.stringify({ campaign_name: campaignByKey.get(row.sheet_row_key) }),
+      body: JSON.stringify(row.patch),
     })))
-    if (updates.some(response => !response.ok)) throw new Error('Could not backfill imported lead campaign names')
+    if (updates.some(response => !response.ok)) throw new Error('Could not update imported lead details')
   }
   return { created, existing: existingCount, skipped, total: leads.length }
 }
