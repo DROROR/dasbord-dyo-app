@@ -190,6 +190,9 @@ export function TaskDetailModal({
   const [deploying,      setDeploying]      = useState(false)
   const [deployError,    setDeployError]    = useState<string | null>(null)
   const [deployedToAdmin, setDeployedToAdmin] = useState(task.deployedToAdmin ?? false)
+  const [msgTranslations, setMsgTranslations] = useState<Record<string, string>>({})
+  const [translatingMsg,  setTranslatingMsg]  = useState(false)
+  const [showMsgTr,       setShowMsgTr]       = useState(false)
 
   const [attachUrl,  setAttachUrl]  = useState('')
   const [attachName, setAttachName] = useState('')
@@ -718,24 +721,81 @@ export function TaskDetailModal({
 
   const NOTIFY_TICKET_DEPLOYED_URL = import.meta.env.VITE_NOTIFY_TICKET_DEPLOYED_URL as string
   const DEPLOY_SECRET = import.meta.env.VITE_DEPLOY_SECRET as string
+  const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY as string
+
+  // Older tasks stored ticket_id / app_id only as plain text in the description
+  // (before migration 20260906120000 promoted them to proper columns). Parse
+  // them as a fallback so "Update Admin" still works for those tasks.
+  function resolveTicketLink(): { ticketId: string; appId: string } | null {
+    if (task.ticketId && task.appId) return { ticketId: task.ticketId, appId: task.appId }
+    const desc = task.description ?? ''
+    const ticketMatch = desc.match(/Ticket ID:\s*(\S+)/)
+    const appMatch    = desc.match(/App ID:\s*(\S+)/)
+    if (ticketMatch && appMatch) return { ticketId: ticketMatch[1], appId: appMatch[1] }
+    return null
+  }
+
+  async function translateMessage() {
+    if (!deployMessage.trim() || translatingMsg) return
+    setTranslatingMsg(true)
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1024,
+          system: 'Translate the text to Hebrew (he), Arabic (ar), and Spanish (es). Return ONLY valid JSON: {"he":"...","ar":"...","es":"..."}.',
+          messages: [{ role: 'user', content: deployMessage }],
+        }),
+      })
+      if (!res.ok) return
+      const data = await res.json() as { content: Array<{ text: string }> }
+      const text = data.content?.[0]?.text ?? ''
+      const match = text.match(/\{[\s\S]*\}/)
+      if (!match) return
+      const tr = JSON.parse(match[0]) as { he?: string; ar?: string; es?: string }
+      setMsgTranslations({ he: tr.he ?? '', ar: tr.ar ?? '', es: tr.es ?? '' })
+      setShowMsgTr(true)
+    } finally {
+      setTranslatingMsg(false)
+    }
+  }
 
   async function handleDeploy() {
     if (deploying || deployedToAdmin) return
+    const link = resolveTicketLink()
+    if (!link) {
+      setDeployError('This task has no linked support ticket — cannot update admin.')
+      return
+    }
     setDeploying(true)
     setDeployError(null)
     try {
       const updated = await deployTask(task.id, deployMessage)
       onUpdate(updated)
-      setDeployedToAdmin(true)
-      if (task.ticketId && task.appId) {
-        await fetch(NOTIFY_TICKET_DEPLOYED_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-webhook-secret': DEPLOY_SECRET },
-          body: JSON.stringify({ app_id: task.appId, ticket_id: task.ticketId, update_message: deployMessage }),
-        })
+      const res = await fetch(NOTIFY_TICKET_DEPLOYED_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-webhook-secret': DEPLOY_SECRET },
+        body: JSON.stringify({
+          app_id: link.appId,
+          ticket_id: link.ticketId,
+          update_message: deployMessage,
+          ...(Object.keys(msgTranslations).length > 0 && { message_translations: msgTranslations }),
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error ?? `Server error ${res.status}`)
       }
+      setDeployedToAdmin(true)
     } catch (err) {
-      setDeployError(err instanceof Error ? err.message : 'Failed to deploy — please try again.')
+      setDeployError(err instanceof Error ? err.message : 'Failed to update admin — please try again.')
       setDeployedToAdmin(false)
     } finally {
       setDeploying(false)
@@ -1110,28 +1170,60 @@ export function TaskDetailModal({
           </div>
         )}
 
-        {/* Deploy to Admin — support board tasks only, once done and not yet deployed */}
+        {/* Update Admin — support board tasks only, once done and not yet deployed */}
         {task.board === 'support' && (
           <div className={`px-6 py-3 shrink-0 border-b ${deployedToAdmin ? 'bg-green-50 border-green-100' : 'bg-violet-50 border-violet-100'}`}>
             {deployedToAdmin ? (
               <div className="flex items-center gap-2 text-green-700 text-sm font-medium">
                 <Check size={15} className="shrink-0" />
-                Deployed to admin — update message sent.
+                Admin updated — message sent to their homepage.
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                <p className="text-xs font-bold text-violet-800 uppercase tracking-wide">Deploy to Admin</p>
-                <p className="text-xs text-violet-700">When the fix is live, write the release note and click deploy — the admin will see it on their homepage.</p>
+                <p className="text-xs font-bold text-violet-800 uppercase tracking-wide">Update Admin</p>
+                <p className="text-xs text-violet-700">When the fix is live, write the update message and click send — the admin will see it on their homepage.</p>
                 <textarea
                   value={deployMessage}
                   onChange={e => setDeployMessage(e.target.value)}
                   rows={3}
                   disabled={task.status !== 'done'}
-                  placeholder="Write release note…"
+                  placeholder="Write update message…"
                   className="w-full text-sm border border-violet-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-violet-400 bg-white placeholder:text-gray-400 disabled:bg-gray-50 disabled:text-gray-400"
                 />
                 {task.status !== 'done' && (
-                  <p className="text-[11px] text-violet-500">Mark the task as Done first before deploying.</p>
+                  <p className="text-[11px] text-violet-500">Mark the task as Done first before sending the update.</p>
+                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => void translateMessage()}
+                    disabled={translatingMsg || !deployMessage.trim() || task.status !== 'done'}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+                  >
+                    {translatingMsg ? <Loader2 size={11} className="animate-spin" /> : <span>🌐</span>}
+                    {translatingMsg ? 'Translating…' : 'Translate to all languages'}
+                  </button>
+                  {Object.values(msgTranslations).some(v => v) && (
+                    <button onClick={() => setShowMsgTr(v => !v)} className="text-xs text-violet-400 hover:text-violet-600">
+                      {showMsgTr ? 'Hide translations' : 'Show translations'}
+                    </button>
+                  )}
+                </div>
+                {showMsgTr && Object.values(msgTranslations).some(v => v) && (
+                  <div className="space-y-2">
+                    {([{ code: 'he', flag: '🇮🇱', label: 'Hebrew', dir: 'rtl' }, { code: 'ar', flag: '🇸🇦', label: 'Arabic', dir: 'rtl' }, { code: 'es', flag: '🇪🇸', label: 'Spanish', dir: 'ltr' }] as const).map(l => (
+                      <div key={l.code}>
+                        <label className="text-[11px] font-semibold text-violet-500 mb-1 flex items-center gap-1">{l.flag} {l.label}</label>
+                        <textarea
+                          value={msgTranslations[l.code] ?? ''}
+                          onChange={e => setMsgTranslations(prev => ({ ...prev, [l.code]: e.target.value }))}
+                          dir={l.dir}
+                          rows={2}
+                          disabled={task.status !== 'done'}
+                          className="w-full text-sm border border-violet-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-violet-400 bg-white disabled:bg-gray-50"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 )}
                 {deployError && <p className="text-xs text-red-600">{deployError}</p>}
                 <button
@@ -1140,7 +1232,7 @@ export function TaskDetailModal({
                   className="self-start flex items-center gap-1.5 px-4 py-1.5 bg-violet-600 text-white text-xs font-bold rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {deploying && <Loader2 size={11} className="animate-spin" />}
-                  {deploying ? 'Deploying…' : 'Deploy to Admin'}
+                  {deploying ? 'Sending…' : 'Update Admin'}
                 </button>
               </div>
             )}

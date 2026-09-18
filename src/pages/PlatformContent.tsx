@@ -3,7 +3,7 @@ import {
   Lightbulb, PlusCircle, Trash2, ChevronDown, ChevronUp,
   Save, Loader2, RefreshCw, ToggleLeft, ToggleRight,
   ArrowUp, ArrowDown, Pencil, X, Check,
-  Package, Newspaper, Layers, Users, Star, Zap,
+  Package, Newspaper, Layers, Users, Star, Zap, Globe,
 } from 'lucide-react'
 import { useLang } from '../contexts/LanguageContext'
 
@@ -12,7 +12,25 @@ import { useLang } from '../contexts/LanguageContext'
 const CF_BASE = 'https://us-east1-dyo-courses.cloudfunctions.net'
 const SECRET = 'dyo-platform-content-2026'
 
+const LANGS = [
+  { code: 'en' as const, label: 'EN', flag: '🇬🇧', dir: 'ltr' as const },
+  { code: 'he' as const, label: 'HE', flag: '🇮🇱', dir: 'rtl' as const },
+  { code: 'ar' as const, label: 'AR', flag: '🇸🇦', dir: 'rtl' as const },
+  { code: 'es' as const, label: 'ES', flag: '🇪🇸', dir: 'ltr' as const },
+]
+type LangCode = 'en' | 'he' | 'ar' | 'es'
+
 const PACKAGES = [
+  {
+    id: 'all_packages',
+    label: 'All Packages',
+    labelHe: 'כל החבילות',
+    icon: Globe,
+    color: 'text-gray-600',
+    bg: 'bg-gray-50',
+    activeBg: 'bg-gray-700',
+    border: 'border-gray-200',
+  },
   {
     id: 'solo_pro',
     label: 'Solo Pro',
@@ -43,19 +61,36 @@ const PACKAGES = [
     activeBg: 'bg-emerald-600',
     border: 'border-emerald-200',
   },
-] as const
+]
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface TipItem { title: string; description: string }
+interface ItemTranslation { title?: string; description?: string }
+interface CompTranslation { name?: string; description?: string }
+
+interface TipItem {
+  title: string
+  description: string
+  translations?: Record<string, ItemTranslation>
+}
 interface TipStep {
   stepNumber: number
   tips: TipItem[]
   pinnedDay?: number | null
   pinnedDate?: string | null
 }
-interface WhatsNewItem { version: string; date: string; description: string }
-interface ComponentItem { name: string; description: string; isBeta: boolean }
+interface WhatsNewItem {
+  version: string
+  date: string
+  description: string
+  translations?: Record<string, { description?: string }>
+}
+interface ComponentItem {
+  name: string
+  description: string
+  isBeta: boolean
+  translations?: Record<string, CompTranslation>
+}
 
 interface PlatformContent {
   tips: TipItem[]
@@ -64,6 +99,8 @@ interface PlatformContent {
   tipsImageUrl: string
   tipsCardTitle: string
   tipsCardSubtitle: string
+  tipsCardTitleTranslations?: Record<string, string>
+  tipsCardSubtitleTranslations?: Record<string, string>
   whatsNew: WhatsNewItem[]
   components: ComponentItem[]
 }
@@ -72,8 +109,37 @@ function emptyContent(): PlatformContent {
   return {
     tips: [], tipChain: [], chainEnabled: true,
     tipsImageUrl: '', tipsCardTitle: '', tipsCardSubtitle: '',
+    tipsCardTitleTranslations: {}, tipsCardSubtitleTranslations: {},
     whatsNew: [], components: [],
   }
+}
+
+// ─── Language helpers ─────────────────────────────────────────────────────────
+
+function tipTitle(tip: TipItem, lang: LangCode) {
+  return lang === 'en' ? tip.title : (tip.translations?.[lang]?.title ?? tip.title)
+}
+function tipDesc(tip: TipItem, lang: LangCode) {
+  return lang === 'en' ? tip.description : (tip.translations?.[lang]?.description ?? tip.description)
+}
+function compName(c: ComponentItem, lang: LangCode) {
+  return lang === 'en' ? c.name : (c.translations?.[lang]?.name ?? c.name)
+}
+function compDesc(c: ComponentItem, lang: LangCode) {
+  return lang === 'en' ? c.description : (c.translations?.[lang]?.description ?? c.description)
+}
+function wnDesc(item: WhatsNewItem, lang: LangCode) {
+  return lang === 'en' ? item.description : (item.translations?.[lang]?.description ?? item.description)
+}
+
+function mergeTipTrans(tip: TipItem, lang: LangCode, title: string, desc: string): TipItem {
+  return { ...tip, translations: { ...(tip.translations ?? {}), [lang]: { title, description: desc } } }
+}
+function mergeCompTrans(c: ComponentItem, lang: LangCode, name: string, desc: string): ComponentItem {
+  return { ...c, translations: { ...(c.translations ?? {}), [lang]: { name, description: desc } } }
+}
+function mergeWnTrans(item: WhatsNewItem, lang: LangCode, desc: string): WhatsNewItem {
+  return { ...item, translations: { ...(item.translations ?? {}), [lang]: { description: desc } } }
 }
 
 // ─── API ──────────────────────────────────────────────────────────────────────
@@ -93,6 +159,35 @@ async function apiSave(packageId: string, content: PlatformContent): Promise<voi
     body: JSON.stringify({ packageId, content }),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
+}
+
+const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY as string
+const TRANSLATE_MODEL = 'claude-haiku-4-5-20251001'
+
+async function apiTranslate(items: Array<{ id: string; text: string }>): Promise<Record<string, { he: string; ar: string; es: string }>> {
+  const system = 'You are a professional translator. Translate each item from English to Hebrew (he), Arabic (ar), and Spanish (es). Return ONLY valid JSON: {"translations":{"<id>":{"he":"...","ar":"...","es":"..."}, ...}}. Preserve formatting and brand names.'
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_KEY,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: TRANSLATE_MODEL,
+      max_tokens: 4096,
+      system,
+      messages: [{ role: 'user', content: JSON.stringify(items.map(i => ({ id: i.id, text: i.text }))) }],
+    }),
+  })
+  if (!res.ok) throw new Error(`Anthropic error ${res.status}`)
+  const data = await res.json() as { content: Array<{ text: string }> }
+  const text = data.content?.[0]?.text ?? ''
+  const match = text.match(/\{[\s\S]*\}/)
+  if (!match) throw new Error('No JSON in response')
+  const parsed = JSON.parse(match[0]) as { translations: Record<string, { he: string; ar: string; es: string }> }
+  return parsed.translations ?? {}
 }
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
@@ -139,6 +234,7 @@ interface FormField {
   onChange: (v: string) => void
   multiline?: boolean
   placeholder?: string
+  dir?: 'ltr' | 'rtl'
 }
 
 function InlineForm({ fields, extra, onSave, onCancel }: {
@@ -158,6 +254,7 @@ function InlineForm({ fields, extra, onSave, onCancel }: {
               rows={3}
               placeholder={f.placeholder}
               value={f.value}
+              dir={f.dir}
               onChange={e => f.onChange(e.target.value)}
             />
           ) : (
@@ -165,6 +262,7 @@ function InlineForm({ fields, extra, onSave, onCancel }: {
               className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
               placeholder={f.placeholder}
               value={f.value}
+              dir={f.dir}
               onChange={e => f.onChange(e.target.value)}
             />
           )}
@@ -219,14 +317,36 @@ function ListItem({ title, subtitle, badge, onEdit, onDelete }: {
   )
 }
 
+function LangTabs({ active, onChange }: { active: LangCode; onChange: (l: LangCode) => void }) {
+  return (
+    <div className="flex gap-1 p-1 bg-gray-100 rounded-xl">
+      {LANGS.map(l => (
+        <button
+          key={l.code}
+          onClick={() => onChange(l.code)}
+          className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            active === l.code ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <span>{l.flag}</span> {l.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ─── Tips Chain ───────────────────────────────────────────────────────────────
 
-function TipsChainSection({ content, onChange }: {
+function TipsChainSection({ content, onChange, lang }: {
   content: PlatformContent
   onChange: (c: PlatformContent) => void
+  lang: LangCode
 }) {
   const [expandedStep, setExpandedStep] = useState<number | null>(null)
   const [stepForms, setStepForms] = useState<Record<number, { formIdx: number | null; title: string; desc: string }>>({})
+
+  const langMeta = LANGS.find(l => l.code === lang)!
+  const isEn = lang === 'en'
 
   function sf(i: number) { return stepForms[i] ?? { formIdx: null, title: '', desc: '' } }
   function setF(i: number, patch: Partial<typeof stepForms[0]>) {
@@ -234,18 +354,21 @@ function TipsChainSection({ content, onChange }: {
   }
 
   function addSection() {
+    if (!isEn) return
     const next = content.tipChain.length + 1
     onChange({ ...content, tipChain: [...content.tipChain, { stepNumber: next, tips: [] }] })
     setExpandedStep(content.tipChain.length)
   }
 
   function deleteSection(i: number) {
+    if (!isEn) return
     const chain = content.tipChain.filter((_, j) => j !== i).map((s, j) => ({ ...s, stepNumber: j + 1 }))
     onChange({ ...content, tipChain: chain })
     if (expandedStep === i) setExpandedStep(null)
   }
 
   function move(i: number, dir: -1 | 1) {
+    if (!isEn) return
     const j = i + dir
     if (j < 0 || j >= content.tipChain.length) return
     const chain = [...content.tipChain];
@@ -257,19 +380,30 @@ function TipsChainSection({ content, onChange }: {
 
   function saveTip(stepIdx: number) {
     const form = sf(stepIdx)
-    const title = form.title.trim()
-    if (!title) return
     const chain = [...content.tipChain]
     const step = { ...chain[stepIdx], tips: [...chain[stepIdx].tips] }
-    if (form.formIdx === -1) step.tips = [...step.tips, { title, description: form.desc.trim() }]
-    else if (form.formIdx !== null && form.formIdx >= 0)
-      step.tips = step.tips.map((t, i) => i === form.formIdx ? { title, description: form.desc.trim() } : t)
+
+    if (isEn) {
+      const title = form.title.trim()
+      if (!title) return
+      if (form.formIdx === -1) step.tips = [...step.tips, { title, description: form.desc.trim() }]
+      else if (form.formIdx !== null && form.formIdx >= 0)
+        step.tips = step.tips.map((t, i) => i === form.formIdx ? { title, description: form.desc.trim() } : t)
+    } else {
+      if (form.formIdx !== null && form.formIdx >= 0) {
+        step.tips = step.tips.map((t, i) =>
+          i === form.formIdx ? mergeTipTrans(t, lang, form.title, form.desc) : t
+        )
+      }
+    }
+
     chain[stepIdx] = step
     onChange({ ...content, tipChain: chain })
     setF(stepIdx, { formIdx: null, title: '', desc: '' })
   }
 
   function deleteTip(stepIdx: number, tipIdx: number) {
+    if (!isEn) return
     const chain = [...content.tipChain]
     chain[stepIdx] = { ...chain[stepIdx], tips: chain[stepIdx].tips.filter((_, i) => i !== tipIdx) }
     onChange({ ...content, tipChain: chain })
@@ -277,47 +411,74 @@ function TipsChainSection({ content, onChange }: {
   }
 
   function setPinnedDay(stepIdx: number, val: string) {
+    if (!isEn) return
     const n = parseInt(val, 10)
     const chain = [...content.tipChain]
     chain[stepIdx] = { ...chain[stepIdx], pinnedDay: isNaN(n) || n <= 0 ? null : n }
     onChange({ ...content, tipChain: chain })
   }
 
+  const cardTitleVal = isEn
+    ? content.tipsCardTitle
+    : (content.tipsCardTitleTranslations?.[lang] ?? '')
+  const cardSubtitleVal = isEn
+    ? content.tipsCardSubtitle
+    : (content.tipsCardSubtitleTranslations?.[lang] ?? '')
+
+  function setCardTitle(v: string) {
+    if (isEn) {
+      onChange({ ...content, tipsCardTitle: v })
+    } else {
+      onChange({ ...content, tipsCardTitleTranslations: { ...(content.tipsCardTitleTranslations ?? {}), [lang]: v } })
+    }
+  }
+
+  function setCardSubtitle(v: string) {
+    if (isEn) {
+      onChange({ ...content, tipsCardSubtitle: v })
+    } else {
+      onChange({ ...content, tipsCardSubtitleTranslations: { ...(content.tipsCardSubtitleTranslations ?? {}), [lang]: v } })
+    }
+  }
+
   return (
     <SectionCard title="Tips & Tricks Chain" icon={Lightbulb}>
 
-      {/* Chain toggle */}
-      <div className="px-5 pt-4 pb-0">
-        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Step 1 — Enable chain cycling</p>
-        <button
-          onClick={() => onChange({ ...content, chainEnabled: !content.chainEnabled })}
-          className={`flex items-center gap-3 w-full px-4 py-3.5 rounded-xl border text-sm font-semibold transition-all ${
-            content.chainEnabled
-              ? 'bg-primary/8 border-primary/25 text-primary'
-              : 'bg-gray-50 border-gray-200 text-gray-500'
-          }`}
-        >
-          {content.chainEnabled
-            ? <ToggleRight size={22} className="shrink-0" />
-            : <ToggleLeft size={22} className="shrink-0" />}
-          <span>{content.chainEnabled ? 'Chain Cycling — ON' : 'Chain Cycling — OFF'}</span>
-          <span className="text-xs font-normal ml-auto text-gray-400">
-            {content.chainEnabled ? 'New section each day' : 'Section 1 always shown'}
-          </span>
-        </button>
-      </div>
+      {/* Chain toggle — only in English mode */}
+      {isEn && (
+        <div className="px-5 pt-4 pb-0">
+          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Step 1 — Enable chain cycling</p>
+          <button
+            onClick={() => onChange({ ...content, chainEnabled: !content.chainEnabled })}
+            className={`flex items-center gap-3 w-full px-4 py-3.5 rounded-xl border text-sm font-semibold transition-all ${
+              content.chainEnabled
+                ? 'bg-primary/8 border-primary/25 text-primary'
+                : 'bg-gray-50 border-gray-200 text-gray-500'
+            }`}
+          >
+            {content.chainEnabled
+              ? <ToggleRight size={22} className="shrink-0" />
+              : <ToggleLeft size={22} className="shrink-0" />}
+            <span>{content.chainEnabled ? 'Chain Cycling — ON' : 'Chain Cycling — OFF'}</span>
+            <span className="text-xs font-normal ml-auto text-gray-400">
+              {content.chainEnabled ? 'New section each day' : 'Section 1 always shown'}
+            </span>
+          </button>
+        </div>
+      )}
 
       {/* Sections */}
       <div className="px-5 pt-4 pb-0">
         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-          Step 2 — Sections <span className="normal-case font-normal">(each section = one day's tips)</span>
+          {isEn ? 'Step 2 — Sections' : `${langMeta.flag} Editing ${langMeta.label} translations`}
+          {isEn && <span className="normal-case font-normal"> (each section = one day's tips)</span>}
         </p>
 
         {content.tipChain.length === 0 ? (
           <div className="border-2 border-dashed border-gray-200 rounded-xl py-8 text-center mb-3">
             <Lightbulb size={28} className="text-gray-300 mx-auto mb-2" />
             <p className="text-sm text-gray-400 font-medium">No sections yet</p>
-            <p className="text-xs text-gray-400 mt-0.5">Click the button below to add your first section</p>
+            {isEn && <p className="text-xs text-gray-400 mt-0.5">Click the button below to add your first section</p>}
           </div>
         ) : (
           <div className="border border-gray-200 rounded-xl overflow-hidden mb-2">
@@ -350,37 +511,41 @@ function TipsChainSection({ content, onChange }: {
                       </div>
                       <span className="text-xs text-gray-400">{step.tips.length} tip{step.tips.length !== 1 ? 's' : ''} · {step.pinnedDay ? 'pinned' : 'auto-cycle'}</span>
                     </div>
-                    <div className="flex items-center gap-0.5">
-                      <button onClick={e => { e.stopPropagation(); move(i, -1) }} disabled={i === 0}
-                        className="p-1.5 rounded-lg disabled:opacity-25 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
-                        <ArrowUp size={13} />
-                      </button>
-                      <button onClick={e => { e.stopPropagation(); move(i, 1) }} disabled={i === content.tipChain.length - 1}
-                        className="p-1.5 rounded-lg disabled:opacity-25 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
-                        <ArrowDown size={13} />
-                      </button>
-                      <button onClick={e => { e.stopPropagation(); deleteSection(i) }}
-                        className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
-                        <Trash2 size={13} />
-                      </button>
-                      {isExpanded ? <ChevronUp size={15} className="text-gray-400 ml-1" /> : <ChevronDown size={15} className="text-gray-400 ml-1" />}
-                    </div>
+                    {isEn && (
+                      <div className="flex items-center gap-0.5">
+                        <button onClick={e => { e.stopPropagation(); move(i, -1) }} disabled={i === 0}
+                          className="p-1.5 rounded-lg disabled:opacity-25 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                          <ArrowUp size={13} />
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); move(i, 1) }} disabled={i === content.tipChain.length - 1}
+                          className="p-1.5 rounded-lg disabled:opacity-25 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                          <ArrowDown size={13} />
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); deleteSection(i) }}
+                          className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    )}
+                    {isExpanded ? <ChevronUp size={15} className="text-gray-400 ml-1" /> : <ChevronDown size={15} className="text-gray-400 ml-1" />}
                   </div>
 
                   {isExpanded && (
                     <div className="bg-gray-50/70">
-                      {/* Pin to day */}
-                      <div className="flex items-center gap-3 px-5 py-2.5 border-t border-gray-100">
-                        <span className="text-xs text-gray-500 flex-1">Pin to cycle day <span className="text-gray-400">(optional — blank = auto)</span></span>
-                        <input
-                          type="number"
-                          min={1}
-                          className="w-20 text-sm text-center border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-                          placeholder="Day #"
-                          defaultValue={step.pinnedDay ?? ''}
-                          onChange={e => setPinnedDay(i, e.target.value)}
-                        />
-                      </div>
+                      {/* Pin to day — only in English */}
+                      {isEn && (
+                        <div className="flex items-center gap-3 px-5 py-2.5 border-t border-gray-100">
+                          <span className="text-xs text-gray-500 flex-1">Pin to cycle day <span className="text-gray-400">(optional — blank = auto)</span></span>
+                          <input
+                            type="number"
+                            min={1}
+                            className="w-20 text-sm text-center border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
+                            placeholder="Day #"
+                            defaultValue={step.pinnedDay ?? ''}
+                            onChange={e => setPinnedDay(i, e.target.value)}
+                          />
+                        </div>
+                      )}
 
                       {/* Tips */}
                       {step.tips.length === 0 && form.formIdx !== -1 && (
@@ -388,11 +553,26 @@ function TipsChainSection({ content, onChange }: {
                       )}
                       {step.tips.map((tip, j) => {
                         if (form.formIdx === j) {
+                          const fTitle = form.title
+                          const fDesc = form.desc
                           return (
                             <InlineForm key={j}
                               fields={[
-                                { label: 'Title', value: form.title, onChange: v => setF(i, { title: v }), placeholder: 'e.g. Upload your first course' },
-                                { label: 'Description', value: form.desc, onChange: v => setF(i, { desc: v }), multiline: true, placeholder: 'Optional description…' },
+                                {
+                                  label: isEn ? 'Title' : `Title (${langMeta.flag} ${langMeta.label})`,
+                                  value: fTitle,
+                                  onChange: v => setF(i, { title: v }),
+                                  placeholder: isEn ? 'e.g. Upload your first course' : `${langMeta.flag} translation…`,
+                                  dir: langMeta.dir,
+                                },
+                                {
+                                  label: isEn ? 'Description' : `Description (${langMeta.flag} ${langMeta.label})`,
+                                  value: fDesc,
+                                  onChange: v => setF(i, { desc: v }),
+                                  multiline: true,
+                                  placeholder: isEn ? 'Optional description…' : `${langMeta.flag} translation…`,
+                                  dir: langMeta.dir,
+                                },
                               ]}
                               onSave={() => saveTip(i)}
                               onCancel={() => setF(i, { formIdx: null })}
@@ -400,23 +580,28 @@ function TipsChainSection({ content, onChange }: {
                           )
                         }
                         return (
-                          <ListItem key={j} title={tip.title} subtitle={tip.description}
-                            onEdit={() => setF(i, { formIdx: j, title: tip.title, desc: tip.description })}
-                            onDelete={() => deleteTip(i, j)}
+                          <ListItem key={j}
+                            title={tipTitle(tip, lang)}
+                            subtitle={tipDesc(tip, lang) || (lang !== 'en' ? `(EN: ${tip.title})` : undefined)}
+                            onEdit={() => setF(i, { formIdx: j, title: tipTitle(tip, lang), desc: tipDesc(tip, lang) })}
+                            onDelete={() => isEn && deleteTip(i, j)}
                           />
                         )
                       })}
-                      {form.formIdx === -1 ? (
-                        <InlineForm
-                          fields={[
-                            { label: 'Title', value: form.title, onChange: v => setF(i, { title: v }), placeholder: 'e.g. Upload your first course' },
-                            { label: 'Description', value: form.desc, onChange: v => setF(i, { desc: v }), multiline: true, placeholder: 'Optional description…' },
-                          ]}
-                          onSave={() => saveTip(i)}
-                          onCancel={() => setF(i, { formIdx: null })}
-                        />
-                      ) : (
-                        <AddButton label={`Add Tip to Section ${step.stepNumber}`} onClick={() => setF(i, { formIdx: -1, title: '', desc: '' })} />
+
+                      {isEn && (
+                        form.formIdx === -1 ? (
+                          <InlineForm
+                            fields={[
+                              { label: 'Title', value: form.title, onChange: v => setF(i, { title: v }), placeholder: 'e.g. Upload your first course' },
+                              { label: 'Description', value: form.desc, onChange: v => setF(i, { desc: v }), multiline: true, placeholder: 'Optional description…' },
+                            ]}
+                            onSave={() => saveTip(i)}
+                            onCancel={() => setF(i, { formIdx: null })}
+                          />
+                        ) : (
+                          <AddButton label={`Add Tip to Section ${step.stepNumber}`} onClick={() => setF(i, { formIdx: -1, title: '', desc: '' })} />
+                        )
                       )}
                     </div>
                   )}
@@ -426,32 +611,43 @@ function TipsChainSection({ content, onChange }: {
           </div>
         )}
 
-        <button onClick={addSection}
-          className="flex items-center gap-2 text-sm text-primary font-semibold hover:underline mb-4">
-          <PlusCircle size={15} /> Add Section {content.tipChain.length + 1}
-        </button>
+        {isEn && (
+          <button onClick={addSection}
+            className="flex items-center gap-2 text-sm text-primary font-semibold hover:underline mb-4">
+            <PlusCircle size={15} /> Add Section {content.tipChain.length + 1}
+          </button>
+        )}
       </div>
 
       {/* Card appearance */}
       <div className="px-5 pt-0 pb-4">
-        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2 mt-2">Step 3 — Card appearance <span className="normal-case font-normal">(optional)</span></p>
+        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2 mt-2">
+          {isEn ? 'Step 3 — Card appearance' : `${langMeta.flag} Card title translations`}
+          {isEn && <span className="normal-case font-normal"> (optional)</span>}
+        </p>
         <div className="bg-gray-50 rounded-xl border border-gray-100 p-4 space-y-3">
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Card Heading</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+              {isEn ? 'Card Heading' : `Card Heading (${langMeta.flag} ${langMeta.label})`}
+            </label>
             <input
               className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-              placeholder="Tips & Tricks (default)"
-              value={content.tipsCardTitle}
-              onChange={e => onChange({ ...content, tipsCardTitle: e.target.value })}
+              placeholder={isEn ? 'Tips & Tricks (default)' : `${langMeta.flag} translation…`}
+              value={cardTitleVal}
+              dir={langMeta.dir}
+              onChange={e => setCardTitle(e.target.value)}
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Card Sub-heading</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+              {isEn ? 'Card Sub-heading' : `Card Sub-heading (${langMeta.flag} ${langMeta.label})`}
+            </label>
             <input
               className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-              placeholder="Best practices for your app (default)"
-              value={content.tipsCardSubtitle}
-              onChange={e => onChange({ ...content, tipsCardSubtitle: e.target.value })}
+              placeholder={isEn ? 'Best practices for your app (default)' : `${langMeta.flag} translation…`}
+              value={cardSubtitleVal}
+              dir={langMeta.dir}
+              onChange={e => setCardSubtitle(e.target.value)}
             />
           </div>
         </div>
@@ -462,55 +658,91 @@ function TipsChainSection({ content, onChange }: {
 
 // ─── What's New ───────────────────────────────────────────────────────────────
 
-function WhatsNewSection({ content, onChange }: { content: PlatformContent; onChange: (c: PlatformContent) => void }) {
+function WhatsNewSection({ content, onChange, lang }: {
+  content: PlatformContent
+  onChange: (c: PlatformContent) => void
+  lang: LangCode
+}) {
   const [formIdx, setFormIdx] = useState<number | null>(null)
   const [f, setF] = useState({ version: '', date: '', desc: '' })
+  const langMeta = LANGS.find(l => l.code === lang)!
+  const isEn = lang === 'en'
 
   function save() {
-    if (!f.version.trim() && !f.date.trim()) return
-    const item: WhatsNewItem = { version: f.version.trim(), date: f.date.trim(), description: f.desc.trim() }
-    const list = [...content.whatsNew]
-    if (formIdx === -1) list.push(item)
-    else if (formIdx !== null && formIdx >= 0) list[formIdx] = item
-    onChange({ ...content, whatsNew: list })
+    if (isEn) {
+      if (!f.version.trim() && !f.date.trim()) return
+      const item: WhatsNewItem = { version: f.version.trim(), date: f.date.trim(), description: f.desc.trim() }
+      const list = [...content.whatsNew]
+      if (formIdx === -1) list.push(item)
+      else if (formIdx !== null && formIdx >= 0) list[formIdx] = item
+      onChange({ ...content, whatsNew: list })
+    } else {
+      if (formIdx !== null && formIdx >= 0) {
+        const list = content.whatsNew.map((w, i) =>
+          i === formIdx ? mergeWnTrans(w, lang, f.desc) : w
+        )
+        onChange({ ...content, whatsNew: list })
+      }
+    }
     setFormIdx(null)
   }
 
   function del(i: number) {
+    if (!isEn) return
     onChange({ ...content, whatsNew: content.whatsNew.filter((_, j) => j !== i) })
     if (formIdx === i) setFormIdx(null)
   }
 
   function openEdit(i: number) {
     const item = content.whatsNew[i]
-    setFormIdx(i); setF({ version: item.version, date: item.date, desc: item.description })
+    setFormIdx(i)
+    setF({ version: item.version, date: item.date, desc: wnDesc(item, lang) })
   }
 
   return (
     <SectionCard title="What's New" icon={Newspaper}>
       {content.whatsNew.length === 0 && formIdx === null && <EmptyState label="No updates yet. Add your first entry." />}
       {content.whatsNew.map((item, i) => {
-        if (formIdx === i) return (
-          <InlineForm key={i}
+        if (formIdx === i) {
+          const descField: FormField = {
+            label: isEn ? 'Description' : `Description (${langMeta.flag} ${langMeta.label})`,
+            value: f.desc,
+            onChange: v => setF(x => ({ ...x, desc: v })),
+            multiline: true,
+            placeholder: isEn ? undefined : `${langMeta.flag} translation…`,
+            dir: langMeta.dir,
+          }
+          return (
+            <InlineForm key={i}
+              fields={isEn ? [
+                { label: 'Version', value: f.version, onChange: v => setF(x => ({ ...x, version: v })), placeholder: 'e.g. v2.5.0' },
+                { label: 'Date', value: f.date, onChange: v => setF(x => ({ ...x, date: v })), placeholder: 'e.g. Aug 2025' },
+                descField,
+              ] : [descField]}
+              onSave={save} onCancel={() => setFormIdx(null)} />
+          )
+        }
+        return (
+          <ListItem key={i}
+            title={`${item.version}  ·  ${item.date}`}
+            subtitle={wnDesc(item, lang)}
+            onEdit={() => openEdit(i)}
+            onDelete={() => del(i)}
+          />
+        )
+      })}
+      {isEn && (
+        formIdx === -1 ? (
+          <InlineForm
             fields={[
               { label: 'Version', value: f.version, onChange: v => setF(x => ({ ...x, version: v })), placeholder: 'e.g. v2.5.0' },
               { label: 'Date', value: f.date, onChange: v => setF(x => ({ ...x, date: v })), placeholder: 'e.g. Aug 2025' },
               { label: 'Description', value: f.desc, onChange: v => setF(x => ({ ...x, desc: v })), multiline: true },
             ]}
             onSave={save} onCancel={() => setFormIdx(null)} />
+        ) : (
+          <AddButton label="Add Entry" onClick={() => { setFormIdx(-1); setF({ version: '', date: '', desc: '' }) }} />
         )
-        return <ListItem key={i} title={`${item.version}  ·  ${item.date}`} subtitle={item.description} onEdit={() => openEdit(i)} onDelete={() => del(i)} />
-      })}
-      {formIdx === -1 ? (
-        <InlineForm
-          fields={[
-            { label: 'Version', value: f.version, onChange: v => setF(x => ({ ...x, version: v })), placeholder: 'e.g. v2.5.0' },
-            { label: 'Date', value: f.date, onChange: v => setF(x => ({ ...x, date: v })), placeholder: 'e.g. Aug 2025' },
-            { label: 'Description', value: f.desc, onChange: v => setF(x => ({ ...x, desc: v })), multiline: true },
-          ]}
-          onSave={save} onCancel={() => setFormIdx(null)} />
-      ) : (
-        <AddButton label="Add Entry" onClick={() => { setFormIdx(-1); setF({ version: '', date: '', desc: '' }) }} />
       )}
     </SectionCard>
   )
@@ -518,28 +750,45 @@ function WhatsNewSection({ content, onChange }: { content: PlatformContent; onCh
 
 // ─── Components ───────────────────────────────────────────────────────────────
 
-function ComponentsSection({ content, onChange }: { content: PlatformContent; onChange: (c: PlatformContent) => void }) {
+function ComponentsSection({ content, onChange, lang }: {
+  content: PlatformContent
+  onChange: (c: PlatformContent) => void
+  lang: LangCode
+}) {
   const [formIdx, setFormIdx] = useState<number | null>(null)
   const [f, setF] = useState({ name: '', desc: '', isBeta: false })
+  const langMeta = LANGS.find(l => l.code === lang)!
+  const isEn = lang === 'en'
 
   function save() {
-    if (!f.name.trim()) return
-    const item: ComponentItem = { name: f.name.trim(), description: f.desc.trim(), isBeta: f.isBeta }
-    const list = [...content.components]
-    if (formIdx === -1) list.push(item)
-    else if (formIdx !== null && formIdx >= 0) list[formIdx] = item
-    onChange({ ...content, components: list })
+    if (isEn) {
+      if (!f.name.trim()) return
+      const item: ComponentItem = { name: f.name.trim(), description: f.desc.trim(), isBeta: f.isBeta }
+      const list = [...content.components]
+      if (formIdx === -1) list.push(item)
+      else if (formIdx !== null && formIdx >= 0) list[formIdx] = item
+      onChange({ ...content, components: list })
+    } else {
+      if (formIdx !== null && formIdx >= 0) {
+        const list = content.components.map((c, i) =>
+          i === formIdx ? mergeCompTrans(c, lang, f.name, f.desc) : c
+        )
+        onChange({ ...content, components: list })
+      }
+    }
     setFormIdx(null)
   }
 
   function del(i: number) {
+    if (!isEn) return
     onChange({ ...content, components: content.components.filter((_, j) => j !== i) })
     if (formIdx === i) setFormIdx(null)
   }
 
   function openEdit(i: number) {
     const item = content.components[i]
-    setFormIdx(i); setF({ name: item.name, desc: item.description, isBeta: item.isBeta })
+    setFormIdx(i)
+    setF({ name: compName(item, lang), desc: compDesc(item, lang), isBeta: item.isBeta })
   }
 
   const betaToggle = (
@@ -558,25 +807,52 @@ function ComponentsSection({ content, onChange }: { content: PlatformContent; on
     <SectionCard title="New Components" icon={Layers}>
       {content.components.length === 0 && formIdx === null && <EmptyState label="No components yet. Add your first component." />}
       {content.components.map((comp, i) => {
-        if (formIdx === i) return (
-          <InlineForm key={i}
+        if (formIdx === i) {
+          const nameField: FormField = {
+            label: isEn ? 'Name' : `Name (${langMeta.flag} ${langMeta.label})`,
+            value: f.name,
+            onChange: v => setF(x => ({ ...x, name: v })),
+            placeholder: isEn ? 'e.g. Community Forum' : `${langMeta.flag} translation…`,
+            dir: langMeta.dir,
+          }
+          const descField: FormField = {
+            label: isEn ? 'Description' : `Description (${langMeta.flag} ${langMeta.label})`,
+            value: f.desc,
+            onChange: v => setF(x => ({ ...x, desc: v })),
+            multiline: true,
+            placeholder: isEn ? undefined : `${langMeta.flag} translation…`,
+            dir: langMeta.dir,
+          }
+          return (
+            <InlineForm key={i}
+              fields={[nameField, descField]}
+              extra={isEn ? betaToggle : undefined}
+              onSave={save}
+              onCancel={() => setFormIdx(null)}
+            />
+          )
+        }
+        return (
+          <ListItem key={i}
+            title={compName(comp, lang)}
+            subtitle={compDesc(comp, lang)}
+            badge={comp.isBeta ? 'BETA' : null}
+            onEdit={() => openEdit(i)}
+            onDelete={() => del(i)}
+          />
+        )
+      })}
+      {isEn && (
+        formIdx === -1 ? (
+          <InlineForm
             fields={[
               { label: 'Name', value: f.name, onChange: v => setF(x => ({ ...x, name: v })), placeholder: 'e.g. Community Forum' },
               { label: 'Description', value: f.desc, onChange: v => setF(x => ({ ...x, desc: v })), multiline: true },
             ]}
             extra={betaToggle} onSave={save} onCancel={() => setFormIdx(null)} />
+        ) : (
+          <AddButton label="Add Component" onClick={() => { setFormIdx(-1); setF({ name: '', desc: '', isBeta: false }) }} />
         )
-        return <ListItem key={i} title={comp.name} subtitle={comp.description} badge={comp.isBeta ? 'BETA' : null} onEdit={() => openEdit(i)} onDelete={() => del(i)} />
-      })}
-      {formIdx === -1 ? (
-        <InlineForm
-          fields={[
-            { label: 'Name', value: f.name, onChange: v => setF(x => ({ ...x, name: v })), placeholder: 'e.g. Community Forum' },
-            { label: 'Description', value: f.desc, onChange: v => setF(x => ({ ...x, desc: v })), multiline: true },
-          ]}
-          extra={betaToggle} onSave={save} onCancel={() => setFormIdx(null)} />
-      ) : (
-        <AddButton label="Add Component" onClick={() => { setFormIdx(-1); setF({ name: '', desc: '', isBeta: false }) }} />
       )}
     </SectionCard>
   )
@@ -591,6 +867,9 @@ function PackageEditor({ packageId }: { packageId: string }) {
   const [loadError, setLoadError] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState(false)
+  const [lang, setLang] = useState<LangCode>('en')
+  const [translating, setTranslating] = useState(false)
+  const [translateError, setTranslateError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setLoadError(false)
@@ -614,6 +893,102 @@ function PackageEditor({ packageId }: { packageId: string }) {
     } finally { setSaving(false) }
   }
 
+  async function handleTranslateAll() {
+    if (!content || translating) return
+    setTranslating(true)
+    setTranslateError(null)
+    try {
+      const items: Array<{ id: string; text: string }> = []
+
+      content.tipChain.forEach((step, si) => {
+        step.tips.forEach((tip, ti) => {
+          if (tip.title.trim()) items.push({ id: `chain_${si}_${ti}_title`, text: tip.title })
+          if (tip.description.trim()) items.push({ id: `chain_${si}_${ti}_desc`, text: tip.description })
+        })
+      })
+      content.components.forEach((c, i) => {
+        if (c.name.trim()) items.push({ id: `comp_${i}_name`, text: c.name })
+        if (c.description.trim()) items.push({ id: `comp_${i}_desc`, text: c.description })
+      })
+      content.whatsNew.forEach((w, i) => {
+        if (w.description.trim()) items.push({ id: `wn_${i}_desc`, text: w.description })
+      })
+      if (content.tipsCardTitle.trim()) items.push({ id: 'card_title', text: content.tipsCardTitle })
+      if (content.tipsCardSubtitle.trim()) items.push({ id: 'card_subtitle', text: content.tipsCardSubtitle })
+
+      if (items.length === 0) {
+        setTranslateError('No content to translate. Add tips or components first.')
+        return
+      }
+
+      const translations = await apiTranslate(items)
+
+      const newContent = { ...content }
+
+      newContent.tipChain = content.tipChain.map((step, si) => ({
+        ...step,
+        tips: step.tips.map((tip, ti) => {
+          const trTitle = translations[`chain_${si}_${ti}_title`]
+          const trDesc  = translations[`chain_${si}_${ti}_desc`]
+          const trans: Record<string, ItemTranslation> = { ...(tip.translations ?? {}) }
+          for (const l of ['he', 'ar', 'es'] as const) {
+            trans[l] = {
+              ...(trans[l] ?? {}),
+              ...(trTitle?.[l] !== undefined ? { title: trTitle[l] } : {}),
+              ...(trDesc?.[l]  !== undefined ? { description: trDesc[l]  } : {}),
+            }
+          }
+          return { ...tip, translations: trans }
+        }),
+      }))
+
+      newContent.components = content.components.map((c, i) => {
+        const trName = translations[`comp_${i}_name`]
+        const trDesc = translations[`comp_${i}_desc`]
+        const trans: Record<string, CompTranslation> = { ...(c.translations ?? {}) }
+        for (const l of ['he', 'ar', 'es'] as const) {
+          trans[l] = {
+            ...(trans[l] ?? {}),
+            ...(trName?.[l] !== undefined ? { name: trName[l] }        : {}),
+            ...(trDesc?.[l] !== undefined ? { description: trDesc[l] } : {}),
+          }
+        }
+        return { ...c, translations: trans }
+      })
+
+      newContent.whatsNew = content.whatsNew.map((w, i) => {
+        const trDesc = translations[`wn_${i}_desc`]
+        const trans: Record<string, { description?: string }> = { ...(w.translations ?? {}) }
+        for (const l of ['he', 'ar', 'es'] as const) {
+          if (trDesc?.[l] !== undefined) trans[l] = { ...(trans[l] ?? {}), description: trDesc[l] }
+        }
+        return { ...w, translations: trans }
+      })
+
+      const trCardTitle    = translations['card_title']
+      const trCardSubtitle = translations['card_subtitle']
+      if (trCardTitle) {
+        newContent.tipsCardTitleTranslations = { ...(newContent.tipsCardTitleTranslations ?? {}) }
+        for (const l of ['he', 'ar', 'es'] as const) {
+          if (trCardTitle[l]) newContent.tipsCardTitleTranslations![l] = trCardTitle[l]
+        }
+      }
+      if (trCardSubtitle) {
+        newContent.tipsCardSubtitleTranslations = { ...(newContent.tipsCardSubtitleTranslations ?? {}) }
+        for (const l of ['he', 'ar', 'es'] as const) {
+          if (trCardSubtitle[l]) newContent.tipsCardSubtitleTranslations![l] = trCardSubtitle[l]
+        }
+      }
+
+      setContent(newContent)
+      setLang('he')
+    } catch {
+      setTranslateError('Translation failed — check your connection and try again.')
+    } finally {
+      setTranslating(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -623,6 +998,8 @@ function PackageEditor({ packageId }: { packageId: string }) {
   }
 
   if (!content) return null
+
+  const langMeta = LANGS.find(l => l.code === lang)!
 
   return (
     <div className="flex flex-col h-full">
@@ -635,10 +1012,34 @@ function PackageEditor({ packageId }: { packageId: string }) {
         </div>
       )}
 
+      {/* Language toolbar */}
+      <div className="px-5 py-3 flex items-center justify-between gap-4 border-b border-gray-100 bg-white shrink-0">
+        <LangTabs active={lang} onChange={setLang} />
+        {lang === 'en' && (
+          <button
+            onClick={() => void handleTranslateAll()}
+            disabled={translating}
+            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors shrink-0"
+          >
+            {translating ? <Loader2 size={12} className="animate-spin" /> : <span>🌐</span>}
+            {translating ? 'Translating…' : 'Translate All'}
+          </button>
+        )}
+      </div>
+
+      {lang !== 'en' && (
+        <div className="mx-5 mt-4 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700 shrink-0">
+          {langMeta.flag} Editing <strong>{langMeta.label}</strong> translations — empty fields fall back to English.
+        </div>
+      )}
+      {translateError && (
+        <div className="mx-5 mt-3 px-3 py-2 bg-red-50 border border-red-100 rounded-lg text-xs text-red-600 shrink-0">{translateError}</div>
+      )}
+
       <div className="flex-1 overflow-y-auto p-5 pb-0">
-        <TipsChainSection content={content} onChange={setContent} />
-        <WhatsNewSection content={content} onChange={setContent} />
-        <ComponentsSection content={content} onChange={setContent} />
+        <TipsChainSection content={content} onChange={setContent} lang={lang} />
+        <WhatsNewSection content={content} onChange={setContent} lang={lang} />
+        <ComponentsSection content={content} onChange={setContent} lang={lang} />
       </div>
 
       {/* Sticky save bar */}
@@ -696,7 +1097,7 @@ export function PlatformContent() {
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${
                   isActive
                     ? `${pkg.activeBg} text-white shadow-sm`
-                    : `text-gray-600 hover:${pkg.bg} hover:${pkg.color}`
+                    : `text-gray-600 hover:bg-gray-100`
                 }`}
               >
                 <Icon size={16} className={isActive ? 'text-white' : pkg.color} />
@@ -728,7 +1129,9 @@ export function PlatformContent() {
             <div>
               <h2 className="text-base font-bold text-gray-800">{active.label}</h2>
               <p className="text-xs text-gray-500">
-                {t('ניהול טיפים, עדכונים ורכיבים', 'Manage tips, updates & components')}
+                {active.id === 'all_packages'
+                  ? t('תוכן משותף לכל החבילות', 'Content shared across all packages')
+                  : t('ניהול טיפים, עדכונים ורכיבים', 'Manage tips, updates & components')}
               </p>
             </div>
           </div>
