@@ -719,10 +719,6 @@ export function TaskDetailModal({
     }
   }
 
-  const NOTIFY_TICKET_DEPLOYED_URL = import.meta.env.VITE_NOTIFY_TICKET_DEPLOYED_URL as string
-  const DEPLOY_SECRET = import.meta.env.VITE_DEPLOY_SECRET as string
-  const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY as string
-
   // Older tasks stored ticket_id / app_id only as plain text in the description
   // (before migration 20260906120000 promoted them to proper columns). Parse
   // them as a fallback so "Update Admin" still works for those tasks.
@@ -739,13 +735,10 @@ export function TaskDetailModal({
     if (!deployMessage.trim() || translatingMsg) return
     setTranslatingMsg(true)
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch('/api/claude/v1/translation-messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
@@ -779,9 +772,9 @@ export function TaskDetailModal({
     try {
       const updated = await deployTask(task.id, deployMessage)
       onUpdate(updated)
-      const res = await fetch(NOTIFY_TICKET_DEPLOYED_URL, {
+      const res = await fetch('/api/claude/notify-ticket-deployed', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-webhook-secret': DEPLOY_SECRET },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           app_id: link.appId,
           ticket_id: link.ticketId,

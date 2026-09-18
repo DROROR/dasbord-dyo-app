@@ -4,6 +4,9 @@ const HOST = '127.0.0.1'
 const PORT = Number(process.env.ANTHROPIC_PROXY_PORT || 3002)
 const MAX_BODY_BYTES = 1_000_000
 const API_KEY = process.env.ANTHROPIC_API_KEY
+const TRANSLATION_API_KEY = process.env.ANTHROPIC_TRANSLATION_API_KEY
+const NOTIFY_TICKET_DEPLOYED_URL = process.env.NOTIFY_TICKET_DEPLOYED_URL
+const DEPLOY_SECRET = process.env.DEPLOY_SECRET
 
 if (!API_KEY) {
   console.error('ANTHROPIC_API_KEY is required')
@@ -35,7 +38,9 @@ const server = http.createServer(async (request, response) => {
     return sendJson(response, 200, { status: 'ok' })
   }
 
-  if (request.method !== 'POST' || request.url !== '/v1/messages') {
+  const isClaudeRequest = request.method === 'POST' && (request.url === '/v1/messages' || request.url === '/v1/translation-messages')
+  const isDeployNotification = request.method === 'POST' && request.url === '/notify-ticket-deployed'
+  if (!isClaudeRequest && !isDeployNotification) {
     return sendJson(response, 404, { error: { message: 'Not found' } })
   }
 
@@ -43,11 +48,31 @@ const server = http.createServer(async (request, response) => {
     const rawBody = await readBody(request)
     JSON.parse(rawBody.toString('utf8'))
 
+    if (isDeployNotification) {
+      if (!NOTIFY_TICKET_DEPLOYED_URL || !DEPLOY_SECRET) return sendJson(response, 503, { error: { message: 'Deployment notification is not configured' } })
+      const upstream = await fetch(NOTIFY_TICKET_DEPLOYED_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-webhook-secret': DEPLOY_SECRET },
+        body: rawBody,
+        signal: AbortSignal.timeout(30_000),
+      })
+      const body = Buffer.from(await upstream.arrayBuffer())
+      response.writeHead(upstream.status, {
+        'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+      })
+      return response.end(body)
+    }
+
+    const anthropicKey = request.url === '/v1/translation-messages' ? TRANSLATION_API_KEY : API_KEY
+    if (!anthropicKey) return sendJson(response, 503, { error: { message: 'AI service is not configured' } })
+
     const upstream = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-api-key': API_KEY,
+        'x-api-key': anthropicKey,
         'anthropic-version': '2023-06-01',
       },
       body: rawBody,
