@@ -877,7 +877,9 @@ export function Work() {
   useEffect(() => {
     function handleTimerEntry(e: Event) {
       const { taskId, entries } = (e as CustomEvent<TimerEntrySavedDetail>).detail
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, timeEntries: entries } : t))
+      if (!Array.isArray(entries)) return
+      const safeEntries = entries.filter(entry => entry && typeof entry.id === 'string')
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, timeEntries: safeEntries } : t))
     }
     window.addEventListener(TIMER_ENTRY_SAVED_EVENT, handleTimerEntry)
     return () => window.removeEventListener(TIMER_ENTRY_SAVED_EVENT, handleTimerEntry)

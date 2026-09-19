@@ -34,13 +34,17 @@ function isImageAttachment(attachment: Attachment) {
     || /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(urlBeforeQuery)
 }
 
+function todayInIsrael() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' })
+}
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 function fmtHours(h: number) {
-  if (h === 0) return '0h'
-  const hrs = Math.floor(h); const min = Math.round((h - hrs) * 60)
-  return min > 0 ? `${hrs}h ${min}m` : `${hrs}h`
+  const totalMinutes = Math.round(Math.max(0, h) * 60)
+  if (totalMinutes === 0) return '0h'
+  const hrs = Math.floor(totalMinutes / 60); const min = totalMinutes % 60
+  return min > 0 ? hrs + 'h ' + min + 'm' : hrs + 'h'
 }
 function fmtTimer(s: number) {
   const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = s % 60
@@ -228,7 +232,7 @@ export function TaskDetailModal({
 
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>(task.timeEntries ?? [])
   const [stopMsg,     setStopMsg]     = useState<string | null>(null)
-  const [manualDate,  setManualDate]  = useState(new Date().toISOString().slice(0, 10))
+  const [manualDate,  setManualDate]  = useState(todayInIsrael())
   const [manualHours, setManualHours] = useState('')
   const [manualMins,  setManualMins]  = useState('')
   const [manualNote,  setManualNote]  = useState('')
@@ -318,9 +322,10 @@ export function TaskDetailModal({
   useEffect(() => {
     function onTimerSaved(e: Event) {
       const { taskId, entries } = (e as CustomEvent<TimerEntrySavedDetail>).detail
-      if (taskId !== task.id) return
-      setTimeEntries(entries)
-      onTimeEntriesChanged?.(task.id, entries)
+      if (taskId !== task.id || !Array.isArray(entries)) return
+      const safeEntries = entries.filter(entry => entry && typeof entry.id === 'string')
+      setTimeEntries(safeEntries)
+      onTimeEntriesChanged?.(task.id, safeEntries)
     }
     window.addEventListener(TIMER_ENTRY_SAVED_EVENT, onTimerSaved)
     return () => window.removeEventListener(TIMER_ENTRY_SAVED_EVENT, onTimerSaved)
@@ -419,7 +424,7 @@ export function TaskDetailModal({
     if (h === 0 && m === 0) return
     const entry: TimeEntry = {
       id: newId(),
-      date: manualDate || new Date().toISOString().slice(0, 10),
+      date: manualDate || todayInIsrael(),
       hours: h, minutes: m,
       loggedBy: currentUser,
       loggedById: currentUserId,

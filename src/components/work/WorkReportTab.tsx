@@ -26,10 +26,11 @@ function monthsBefore(date: string, months: number): string {
 }
 
 function fmtHours(h: number): string {
-  if (!h) return '0h'
-  const hrs = Math.floor(h)
-  const min = Math.round((h - hrs) * 60)
-  return min > 0 ? `${hrs}h ${min}m` : `${hrs}h`
+  const totalMinutes = Math.round(Math.max(0, h) * 60)
+  if (totalMinutes === 0) return '0h'
+  const hrs = Math.floor(totalMinutes / 60)
+  const min = totalMinutes % 60
+  return min > 0 ? hrs + 'h ' + min + 'm' : hrs + 'h'
 }
 
 function fmtTime(iso: string): string {

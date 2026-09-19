@@ -83,7 +83,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   async function stop(opts?: { subtaskId?: string }): Promise<StopResult> {
     if (!timerState) return { entry: null, taskId: null, discarded: false, error: null }
     const snap = timerState
-    const elapsedSec = Math.floor((Date.now() - snap.startTime) / 1000)
+    const now = Date.now()
+    const elapsedSec = Math.floor((now - snap.startTime) / 1000)
     const totalMins = Math.round(elapsedSec / 60)   // round to nearest minute
 
     if (totalMins === 0) {
@@ -98,13 +99,13 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     const m = totalMins % 60
     const entry: TimeEntry = {
       id: Math.random().toString(36).slice(2, 10),
-      date: new Date().toISOString().slice(0, 10),
+      date: new Date(now).toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }),
       hours: h, minutes: m,
       loggedBy: snap.loggedBy,
       loggedById: snap.loggedById,
       subtaskId: opts?.subtaskId,
       isLocked: true,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(now).toISOString(),
     }
 
     setSaving(true)

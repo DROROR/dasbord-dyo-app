@@ -76,9 +76,9 @@ export function FloatingTimerWidget({ onNavigate }: { onNavigate: (page: string)
   return (
     <div
       style={{ left: pos.x, top: pos.y, position: 'fixed', zIndex: 100, display: timerState ? 'flex' : 'none' }}
-      className="flex flex-col gap-1.5 bg-white border border-gray-200 rounded-2xl shadow-xl px-3 py-3 select-none max-w-[280px]"
+      className="flex flex-col gap-1.5 bg-white border border-gray-200 rounded-2xl shadow-xl px-3 py-3 select-none w-[min(420px,calc(100vw-2rem))] max-w-[420px]"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-start gap-2">
         {/* Drag handle */}
         <div
           onMouseDown={onGripMouseDown}
@@ -92,13 +92,13 @@ export function FloatingTimerWidget({ onNavigate }: { onNavigate: (page: string)
         <div
           className="flex flex-col gap-0.5 cursor-pointer min-w-0"
           onClick={() => onNavigate('work')}
-          title="Go to task"
+          title={timerState?.taskTitle ?? "Go to task"}
         >
           <span className="flex items-center gap-1 text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
             <Timer size={10} className="text-primary shrink-0" />
             Active Timer
           </span>
-          <span className="text-sm font-semibold text-gray-800 max-w-[170px] truncate">
+          <span className="text-sm font-semibold text-gray-800 max-w-[220px] min-w-0 line-clamp-2 break-words whitespace-normal leading-snug">
             {timerState?.taskTitle ?? ''}
           </span>
           <span className="text-lg font-bold font-mono text-primary tabular-nums leading-tight">

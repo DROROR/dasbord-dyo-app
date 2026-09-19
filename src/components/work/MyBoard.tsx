@@ -14,10 +14,11 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
 }
 function fmtHours(h: number) {
-  if (h === 0) return '0h'
-  const hrs = Math.floor(h)
-  const min = Math.round((h - hrs) * 60)
-  return min > 0 ? `${hrs}h ${min}m` : `${hrs}h`
+  const totalMinutes = Math.round(Math.max(0, h) * 60)
+  if (totalMinutes === 0) return '0h'
+  const hrs = Math.floor(totalMinutes / 60)
+  const min = totalMinutes % 60
+  return min > 0 ? hrs + 'h ' + min + 'm' : hrs + 'h'
 }
 function isOverdue(due?: string) {
   return !!due && new Date(due) < new Date()
@@ -480,7 +481,7 @@ export function MyBoard({
         className="items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl text-sm font-medium text-primary hover:bg-primary/20 transition-colors animate-pulse shrink-0 text-right"
       >
         <Clock size={14} className="shrink-0 animate-none" />
-        <span>{tr('שעון פעיל', 'Active timer')}: {activeTimer?.taskTitle ?? ''}</span>
+        <span className="min-w-0 flex-1 truncate" title={activeTimer?.taskTitle ?? ""}>{tr('שעון פעיל', 'Active timer')}: {activeTimer?.taskTitle ?? ''}</span>
       </button>
 
       {/* Real personal metrics stay first; alerts and the responsive
