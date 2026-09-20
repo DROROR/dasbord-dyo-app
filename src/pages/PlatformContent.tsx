@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Lightbulb, PlusCircle, Trash2, ChevronDown, ChevronUp,
   Save, Loader2, RefreshCw, ToggleLeft, ToggleRight,
   ArrowUp, ArrowDown, Pencil, X, Check,
-  Package, Newspaper, Layers, Users, Star, Zap, Globe,
+  Package, Layers, Users, Star, Zap, Globe, Upload, ImageIcon,
 } from 'lucide-react'
 import { useLang } from '../contexts/LanguageContext'
 
@@ -79,12 +79,6 @@ interface TipStep {
   pinnedDay?: number | null
   pinnedDate?: string | null
 }
-interface WhatsNewItem {
-  version: string
-  date: string
-  description: string
-  translations?: Record<string, { description?: string }>
-}
 interface ComponentItem {
   name: string
   description: string
@@ -101,7 +95,6 @@ interface PlatformContent {
   tipsCardSubtitle: string
   tipsCardTitleTranslations?: Record<string, string>
   tipsCardSubtitleTranslations?: Record<string, string>
-  whatsNew: WhatsNewItem[]
   components: ComponentItem[]
 }
 
@@ -110,7 +103,7 @@ function emptyContent(): PlatformContent {
     tips: [], tipChain: [], chainEnabled: true,
     tipsImageUrl: '', tipsCardTitle: '', tipsCardSubtitle: '',
     tipsCardTitleTranslations: {}, tipsCardSubtitleTranslations: {},
-    whatsNew: [], components: [],
+    components: [],
   }
 }
 
@@ -128,20 +121,12 @@ function compName(c: ComponentItem, lang: LangCode) {
 function compDesc(c: ComponentItem, lang: LangCode) {
   return lang === 'en' ? c.description : (c.translations?.[lang]?.description ?? c.description)
 }
-function wnDesc(item: WhatsNewItem, lang: LangCode) {
-  return lang === 'en' ? item.description : (item.translations?.[lang]?.description ?? item.description)
-}
-
 function mergeTipTrans(tip: TipItem, lang: LangCode, title: string, desc: string): TipItem {
   return { ...tip, translations: { ...(tip.translations ?? {}), [lang]: { title, description: desc } } }
 }
 function mergeCompTrans(c: ComponentItem, lang: LangCode, name: string, desc: string): ComponentItem {
   return { ...c, translations: { ...(c.translations ?? {}), [lang]: { name, description: desc } } }
 }
-function mergeWnTrans(item: WhatsNewItem, lang: LangCode, desc: string): WhatsNewItem {
-  return { ...item, translations: { ...(item.translations ?? {}), [lang]: { description: desc } } }
-}
-
 // ─── API ──────────────────────────────────────────────────────────────────────
 
 async function apiFetch(packageId: string): Promise<PlatformContent> {
@@ -333,13 +318,80 @@ function LangTabs({ active, onChange }: { active: LangCode; onChange: (l: LangCo
 
 // ─── Tips Chain ───────────────────────────────────────────────────────────────
 
-function TipsChainSection({ content, onChange, lang }: {
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve((reader.result as string).split(',')[1])
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+function PushToAllButton({ onPushToAll, isPushingToAll, pushSuccess }: {
+  onPushToAll: () => Promise<void>
+  isPushingToAll: boolean
+  pushSuccess: boolean
+}) {
+  return (
+    <div className="border-t border-gray-100 px-5 py-3 flex items-center justify-between gap-3">
+      <span className="text-xs text-gray-400">Push this section's content to All Packages</span>
+      <button
+        onClick={onPushToAll}
+        disabled={isPushingToAll}
+        className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-primary px-3 py-1.5 rounded-lg border border-gray-200 hover:border-primary/30 hover:bg-primary/5 transition-colors disabled:opacity-50 shrink-0"
+      >
+        {isPushingToAll
+          ? <Loader2 size={12} className="animate-spin" />
+          : pushSuccess
+            ? <Check size={12} className="text-emerald-500" />
+            : <Globe size={12} />}
+        <span className={pushSuccess ? 'text-emerald-600' : ''}>
+          {isPushingToAll ? 'Saving…' : pushSuccess ? 'Saved to All Packages' : 'Also save to All Packages'}
+        </span>
+      </button>
+    </div>
+  )
+}
+
+function TipsChainSection({ content, onChange, lang, packageId, onPushToAll, isPushingToAll, pushSuccess }: {
   content: PlatformContent
   onChange: (c: PlatformContent) => void
   lang: LangCode
+  packageId: string
+  onPushToAll?: () => Promise<void>
+  isPushingToAll?: boolean
+  pushSuccess?: boolean
 }) {
   const [expandedStep, setExpandedStep] = useState<number | null>(null)
   const [stepForms, setStepForms] = useState<Record<number, { formIdx: number | null; title: string; desc: string }>>({})
+  const imgInputRef = useRef<HTMLInputElement>(null)
+  const [uploadingImg, setUploadingImg] = useState(false)
+
+  async function handleImgUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingImg(true)
+    try {
+      const imageBase64 = await fileToBase64(file)
+      const res = await fetch(`${CF_BASE}/uploadTipsImage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-webhook-secret': SECRET },
+        body: JSON.stringify({ packageId, imageBase64, mimeType: file.type }),
+      })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        throw new Error(`HTTP ${res.status}${body ? `: ${body}` : ''}`)
+      }
+      const { url } = await res.json()
+      onChange({ ...content, tipsImageUrl: url })
+    } catch (err) {
+      console.error('uploadTipsImage failed:', err)
+      alert(`Image upload failed — ${err instanceof Error ? err.message : 'please try again.'}`)
+    } finally {
+      setUploadingImg(false)
+      if (imgInputRef.current) imgInputRef.current.value = ''
+    }
+  }
 
   const langMeta = LANGS.find(l => l.code === lang)!
   const isEn = lang === 'en'
@@ -440,9 +492,59 @@ function TipsChainSection({ content, onChange, lang }: {
   return (
     <SectionCard title="Tips & Tricks Chain" icon={Lightbulb}>
 
+      {/* Card image — pinned at the top so it's always visible */}
+      {isEn && (
+        <div className="px-5 pt-4 pb-3">
+          <input ref={imgInputRef} type="file" accept="image/*" className="hidden" onChange={handleImgUpload} />
+          {content.tipsImageUrl ? (
+            <div className="flex items-center gap-3 px-3 py-2.5 border border-gray-200 rounded-xl bg-white">
+              <img
+                src={content.tipsImageUrl}
+                className="rounded-lg shrink-0 border border-gray-100"
+                style={{ width: 35, height: 39, objectFit: 'fill' }}
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-gray-700">Card image active</p>
+                <p className="text-[10px] text-gray-400">Default image will show after removal</p>
+              </div>
+              <button
+                onClick={() => imgInputRef.current?.click()}
+                disabled={uploadingImg}
+                className="flex items-center gap-1 text-xs text-primary hover:text-primary/70 font-semibold shrink-0 disabled:opacity-50 px-2 py-1.5 rounded-lg hover:bg-primary/8 transition-colors"
+              >
+                {uploadingImg ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                {uploadingImg ? 'Uploading…' : 'Replace'}
+              </button>
+              <button
+                onClick={() => onChange({ ...content, tipsImageUrl: '' })}
+                className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 font-semibold shrink-0 px-2 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
+              >
+                <Trash2 size={12} />
+                Delete
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => imgInputRef.current?.click()}
+              disabled={uploadingImg}
+              className="flex items-center justify-center gap-3 w-full px-4 py-4 border border-dashed border-gray-300 rounded-xl text-sm text-gray-400 hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
+            >
+              {uploadingImg
+                ? <Loader2 size={20} className="animate-spin shrink-0" />
+                : <ImageIcon size={20} className="shrink-0" />}
+              <span className="flex flex-col items-start">
+                <span className="font-semibold">{uploadingImg ? 'Uploading…' : 'Upload card image'}</span>
+                {!uploadingImg && <span className="text-[11px] font-normal">Recommended: 280×312px</span>}
+              </span>
+              {!uploadingImg && <Upload size={13} className="ml-auto shrink-0 opacity-50" />}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Chain toggle — only in English mode */}
       {isEn && (
-        <div className="px-5 pt-4 pb-0">
+        <div className="px-5 pt-0 pb-0">
           <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Step 1 — Enable chain cycling</p>
           <button
             onClick={() => onChange({ ...content, chainEnabled: !content.chainEnabled })}
@@ -648,108 +750,20 @@ function TipsChainSection({ content, onChange, lang }: {
           </div>
         </div>
       </div>
-    </SectionCard>
-  )
-}
-
-// ─── What's New ───────────────────────────────────────────────────────────────
-
-function WhatsNewSection({ content, onChange, lang }: {
-  content: PlatformContent
-  onChange: (c: PlatformContent) => void
-  lang: LangCode
-}) {
-  const [formIdx, setFormIdx] = useState<number | null>(null)
-  const [f, setF] = useState({ version: '', date: '', desc: '' })
-  const langMeta = LANGS.find(l => l.code === lang)!
-  const isEn = lang === 'en'
-
-  function save() {
-    if (isEn) {
-      if (!f.version.trim() && !f.date.trim()) return
-      const item: WhatsNewItem = { version: f.version.trim(), date: f.date.trim(), description: f.desc.trim() }
-      const list = [...content.whatsNew]
-      if (formIdx === -1) list.push(item)
-      else if (formIdx !== null && formIdx >= 0) list[formIdx] = item
-      onChange({ ...content, whatsNew: list })
-    } else {
-      if (formIdx !== null && formIdx >= 0) {
-        const list = content.whatsNew.map((w, i) =>
-          i === formIdx ? mergeWnTrans(w, lang, f.desc) : w
-        )
-        onChange({ ...content, whatsNew: list })
-      }
-    }
-    setFormIdx(null)
-  }
-
-  function del(i: number) {
-    if (!isEn) return
-    onChange({ ...content, whatsNew: content.whatsNew.filter((_, j) => j !== i) })
-    if (formIdx === i) setFormIdx(null)
-  }
-
-  function openEdit(i: number) {
-    const item = content.whatsNew[i]
-    setFormIdx(i)
-    setF({ version: item.version, date: item.date, desc: wnDesc(item, lang) })
-  }
-
-  return (
-    <SectionCard title="What's New" icon={Newspaper}>
-      {content.whatsNew.length === 0 && formIdx === null && <EmptyState label="No updates yet. Add your first entry." />}
-      {content.whatsNew.map((item, i) => {
-        if (formIdx === i) {
-          const descField: FormField = {
-            label: isEn ? 'Description' : `Description (${langMeta.flag} ${langMeta.label})`,
-            value: f.desc,
-            onChange: v => setF(x => ({ ...x, desc: v })),
-            multiline: true,
-            placeholder: isEn ? undefined : `${langMeta.flag} translation…`,
-            dir: langMeta.dir,
-          }
-          return (
-            <InlineForm key={i}
-              fields={isEn ? [
-                { label: 'Version', value: f.version, onChange: v => setF(x => ({ ...x, version: v })), placeholder: 'e.g. v2.5.0' },
-                { label: 'Date', value: f.date, onChange: v => setF(x => ({ ...x, date: v })), placeholder: 'e.g. Aug 2025' },
-                descField,
-              ] : [descField]}
-              onSave={save} onCancel={() => setFormIdx(null)} />
-          )
-        }
-        return (
-          <ListItem key={i}
-            title={`${item.version}  ·  ${item.date}`}
-            subtitle={wnDesc(item, lang)}
-            onEdit={() => openEdit(i)}
-            onDelete={() => del(i)}
-          />
-        )
-      })}
-      {isEn && (
-        formIdx === -1 ? (
-          <InlineForm
-            fields={[
-              { label: 'Version', value: f.version, onChange: v => setF(x => ({ ...x, version: v })), placeholder: 'e.g. v2.5.0' },
-              { label: 'Date', value: f.date, onChange: v => setF(x => ({ ...x, date: v })), placeholder: 'e.g. Aug 2025' },
-              { label: 'Description', value: f.desc, onChange: v => setF(x => ({ ...x, desc: v })), multiline: true },
-            ]}
-            onSave={save} onCancel={() => setFormIdx(null)} />
-        ) : (
-          <AddButton label="Add Entry" onClick={() => { setFormIdx(-1); setF({ version: '', date: '', desc: '' }) }} />
-        )
-      )}
+      {onPushToAll && <PushToAllButton onPushToAll={onPushToAll} isPushingToAll={!!isPushingToAll} pushSuccess={!!pushSuccess} />}
     </SectionCard>
   )
 }
 
 // ─── Components ───────────────────────────────────────────────────────────────
 
-function ComponentsSection({ content, onChange, lang }: {
+function ComponentsSection({ content, onChange, lang, onPushToAll, isPushingToAll, pushSuccess }: {
   content: PlatformContent
   onChange: (c: PlatformContent) => void
   lang: LangCode
+  onPushToAll?: () => Promise<void>
+  isPushingToAll?: boolean
+  pushSuccess?: boolean
 }) {
   const [formIdx, setFormIdx] = useState<number | null>(null)
   const [f, setF] = useState({ name: '', desc: '', isBeta: false })
@@ -850,6 +864,7 @@ function ComponentsSection({ content, onChange, lang }: {
           <AddButton label="Add Component" onClick={() => { setFormIdx(-1); setF({ name: '', desc: '', isBeta: false }) }} />
         )
       )}
+      {onPushToAll && <PushToAllButton onPushToAll={onPushToAll} isPushingToAll={!!isPushingToAll} pushSuccess={!!pushSuccess} />}
     </SectionCard>
   )
 }
@@ -866,6 +881,38 @@ function PackageEditor({ packageId }: { packageId: string }) {
   const [lang, setLang] = useState<LangCode>('en')
   const [translating, setTranslating] = useState(false)
   const [translateError, setTranslateError] = useState<string | null>(null)
+  const [pushingSection, setPushingSection] = useState<string | null>(null)
+  const [pushSuccessSection, setPushSuccessSection] = useState<string | null>(null)
+
+  async function pushSectionToAllPackages(section: 'tips' | 'components') {
+    if (!content || packageId === 'all_packages') return
+    setPushingSection(section)
+    try {
+      const allPkg = await apiFetch('all_packages')
+      let updated = { ...allPkg }
+      if (section === 'tips') {
+        updated = {
+          ...updated,
+          tipChain: content.tipChain,
+          chainEnabled: content.chainEnabled,
+          tipsImageUrl: content.tipsImageUrl,
+          tipsCardTitle: content.tipsCardTitle,
+          tipsCardSubtitle: content.tipsCardSubtitle,
+          tipsCardTitleTranslations: content.tipsCardTitleTranslations ?? {},
+          tipsCardSubtitleTranslations: content.tipsCardSubtitleTranslations ?? {},
+        }
+      } else if (section === 'components') {
+        updated = { ...updated, components: content.components }
+      }
+      await apiSave('all_packages', updated)
+      setPushSuccessSection(section)
+      setTimeout(() => setPushSuccessSection(null), 2500)
+    } catch {
+      // silent — user can retry
+    } finally {
+      setPushingSection(null)
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true); setLoadError(false)
@@ -905,9 +952,6 @@ function PackageEditor({ packageId }: { packageId: string }) {
       content.components.forEach((c, i) => {
         if (c.name.trim()) items.push({ id: `comp_${i}_name`, text: c.name })
         if (c.description.trim()) items.push({ id: `comp_${i}_desc`, text: c.description })
-      })
-      content.whatsNew.forEach((w, i) => {
-        if (w.description.trim()) items.push({ id: `wn_${i}_desc`, text: w.description })
       })
       if (content.tipsCardTitle.trim()) items.push({ id: 'card_title', text: content.tipsCardTitle })
       if (content.tipsCardSubtitle.trim()) items.push({ id: 'card_subtitle', text: content.tipsCardSubtitle })
@@ -950,15 +994,6 @@ function PackageEditor({ packageId }: { packageId: string }) {
           }
         }
         return { ...c, translations: trans }
-      })
-
-      newContent.whatsNew = content.whatsNew.map((w, i) => {
-        const trDesc = translations[`wn_${i}_desc`]
-        const trans: Record<string, { description?: string }> = { ...(w.translations ?? {}) }
-        for (const l of ['he', 'ar', 'es'] as const) {
-          if (trDesc?.[l] !== undefined) trans[l] = { ...(trans[l] ?? {}), description: trDesc[l] }
-        }
-        return { ...w, translations: trans }
       })
 
       const trCardTitle    = translations['card_title']
@@ -1033,9 +1068,18 @@ function PackageEditor({ packageId }: { packageId: string }) {
       )}
 
       <div className="flex-1 overflow-y-auto p-5 pb-0">
-        <TipsChainSection content={content} onChange={setContent} lang={lang} />
-        <WhatsNewSection content={content} onChange={setContent} lang={lang} />
-        <ComponentsSection content={content} onChange={setContent} lang={lang} />
+        <TipsChainSection
+          content={content} onChange={setContent} lang={lang} packageId={packageId}
+          onPushToAll={packageId !== 'all_packages' ? () => pushSectionToAllPackages('tips') : undefined}
+          isPushingToAll={pushingSection === 'tips'}
+          pushSuccess={pushSuccessSection === 'tips'}
+        />
+        <ComponentsSection
+          content={content} onChange={setContent} lang={lang}
+          onPushToAll={packageId !== 'all_packages' ? () => pushSectionToAllPackages('components') : undefined}
+          isPushingToAll={pushingSection === 'components'}
+          pushSuccess={pushSuccessSection === 'components'}
+        />
       </div>
 
       {/* Sticky save bar */}
