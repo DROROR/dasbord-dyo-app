@@ -317,7 +317,7 @@ export function MyBoard({
   useEffect(() => {
     function check() {
       try {
-        const stored = localStorage.getItem('activeTimer')
+        const stored = sessionStorage.getItem('activeTimer')
         if (stored) {
           const { taskId, taskTitle } = JSON.parse(stored)
           setActiveTimer({ taskId, taskTitle })

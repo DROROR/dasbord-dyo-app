@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import type { TimeEntry } from '../types/work'
 import { addTaskTimeEntry } from '../lib/database'
 
+// sessionStorage is isolated per browser tab, allowing parallel task timers.
 const TIMER_KEY = 'activeTimer'
 
 /** Fired only after the server has confirmed the entry was saved — never
@@ -47,7 +48,7 @@ const TimerContext = createContext<TimerContextValue | null>(null)
 
 function readStorage(): TimerState | null {
   try {
-    const raw = localStorage.getItem(TIMER_KEY)
+    const raw = sessionStorage.getItem(TIMER_KEY)
     if (!raw) return null
     const p: TimerState = JSON.parse(raw)
     if (p.taskId && p.startTime) return p
@@ -76,7 +77,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   function start(taskId: string, taskTitle: string, loggedBy: string, loggedById?: string) {
     const startTime = Date.now()
     const state: TimerState = { taskId, taskTitle, startTime, loggedBy, loggedById }
-    localStorage.setItem(TIMER_KEY, JSON.stringify(state))
+    sessionStorage.setItem(TIMER_KEY, JSON.stringify(state))
     setTimerState(state)
   }
 
@@ -90,7 +91,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     if (totalMins === 0) {
       // Nothing worth persisting — this is the one case where clearing
       // immediately is correct, there is no write to wait for.
-      localStorage.removeItem(TIMER_KEY)
+      sessionStorage.removeItem(TIMER_KEY)
       setTimerState(null)
       return { entry: null, taskId: snap.taskId, discarded: true, error: null }
     }
@@ -115,7 +116,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       // is allowed) to call it again for the same stop.
       const entries = await addTaskTimeEntry(snap.taskId, entry)
       // Persistence confirmed — only now is the running timer cleared.
-      localStorage.removeItem(TIMER_KEY)
+      sessionStorage.removeItem(TIMER_KEY)
       setTimerState(null)
       window.dispatchEvent(new CustomEvent<TimerEntrySavedDetail>(TIMER_ENTRY_SAVED_EVENT, {
         detail: { taskId: snap.taskId, entry, entries },

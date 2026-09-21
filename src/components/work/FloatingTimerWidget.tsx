@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Square, Timer, GripVertical, AlertCircle, Loader2 } from 'lucide-react'
 import { useTimer } from '../../contexts/TimerContext'
+import { useLang } from '../../contexts/LanguageContext'
 
 const POSITION_KEY = 'timerWidgetPos'
 
@@ -26,6 +27,7 @@ function getSavedPos(): { x: number; y: number } {
 
 export function FloatingTimerWidget({ onNavigate }: { onNavigate: (page: string) => void }) {
   const { timerState, elapsed, saving, stop } = useTimer()
+  const { dir } = useLang()
   const [pos,      setPos]      = useState<{ x: number; y: number }>(getSavedPos)
   const [dragging, setDragging] = useState(false)
   const [stopError, setStopError] = useState<string | null>(null)
@@ -76,9 +78,10 @@ export function FloatingTimerWidget({ onNavigate }: { onNavigate: (page: string)
   return (
     <div
       style={{ left: pos.x, top: pos.y, position: 'fixed', zIndex: 100, display: timerState ? 'flex' : 'none' }}
-      className="flex flex-col gap-1.5 bg-white border border-gray-200 rounded-2xl shadow-xl px-3 py-3 select-none w-[min(420px,calc(100vw-2rem))] max-w-[420px]"
+      dir={dir}
+      className="flex flex-col gap-1.5 bg-white border border-gray-200 rounded-2xl shadow-xl px-3 py-3 select-none text-start w-[min(420px,calc(100vw-2rem))] max-w-[420px]"
     >
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-2 w-full">
         {/* Drag handle */}
         <div
           onMouseDown={onGripMouseDown}
@@ -90,7 +93,7 @@ export function FloatingTimerWidget({ onNavigate }: { onNavigate: (page: string)
 
         {/* Timer info */}
         <div
-          className="flex flex-col gap-0.5 cursor-pointer min-w-0"
+          className="flex flex-col gap-0.5 cursor-pointer flex-1 min-w-0"
           onClick={() => onNavigate('work')}
           title={timerState?.taskTitle ?? "Go to task"}
         >
@@ -110,7 +113,7 @@ export function FloatingTimerWidget({ onNavigate }: { onNavigate: (page: string)
         <button
           onClick={() => void stopTimer()}
           disabled={saving || !timerState}
-          className="flex items-center gap-1.5 px-3 py-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-xl text-xs font-bold transition-colors shrink-0 disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 py-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-xl text-xs font-bold transition-colors shrink-0 self-start disabled:opacity-50"
           title="Stop and save"
         >
           {saving ? <Loader2 size={11} className="animate-spin" /> : <Square size={11} />} Stop
