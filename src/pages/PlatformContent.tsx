@@ -513,29 +513,6 @@ const TipsChainSection = forwardRef<TipsChainHandle, {
         </div>
       )}
 
-      {/* Card appearance — before sections */}
-      <div className="px-5 pt-0 pb-3">
-        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2 mt-2">
-          {isEn ? 'Card appearance' : `${langMeta.flag} Card title translations`}
-          {isEn && <span className="normal-case font-normal"> (optional)</span>}
-        </p>
-        <div className="bg-gray-50 rounded-xl border border-gray-100 p-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">
-              {isEn ? 'Card Heading' : `Card Heading (${langMeta.flag} ${langMeta.label})`}
-            </label>
-            <input
-              type="text"
-              className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-              placeholder={isEn ? 'e.g. Daily Growth Tips' : `${langMeta.flag} translation…`}
-              value={cardTitleVal}
-              dir={langMeta.dir}
-              onChange={e => setCardTitle(e.target.value)}
-            />
-          </div>
-        </div>
-      </div>
-
       {/* Sections */}
       <div className="px-5 pb-0">
         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
@@ -814,7 +791,12 @@ function TipForm({ isEn, langMeta, form, onTitleChange, onDescChange, onImgUploa
       {/* Image upload */}
       {isEn && (
         <div>
-          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Tip Image <span className="font-normal text-gray-400">(optional)</span></label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-xs font-semibold text-gray-500">Tip Image <span className="font-normal text-gray-400">(optional)</span></label>
+            <span className="flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-2 py-0.5">
+              <Info size={9} /> 487 × 311 px required
+            </span>
+          </div>
           {form.imageUrl ? (
             <div className="border border-gray-200 rounded-xl bg-white overflow-hidden">
               <div style={{ aspectRatio: '487 / 311', width: '100%' }}>
@@ -845,6 +827,10 @@ function TipForm({ isEn, langMeta, form, onTitleChange, onDescChange, onImgUploa
               <span>{form.uploadingImg ? 'Uploading…' : 'Upload image for this tip'}</span>
               {!form.uploadingImg && <Upload size={11} className="ml-auto opacity-50" />}
             </button>
+            <p className="mt-1.5 flex items-center gap-1 text-[10px] font-semibold text-amber-600">
+              <Info size={10} />
+              Required dimensions: <span className="font-bold">487 × 311 px</span> (landscape). Other sizes will be cropped.
+            </p>
           )}
         </div>
       )}
