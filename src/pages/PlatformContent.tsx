@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react'
 import {
   Lightbulb, PlusCircle, Trash2, ChevronDown, ChevronUp,
   Save, Loader2, RefreshCw, ToggleLeft, ToggleRight,
-  ArrowUp, ArrowDown, Pencil, X, Check,
-  Package, Layers, Users, Star, Zap, Globe, Upload, ImageIcon,
+  GripVertical, Pencil, X, Check,
+  Package, Layers, Users, Star, Zap, Globe, Upload, ImageIcon, Calendar, Info,
 } from 'lucide-react'
 import { useLang } from '../contexts/LanguageContext'
 
@@ -71,10 +71,12 @@ interface CompTranslation { name?: string; description?: string }
 interface TipItem {
   title: string
   description: string
+  imageUrl?: string
   translations?: Record<string, ItemTranslation>
 }
 interface TipStep {
   stepNumber: number
+  sectionTitle?: string
   tips: TipItem[]
   pinnedDay?: number | null
   pinnedDate?: string | null
@@ -127,6 +129,13 @@ function mergeTipTrans(tip: TipItem, lang: LangCode, title: string, desc: string
 function mergeCompTrans(c: ComponentItem, lang: LangCode, name: string, desc: string): ComponentItem {
   return { ...c, translations: { ...(c.translations ?? {}), [lang]: { name, description: desc } } }
 }
+
+function formatDate(iso: string): string {
+  const d = new Date(iso + 'T00:00:00')
+  if (isNaN(d.getTime())) return iso
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 // ─── API ──────────────────────────────────────────────────────────────────────
 
 async function apiFetch(packageId: string): Promise<PlatformContent> {
@@ -138,11 +147,15 @@ async function apiFetch(packageId: string): Promise<PlatformContent> {
 }
 
 async function apiSave(packageId: string, content: PlatformContent): Promise<void> {
+  console.log('[apiSave] tipChain:', JSON.stringify(content.tipChain.map(s => ({ step: s.stepNumber, tips: s.tips.map(t => ({ title: t.title, imageUrl: t.imageUrl ? t.imageUrl.slice(0, 80) + '…' : 'NONE' })) }))))
+  const body = JSON.stringify({ packageId, content })
+  console.log('[apiSave] request body size:', body.length, 'bytes')
   const res = await fetch(`${CF_BASE}/savePlatformContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-webhook-secret': SECRET },
-    body: JSON.stringify({ packageId, content }),
+    body,
   })
+  console.log('[apiSave] response status:', res.status)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
 }
 
@@ -152,9 +165,7 @@ async function apiTranslate(items: Array<{ id: string; text: string }>): Promise
   const system = 'You are a professional translator. Translate each item from English to Hebrew (he), Arabic (ar), and Spanish (es). Return ONLY valid JSON: {"translations":{"<id>":{"he":"...","ar":"...","es":"..."}, ...}}. Preserve formatting and brand names.'
   const res = await fetch('/api/claude/v1/translation-messages', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: TRANSLATE_MODEL,
       max_tokens: 4096,
@@ -169,6 +180,15 @@ async function apiTranslate(items: Array<{ id: string; text: string }>): Promise
   if (!match) throw new Error('No JSON in response')
   const parsed = JSON.parse(match[0]) as { translations: Record<string, { he: string; ar: string; es: string }> }
   return parsed.translations ?? {}
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve((reader.result as string).split(',')[1])
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
@@ -197,112 +217,12 @@ function EmptyState({ label }: { label: string }) {
   )
 }
 
-function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-2 w-full px-5 py-3 text-sm text-primary font-medium hover:bg-primary/5 transition-colors border-t border-gray-100"
-    >
-      <PlusCircle size={15} />
-      {label}
-    </button>
-  )
-}
-
-interface FormField {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  multiline?: boolean
-  placeholder?: string
-  dir?: 'ltr' | 'rtl'
-}
-
-function InlineForm({ fields, extra, onSave, onCancel }: {
-  fields: FormField[]
-  extra?: React.ReactNode
-  onSave: () => void
-  onCancel: () => void
-}) {
-  return (
-    <div className="border-t border-gray-100 bg-gradient-to-b from-primary/5 to-primary/[0.02] px-5 py-4 space-y-3">
-      {fields.map((f, i) => (
-        <div key={i}>
-          <label className="block text-xs font-semibold text-gray-500 mb-1.5">{f.label}</label>
-          {f.multiline ? (
-            <textarea
-              className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-              rows={3}
-              placeholder={f.placeholder}
-              value={f.value}
-              dir={f.dir}
-              onChange={e => f.onChange(e.target.value)}
-            />
-          ) : (
-            <input
-              className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-              placeholder={f.placeholder}
-              value={f.value}
-              dir={f.dir}
-              onChange={e => f.onChange(e.target.value)}
-            />
-          )}
-        </div>
-      ))}
-      {extra}
-      <div className="flex gap-2 pt-1">
-        <button
-          onClick={onSave}
-          className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary/90 transition-colors"
-        >
-          <Check size={13} /> Save
-        </button>
-        <button
-          onClick={onCancel}
-          className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-600 text-xs font-semibold rounded-lg hover:bg-gray-200 transition-colors"
-        >
-          <X size={13} /> Cancel
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function ListItem({ title, subtitle, badge, onEdit, onDelete }: {
-  title: string
-  subtitle?: string
-  badge?: string | null
-  onEdit: () => void
-  onDelete: () => void
-}) {
-  return (
-    <div className="flex items-start gap-3 px-5 py-3.5 border-t border-gray-100 group hover:bg-gray-50/60 transition-colors">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-gray-800">{title}</span>
-          {badge && (
-            <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-primary/10 text-primary tracking-wide">{badge}</span>
-          )}
-        </div>
-        {subtitle && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2 leading-relaxed">{subtitle}</p>}
-      </div>
-      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-        <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-primary transition-colors">
-          <Pencil size={13} />
-        </button>
-        <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">
-          <Trash2 size={13} />
-        </button>
-      </div>
-    </div>
-  )
-}
-
 function LangTabs({ active, onChange }: { active: LangCode; onChange: (l: LangCode) => void }) {
   return (
     <div className="flex gap-1 p-1 bg-gray-100 rounded-xl">
       {LANGS.map(l => (
         <button
+          type="button"
           key={l.code}
           onClick={() => onChange(l.code)}
           className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
@@ -316,17 +236,6 @@ function LangTabs({ active, onChange }: { active: LangCode; onChange: (l: LangCo
   )
 }
 
-// ─── Tips Chain ───────────────────────────────────────────────────────────────
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve((reader.result as string).split(',')[1])
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
-
 function PushToAllButton({ onPushToAll, isPushingToAll, pushSuccess }: {
   onPushToAll: () => Promise<void>
   isPushingToAll: boolean
@@ -336,6 +245,7 @@ function PushToAllButton({ onPushToAll, isPushingToAll, pushSuccess }: {
     <div className="border-t border-gray-100 px-5 py-3 flex items-center justify-between gap-3">
       <span className="text-xs text-gray-400">Push this section's content to All Packages</span>
       <button
+        type="button"
         onClick={onPushToAll}
         disabled={isPushingToAll}
         className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-primary px-3 py-1.5 rounded-lg border border-gray-200 hover:border-primary/30 hover:bg-primary/5 transition-colors disabled:opacity-50 shrink-0"
@@ -353,7 +263,11 @@ function PushToAllButton({ onPushToAll, isPushingToAll, pushSuccess }: {
   )
 }
 
-function TipsChainSection({ content, onChange, lang, packageId, onPushToAll, isPushingToAll, pushSuccess }: {
+// ─── Tips Chain ───────────────────────────────────────────────────────────────
+
+type TipsChainHandle = { flush: () => TipStep[] | null }
+
+const TipsChainSection = forwardRef<TipsChainHandle, {
   content: PlatformContent
   onChange: (c: PlatformContent) => void
   lang: LangCode
@@ -361,50 +275,103 @@ function TipsChainSection({ content, onChange, lang, packageId, onPushToAll, isP
   onPushToAll?: () => Promise<void>
   isPushingToAll?: boolean
   pushSuccess?: boolean
-}) {
+}>(function TipsChainSection({ content, onChange, lang, packageId, onPushToAll, isPushingToAll, pushSuccess }, ref) {
   const [expandedStep, setExpandedStep] = useState<number | null>(null)
-  const [stepForms, setStepForms] = useState<Record<number, { formIdx: number | null; title: string; desc: string }>>({})
-  const imgInputRef = useRef<HTMLInputElement>(null)
-  const [uploadingImg, setUploadingImg] = useState(false)
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
 
-  async function handleImgUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploadingImg(true)
-    try {
-      const imageBase64 = await fileToBase64(file)
-      const res = await fetch(`${CF_BASE}/uploadTipsImage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-webhook-secret': SECRET },
-        body: JSON.stringify({ packageId, imageBase64, mimeType: file.type }),
-      })
-      if (!res.ok) {
-        const body = await res.text().catch(() => '')
-        throw new Error(`HTTP ${res.status}${body ? `: ${body}` : ''}`)
-      }
-      const { url } = await res.json()
-      onChange({ ...content, tipsImageUrl: url })
-    } catch (err) {
-      console.error('uploadTipsImage failed:', err)
-      alert(`Image upload failed — ${err instanceof Error ? err.message : 'please try again.'}`)
-    } finally {
-      setUploadingImg(false)
-      if (imgInputRef.current) imgInputRef.current.value = ''
-    }
+  type StepForm = {
+    formIdx: number | null
+    title: string
+    desc: string
+    imageUrl: string
+    uploadingImg: boolean
   }
+  const [stepForms, setStepForms] = useState<Record<number, StepForm>>({})
+  const tipImgInputRef = useRef<HTMLInputElement>(null)
+  const [pendingTipImgStep, setPendingTipImgStep] = useState<number | null>(null)
 
   const langMeta = LANGS.find(l => l.code === lang)!
   const isEn = lang === 'en'
 
-  function sf(i: number) { return stepForms[i] ?? { formIdx: null, title: '', desc: '' } }
-  function setF(i: number, patch: Partial<typeof stepForms[0]>) {
-    setStepForms(prev => ({ ...prev, [i]: { ...sf(i), ...patch } }))
+  useImperativeHandle(ref, () => ({
+    flush() {
+      const chain = content.tipChain.map(s => ({ ...s, tips: [...s.tips] }))
+      let changed = false
+      Object.entries(stepForms).forEach(([idxStr, form]) => {
+        const idx = Number(idxStr)
+        if (idx >= chain.length || form.formIdx === null) return
+        const title = form.title.trim()
+        if (!title) return
+        const newTip: TipItem = { title, description: form.desc.trim(), ...(form.imageUrl ? { imageUrl: form.imageUrl } : {}) }
+        if (form.formIdx === -1) {
+          if (chain[idx].tips.length === 0) { chain[idx].tips = [newTip]; changed = true }
+        } else if (form.formIdx >= 0 && form.formIdx < chain[idx].tips.length) {
+          chain[idx].tips[form.formIdx] = { ...chain[idx].tips[form.formIdx], ...newTip }
+          changed = true
+        }
+      })
+      console.log('[flush] stepForms:', JSON.stringify(Object.fromEntries(Object.entries(stepForms).map(([k, f]) => [k, { formIdx: f.formIdx, title: f.title, imageUrl: f.imageUrl ? f.imageUrl.slice(0, 80) + '…' : 'NONE' }]))))
+      console.log('[flush] chain:', JSON.stringify(chain.map(s => ({ step: s.stepNumber, tips: s.tips.map(t => ({ title: t.title, imageUrl: t.imageUrl ? t.imageUrl.slice(0, 80) + '…' : 'NONE' })) }))))
+      return changed ? chain : null
+    }
+  }), [content.tipChain, stepForms])
+
+  const emptyForm: StepForm = { formIdx: null, title: '', desc: '', imageUrl: '', uploadingImg: false }
+  function sf(i: number): StepForm {
+    return stepForms[i] ?? emptyForm
   }
+  function setF(i: number, patch: Partial<StepForm>) {
+    setStepForms(prev => ({ ...prev, [i]: { ...(prev[i] ?? emptyForm), ...patch } }))
+  }
+
+  // ── Drag-and-drop reorder ──────────────────────────────────────────────────
+
+  function handleDragStart(i: number) { setDragIdx(i) }
+  function handleDragOver(e: React.DragEvent, i: number) { e.preventDefault(); setDragOverIdx(i) }
+  function handleDrop(i: number) {
+    if (!isEn || dragIdx === null || dragIdx === i) { resetDrag(); return }
+    const chain = [...content.tipChain]
+    const [moved] = chain.splice(dragIdx, 1)
+    chain.splice(i, 0, moved)
+    chain.forEach((s, k) => { s.stepNumber = k + 1 })
+    onChange({ ...content, tipChain: chain })
+    resetDrag()
+  }
+  function resetDrag() { setDragIdx(null); setDragOverIdx(null) }
+
+  // ── Tip image upload ───────────────────────────────────────────────────────
+
+  async function handleTipImgUpload(e: React.ChangeEvent<HTMLInputElement>, stepIdx: number) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setF(stepIdx, { uploadingImg: true })
+    try {
+      const imageBase64 = await fileToBase64(file)
+      const res = await fetch(`${CF_BASE}/uploadTipItemImage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-webhook-secret': SECRET },
+        body: JSON.stringify({ packageId, imageBase64, mimeType: file.type }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const { url } = await res.json()
+      console.log('[tipImgUpload] step', stepIdx, 'url:', url ? url.slice(0, 80) + '…' : 'NONE')
+      setF(stepIdx, { imageUrl: url, uploadingImg: false })
+    } catch (err) {
+      setF(stepIdx, { uploadingImg: false })
+      alert(`Tip image upload failed — ${err instanceof Error ? err.message : 'please try again.'}`)
+    } finally {
+      if (tipImgInputRef.current) tipImgInputRef.current.value = ''
+      setPendingTipImgStep(null)
+    }
+  }
+
+  // ── Section management ─────────────────────────────────────────────────────
 
   function addSection() {
     if (!isEn) return
     const next = content.tipChain.length + 1
-    onChange({ ...content, tipChain: [...content.tipChain, { stepNumber: next, tips: [] }] })
+    onChange({ ...content, tipChain: [...content.tipChain, { stepNumber: next, sectionTitle: '', tips: [] }] })
     setExpandedStep(content.tipChain.length)
   }
 
@@ -426,17 +393,40 @@ function TipsChainSection({ content, onChange, lang, packageId, onPushToAll, isP
     setExpandedStep(j)
   }
 
+  function setSectionTitle(stepIdx: number, title: string) {
+    if (!isEn) return
+    const chain = content.tipChain.map((s, i) => i === stepIdx ? { ...s, sectionTitle: title } : s)
+    onChange({ ...content, tipChain: chain })
+  }
+
+  function setPinnedDate(stepIdx: number, val: string) {
+    if (!isEn) return
+    const chain = content.tipChain.map((s, i) =>
+      i === stepIdx ? { ...s, pinnedDate: val || null } : s
+    )
+    onChange({ ...content, tipChain: chain })
+  }
+
+  // ── Tip management ─────────────────────────────────────────────────────────
+
   function saveTip(stepIdx: number) {
     const form = sf(stepIdx)
     const chain = [...content.tipChain]
     const step = { ...chain[stepIdx], tips: [...chain[stepIdx].tips] }
 
+    console.log('[saveTip] stepIdx:', stepIdx, 'formIdx:', form.formIdx, 'title:', form.title, 'imageUrl:', form.imageUrl ? form.imageUrl.slice(0, 60) + '…' : 'NONE')
+
     if (isEn) {
       const title = form.title.trim()
-      if (!title) return
-      if (form.formIdx === -1) step.tips = [...step.tips, { title, description: form.desc.trim() }]
-      else if (form.formIdx !== null && form.formIdx >= 0)
-        step.tips = step.tips.map((t, i) => i === form.formIdx ? { title, description: form.desc.trim() } : t)
+      if (!title) { console.log('[saveTip] ABORTED — empty title'); return }
+      const newTip: TipItem = { title, description: form.desc.trim(), imageUrl: form.imageUrl || undefined }
+      if (form.formIdx === -1) {
+        step.tips = [...step.tips, newTip]
+      } else if (form.formIdx !== null && form.formIdx >= 0) {
+        step.tips = step.tips.map((t, i) =>
+          i === form.formIdx ? { ...t, title: newTip.title, description: newTip.description, imageUrl: newTip.imageUrl } : t
+        )
+      }
     } else {
       if (form.formIdx !== null && form.formIdx >= 0) {
         step.tips = step.tips.map((t, i) =>
@@ -446,8 +436,9 @@ function TipsChainSection({ content, onChange, lang, packageId, onPushToAll, isP
     }
 
     chain[stepIdx] = step
+    console.log('[saveTip] chain after:', JSON.stringify(chain.map(s => ({ step: s.stepNumber, tips: s.tips.map(t => ({ title: t.title, imageUrl: t.imageUrl ? t.imageUrl.slice(0, 60) + '…' : 'NONE' })) }))))
     onChange({ ...content, tipChain: chain })
-    setF(stepIdx, { formIdx: null, title: '', desc: '' })
+    setF(stepIdx, { formIdx: null, title: '', desc: '', imageUrl: '' })
   }
 
   function deleteTip(stepIdx: number, tipIdx: number) {
@@ -458,13 +449,7 @@ function TipsChainSection({ content, onChange, lang, packageId, onPushToAll, isP
     setF(stepIdx, { formIdx: null })
   }
 
-  function setPinnedDay(stepIdx: number, val: string) {
-    if (!isEn) return
-    const n = parseInt(val, 10)
-    const chain = [...content.tipChain]
-    chain[stepIdx] = { ...chain[stepIdx], pinnedDay: isNaN(n) || n <= 0 ? null : n }
-    onChange({ ...content, tipChain: chain })
-  }
+  // ── Card appearance fields ─────────────────────────────────────────────────
 
   const cardTitleVal = isEn
     ? content.tipsCardTitle
@@ -474,79 +459,32 @@ function TipsChainSection({ content, onChange, lang, packageId, onPushToAll, isP
     : (content.tipsCardSubtitleTranslations?.[lang] ?? '')
 
   function setCardTitle(v: string) {
-    if (isEn) {
-      onChange({ ...content, tipsCardTitle: v })
-    } else {
-      onChange({ ...content, tipsCardTitleTranslations: { ...(content.tipsCardTitleTranslations ?? {}), [lang]: v } })
-    }
+    if (isEn) onChange({ ...content, tipsCardTitle: v })
+    else onChange({ ...content, tipsCardTitleTranslations: { ...(content.tipsCardTitleTranslations ?? {}), [lang]: v } })
   }
-
   function setCardSubtitle(v: string) {
-    if (isEn) {
-      onChange({ ...content, tipsCardSubtitle: v })
-    } else {
-      onChange({ ...content, tipsCardSubtitleTranslations: { ...(content.tipsCardSubtitleTranslations ?? {}), [lang]: v } })
-    }
+    if (isEn) onChange({ ...content, tipsCardSubtitle: v })
+    else onChange({ ...content, tipsCardSubtitleTranslations: { ...(content.tipsCardSubtitleTranslations ?? {}), [lang]: v } })
   }
 
   return (
     <SectionCard title="Tips & Tricks Chain" icon={Lightbulb}>
 
-      {/* Card image — pinned at the top so it's always visible */}
-      {isEn && (
-        <div className="px-5 pt-4 pb-3">
-          <input ref={imgInputRef} type="file" accept="image/*" className="hidden" onChange={handleImgUpload} />
-          {content.tipsImageUrl ? (
-            <div className="flex items-center gap-3 px-3 py-2.5 border border-gray-200 rounded-xl bg-white">
-              <img
-                src={content.tipsImageUrl}
-                className="rounded-lg shrink-0 border border-gray-100"
-                style={{ width: 35, height: 39, objectFit: 'fill' }}
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-gray-700">Card image active</p>
-                <p className="text-[10px] text-gray-400">Default image will show after removal</p>
-              </div>
-              <button
-                onClick={() => imgInputRef.current?.click()}
-                disabled={uploadingImg}
-                className="flex items-center gap-1 text-xs text-primary hover:text-primary/70 font-semibold shrink-0 disabled:opacity-50 px-2 py-1.5 rounded-lg hover:bg-primary/8 transition-colors"
-              >
-                {uploadingImg ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-                {uploadingImg ? 'Uploading…' : 'Replace'}
-              </button>
-              <button
-                onClick={() => onChange({ ...content, tipsImageUrl: '' })}
-                className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 font-semibold shrink-0 px-2 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
-              >
-                <Trash2 size={12} />
-                Delete
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => imgInputRef.current?.click()}
-              disabled={uploadingImg}
-              className="flex items-center justify-center gap-3 w-full px-4 py-4 border border-dashed border-gray-300 rounded-xl text-sm text-gray-400 hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
-            >
-              {uploadingImg
-                ? <Loader2 size={20} className="animate-spin shrink-0" />
-                : <ImageIcon size={20} className="shrink-0" />}
-              <span className="flex flex-col items-start">
-                <span className="font-semibold">{uploadingImg ? 'Uploading…' : 'Upload card image'}</span>
-                {!uploadingImg && <span className="text-[11px] font-normal">Recommended: 280×312px</span>}
-              </span>
-              {!uploadingImg && <Upload size={13} className="ml-auto shrink-0 opacity-50" />}
-            </button>
-          )}
-        </div>
-      )}
+      {/* Hidden tip image input */}
+      <input
+        ref={tipImgInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => pendingTipImgStep !== null && handleTipImgUpload(e, pendingTipImgStep)}
+      />
 
-      {/* Chain toggle — only in English mode */}
+      {/* Chain toggle */}
       {isEn && (
-        <div className="px-5 pt-0 pb-0">
-          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Step 1 — Enable chain cycling</p>
+        <div className="px-5 pb-3">
+          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Chain cycling</p>
           <button
+            type="button"
             onClick={() => onChange({ ...content, chainEnabled: !content.chainEnabled })}
             className={`flex items-center gap-3 w-full px-4 py-3.5 rounded-xl border text-sm font-semibold transition-all ${
               content.chainEnabled
@@ -554,153 +492,223 @@ function TipsChainSection({ content, onChange, lang, packageId, onPushToAll, isP
                 : 'bg-gray-50 border-gray-200 text-gray-500'
             }`}
           >
-            {content.chainEnabled
-              ? <ToggleRight size={22} className="shrink-0" />
-              : <ToggleLeft size={22} className="shrink-0" />}
+            {content.chainEnabled ? <ToggleRight size={22} className="shrink-0" /> : <ToggleLeft size={22} className="shrink-0" />}
             <span>{content.chainEnabled ? 'Chain Cycling — ON' : 'Chain Cycling — OFF'}</span>
             <span className="text-xs font-normal ml-auto text-gray-400">
-              {content.chainEnabled ? 'New section each day' : 'Section 1 always shown'}
+              {content.chainEnabled ? 'New section each visit' : 'Section 1 always shown'}
             </span>
           </button>
+          {content.chainEnabled && (
+            <div className="flex items-start gap-2 mt-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg">
+              <Info size={13} className="text-blue-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-blue-700 leading-relaxed">
+                Each day a user opens the app, they advance to the next section. Skipping days does not skip sections — only actual visits advance the chain.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
+      {/* Card appearance — before sections */}
+      <div className="px-5 pt-0 pb-3">
+        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2 mt-2">
+          {isEn ? 'Card appearance' : `${langMeta.flag} Card title translations`}
+          {isEn && <span className="normal-case font-normal"> (optional)</span>}
+        </p>
+        <div className="bg-gray-50 rounded-xl border border-gray-100 p-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+              {isEn ? 'Card Heading' : `Card Heading (${langMeta.flag} ${langMeta.label})`}
+            </label>
+            <input
+              type="text"
+              className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
+              placeholder={isEn ? 'e.g. Daily Growth Tips' : `${langMeta.flag} translation…`}
+              value={cardTitleVal}
+              dir={langMeta.dir}
+              onChange={e => setCardTitle(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Sections */}
-      <div className="px-5 pt-4 pb-0">
+      <div className="px-5 pb-0">
         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-          {isEn ? 'Step 2 — Sections' : `${langMeta.flag} Editing ${langMeta.label} translations`}
-          {isEn && <span className="normal-case font-normal"> (each section = one day's tips)</span>}
+          {isEn ? 'Sections' : `${langMeta.flag} Editing ${langMeta.label} translations`}
+          {isEn && <span className="normal-case font-normal"> (each section = one day's content)</span>}
         </p>
 
-        {content.tipChain.length === 0 ? (
-          <div className="border-2 border-dashed border-gray-200 rounded-xl py-8 text-center mb-3">
-            <Lightbulb size={28} className="text-gray-300 mx-auto mb-2" />
-            <p className="text-sm text-gray-400 font-medium">No sections yet</p>
-            {isEn && <p className="text-xs text-gray-400 mt-0.5">Click the button below to add your first section</p>}
-          </div>
-        ) : (
+        {content.tipChain.length > 0 && (
           <div className="border border-gray-200 rounded-xl overflow-hidden mb-2">
             {content.tipChain.map((step, i) => {
               const isExpanded = expandedStep === i
               const form = sf(i)
+              const displayTitle = step.sectionTitle?.trim() || `Section ${step.stepNumber}`
+              const hasPinnedDate = !!step.pinnedDate
+              const hasTip = step.tips.length > 0
+              const isDragging = dragIdx === i
+              const isDragOver = dragOverIdx === i && dragIdx !== i
+
               return (
-                <div key={i} className="border-b border-gray-100 last:border-b-0">
+                <div
+                  key={i}
+                  className={`border-b border-gray-100 last:border-b-0 transition-all ${isDragging ? 'opacity-40' : ''} ${isDragOver ? 'ring-2 ring-inset ring-primary/40 bg-primary/[0.02]' : ''}`}
+                  draggable={isEn}
+                  onDragStart={() => handleDragStart(i)}
+                  onDragOver={e => handleDragOver(e, i)}
+                  onDrop={() => handleDrop(i)}
+                  onDragEnd={resetDrag}
+                >
+                  {/* Section header */}
                   <div
-                    className={`flex items-center gap-3 px-4 py-3 cursor-pointer select-none transition-colors ${
+                    className={`flex items-center gap-2.5 px-4 py-3 select-none transition-colors ${
                       isExpanded ? 'bg-primary/[0.04]' : 'hover:bg-gray-50'
                     }`}
-                    onClick={() => setExpandedStep(isExpanded ? null : i)}
                   >
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold shrink-0 ${step.pinnedDay ? 'bg-orange-400' : 'bg-primary'}`}>
+                    {/* Drag handle */}
+                    {isEn && (
+                      <span className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing shrink-0 transition-colors">
+                        <GripVertical size={15} />
+                      </span>
+                    )}
+                    <div
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold shrink-0 ${hasPinnedDate ? 'bg-blue-500' : 'bg-primary'}`}
+                    >
                       {step.stepNumber}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-sm font-bold text-gray-700">Section {step.stepNumber}</span>
-                        {step.pinnedDay && (
-                          <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-orange-100 text-orange-600">Day {step.pinnedDay}</span>
+                    <div
+                      className="flex-1 min-w-0 cursor-pointer"
+                      onClick={() => setExpandedStep(isExpanded ? null : i)}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {!hasTip && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-red-100 text-red-500">No tip</span>
                         )}
-                        {step.pinnedDate && (
-                          <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-blue-100 text-blue-600">{step.pinnedDate}</span>
-                        )}
-                        {step.tips.length === 0 && (
-                          <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-red-100 text-red-500">Empty</span>
-                        )}
+                        <span className="text-xs text-gray-400">{hasPinnedDate ? `pinned ${formatDate(step.pinnedDate!)}` : 'auto-cycle'}</span>
                       </div>
-                      <span className="text-xs text-gray-400">{step.tips.length} tip{step.tips.length !== 1 ? 's' : ''} · {step.pinnedDay ? 'pinned' : 'auto-cycle'}</span>
                     </div>
+                    {/* Section title on the right */}
+                    <span
+                      className={`text-sm font-semibold truncate max-w-[180px] shrink-0 cursor-pointer ${hasPinnedDate ? 'text-blue-600' : 'text-gray-700'}`}
+                      onClick={() => setExpandedStep(isExpanded ? null : i)}
+                    >
+                      {displayTitle}
+                    </span>
                     {isEn && (
-                      <div className="flex items-center gap-0.5">
-                        <button onClick={e => { e.stopPropagation(); move(i, -1) }} disabled={i === 0}
-                          className="p-1.5 rounded-lg disabled:opacity-25 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
-                          <ArrowUp size={13} />
-                        </button>
-                        <button onClick={e => { e.stopPropagation(); move(i, 1) }} disabled={i === content.tipChain.length - 1}
-                          className="p-1.5 rounded-lg disabled:opacity-25 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
-                          <ArrowDown size={13} />
-                        </button>
-                        <button onClick={e => { e.stopPropagation(); deleteSection(i) }}
-                          className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
+                      <button type="button" onClick={e => { e.stopPropagation(); deleteSection(i) }}
+                        className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0">
+                        <Trash2 size={13} />
+                      </button>
                     )}
-                    {isExpanded ? <ChevronUp size={15} className="text-gray-400 ml-1" /> : <ChevronDown size={15} className="text-gray-400 ml-1" />}
+                    <span
+                      className="cursor-pointer shrink-0"
+                      onClick={() => setExpandedStep(isExpanded ? null : i)}
+                    >
+                      {isExpanded ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+                    </span>
                   </div>
 
+                  {/* Expanded section */}
                   {isExpanded && (
-                    <div className="bg-gray-50/70">
-                      {/* Pin to day — only in English */}
+                    <div className="bg-gray-50/70 border-t border-gray-100">
+
+                      {/* Section title field */}
                       {isEn && (
-                        <div className="flex items-center gap-3 px-5 py-2.5 border-t border-gray-100">
-                          <span className="text-xs text-gray-500 flex-1">Pin to cycle day <span className="text-gray-400">(optional — blank = auto)</span></span>
+                        <div className="px-5 py-3 border-b border-gray-100">
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Section Title</label>
                           <input
-                            type="number"
-                            min={1}
-                            className="w-20 text-sm text-center border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-                            placeholder="Day #"
-                            defaultValue={step.pinnedDay ?? ''}
-                            onChange={e => setPinnedDay(i, e.target.value)}
+                            type="text"
+                            className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
+                            placeholder={`Section ${step.stepNumber} (default)`}
+                            value={step.sectionTitle ?? ''}
+                            onChange={e => setSectionTitle(i, e.target.value)}
                           />
                         </div>
                       )}
 
-                      {/* Tips */}
-                      {step.tips.length === 0 && form.formIdx !== -1 && (
-                        <div className="py-5 text-center text-sm text-gray-400 border-t border-gray-100">No tips in this section yet.</div>
+                      {/* Pin to date */}
+                      {isEn && (
+                        <div className="px-5 py-3 border-b border-gray-100">
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+                            <span className="flex items-center gap-1.5"><Calendar size={12} /> Pin to specific date <span className="font-normal text-gray-400">(optional — blank = auto-cycle)</span></span>
+                          </label>
+                          <input
+                            type="date"
+                            className={`text-sm border rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white ${
+                              hasPinnedDate ? 'border-blue-300 text-blue-700' : 'border-gray-200 text-gray-700'
+                            }`}
+                            value={step.pinnedDate ?? ''}
+                            onChange={e => setPinnedDate(i, e.target.value)}
+                          />
+                          {hasPinnedDate && (
+                            <div className="flex items-start gap-2 mt-2 px-3 py-2.5 bg-blue-50 border border-blue-100 rounded-xl">
+                              <Info size={13} className="text-blue-500 shrink-0 mt-0.5" />
+                              <p className="text-[11px] text-blue-700 leading-relaxed">
+                                On <strong>{formatDate(step.pinnedDate!)}</strong>, this section is shown to all users regardless of their chain cycle position. The regular chain rule does <strong>not</strong> apply on this date.
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       )}
-                      {step.tips.map((tip, j) => {
-                        if (form.formIdx === j) {
-                          const fTitle = form.title
-                          const fDesc = form.desc
-                          return (
-                            <InlineForm key={j}
-                              fields={[
-                                {
-                                  label: isEn ? 'Title' : `Title (${langMeta.flag} ${langMeta.label})`,
-                                  value: fTitle,
-                                  onChange: v => setF(i, { title: v }),
-                                  placeholder: isEn ? 'e.g. Upload your first course' : `${langMeta.flag} translation…`,
-                                  dir: langMeta.dir,
-                                },
-                                {
-                                  label: isEn ? 'Description' : `Description (${langMeta.flag} ${langMeta.label})`,
-                                  value: fDesc,
-                                  onChange: v => setF(i, { desc: v }),
-                                  multiline: true,
-                                  placeholder: isEn ? 'Optional description…' : `${langMeta.flag} translation…`,
-                                  dir: langMeta.dir,
-                                },
-                              ]}
+
+                      {/* Single tip per section */}
+                      <div>
+                        {hasTip ? (
+                          // Show the single tip (edit mode or display)
+                          form.formIdx === 0 ? (
+                            <TipForm
+                              isEn={isEn}
+                              langMeta={langMeta}
+                              form={form}
+                              onTitleChange={v => setF(i, { title: v })}
+                              onDescChange={v => setF(i, { desc: v })}
+                              onImgUpload={() => { setPendingTipImgStep(i); tipImgInputRef.current?.click() }}
+                              onImgClear={() => setF(i, { imageUrl: '' })}
                               onSave={() => saveTip(i)}
-                              onCancel={() => setF(i, { formIdx: null })}
+                              onCancel={() => setF(i, { formIdx: null, title: '', desc: '', imageUrl: '' })}
+                            />
+                          ) : (
+                            <TipListItem
+                              tip={step.tips[0]}
+                              lang={lang}
+                              onEdit={() => setF(i, { formIdx: 0, title: tipTitle(step.tips[0], lang), desc: tipDesc(step.tips[0], lang), imageUrl: step.tips[0].imageUrl ?? '' })}
+                              onDelete={() => isEn && deleteTip(i, 0)}
+                              isEn={isEn}
+                              onImgClick={() => {
+                                setF(i, { formIdx: 0, title: tipTitle(step.tips[0], lang), desc: tipDesc(step.tips[0], lang), imageUrl: step.tips[0].imageUrl ?? '' })
+                                setPendingTipImgStep(i)
+                                tipImgInputRef.current?.click()
+                              }}
                             />
                           )
-                        }
-                        return (
-                          <ListItem key={j}
-                            title={tipTitle(tip, lang)}
-                            subtitle={tipDesc(tip, lang) || (lang !== 'en' ? `(EN: ${tip.title})` : undefined)}
-                            onEdit={() => setF(i, { formIdx: j, title: tipTitle(tip, lang), desc: tipDesc(tip, lang) })}
-                            onDelete={() => isEn && deleteTip(i, j)}
-                          />
-                        )
-                      })}
-
-                      {isEn && (
-                        form.formIdx === -1 ? (
-                          <InlineForm
-                            fields={[
-                              { label: 'Title', value: form.title, onChange: v => setF(i, { title: v }), placeholder: 'e.g. Upload your first course' },
-                              { label: 'Description', value: form.desc, onChange: v => setF(i, { desc: v }), multiline: true, placeholder: 'Optional description…' },
-                            ]}
-                            onSave={() => saveTip(i)}
-                            onCancel={() => setF(i, { formIdx: null })}
-                          />
                         ) : (
-                          <AddButton label={`Add Tip to Section ${step.stepNumber}`} onClick={() => setF(i, { formIdx: -1, title: '', desc: '' })} />
-                        )
-                      )}
+                          // No tip yet — show add form or add button
+                          isEn && (
+                            form.formIdx === -1 ? (
+                              <TipForm
+                                isEn={isEn}
+                                langMeta={langMeta}
+                                form={form}
+                                onTitleChange={v => setF(i, { title: v })}
+                                onDescChange={v => setF(i, { desc: v })}
+                                onImgUpload={() => { setPendingTipImgStep(i); tipImgInputRef.current?.click() }}
+                                onImgClear={() => setF(i, { imageUrl: '' })}
+                                onSave={() => saveTip(i)}
+                                onCancel={() => setF(i, { formIdx: null, title: '', desc: '', imageUrl: '' })}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setF(i, { formIdx: -1, title: '', desc: '', imageUrl: '' })}
+                                className="flex items-center gap-2 w-full px-5 py-3 text-sm text-primary font-medium hover:bg-primary/5 transition-colors"
+                              >
+                                <PlusCircle size={15} /> Add Tip
+                              </button>
+                            )
+                          )
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -710,65 +718,212 @@ function TipsChainSection({ content, onChange, lang, packageId, onPushToAll, isP
         )}
 
         {isEn && (
-          <button onClick={addSection}
-            className="flex items-center gap-2 text-sm text-primary font-semibold hover:underline mb-4">
+          <button
+            type="button"
+            onClick={addSection}
+            className="flex items-center gap-2 text-sm text-primary font-semibold hover:underline mb-4"
+          >
             <PlusCircle size={15} /> Add Section {content.tipChain.length + 1}
           </button>
         )}
       </div>
 
-      {/* Card appearance */}
-      <div className="px-5 pt-0 pb-4">
-        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2 mt-2">
-          {isEn ? 'Step 3 — Card appearance' : `${langMeta.flag} Card title translations`}
-          {isEn && <span className="normal-case font-normal"> (optional)</span>}
-        </p>
-        <div className="bg-gray-50 rounded-xl border border-gray-100 p-4 space-y-3">
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">
-              {isEn ? 'Card Heading' : `Card Heading (${langMeta.flag} ${langMeta.label})`}
-            </label>
-            <input
-              className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-              placeholder={isEn ? 'Tips & Tricks (default)' : `${langMeta.flag} translation…`}
-              value={cardTitleVal}
-              dir={langMeta.dir}
-              onChange={e => setCardTitle(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">
-              {isEn ? 'Card Sub-heading' : `Card Sub-heading (${langMeta.flag} ${langMeta.label})`}
-            </label>
-            <input
-              className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
-              placeholder={isEn ? 'Best practices for your app (default)' : `${langMeta.flag} translation…`}
-              value={cardSubtitleVal}
-              dir={langMeta.dir}
-              onChange={e => setCardSubtitle(e.target.value)}
-            />
-          </div>
-        </div>
-      </div>
       {onPushToAll && <PushToAllButton onPushToAll={onPushToAll} isPushingToAll={!!isPushingToAll} pushSuccess={!!pushSuccess} />}
     </SectionCard>
+  )
+})
+
+// ─── Tip sub-components ───────────────────────────────────────────────────────
+
+function TipListItem({ tip, lang, onEdit, onDelete, isEn, onImgClick }: {
+  tip: TipItem
+  lang: LangCode
+  onEdit: () => void
+  onDelete: () => void
+  isEn: boolean
+  onImgClick?: () => void
+}) {
+  return (
+    <div className="flex items-start gap-3 px-4 py-3.5 border-t border-gray-100 group hover:bg-gray-50/60 transition-colors">
+      {/* Tip image — click to upload (487×311 landscape ratio) */}
+      <div className="shrink-0">
+        {tip.imageUrl ? (
+          <div className="relative overflow-hidden rounded-xl border border-gray-100" onClick={isEn ? onImgClick : undefined} style={{ width: 160, aspectRatio: '487 / 311' }}>
+            <img
+              src={tip.imageUrl}
+              className={`w-full h-full object-cover ${isEn ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
+            />
+            {isEn && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                <Upload size={14} className="text-white" />
+              </div>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={isEn ? onImgClick : undefined}
+            disabled={!isEn}
+            className={`flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed bg-gray-50 transition-colors ${isEn ? 'border-gray-300 hover:border-primary hover:bg-primary/5 hover:text-primary cursor-pointer' : 'border-gray-200'}`}
+            style={{ width: 160, aspectRatio: '487 / 311' }}
+          >
+            <ImageIcon size={14} className="text-gray-300" />
+            {isEn && <span className="text-[9px] text-gray-300 leading-tight">Add image</span>}
+          </button>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <span className="text-sm font-semibold text-gray-800 block">{tipTitle(tip, lang)}</span>
+        {tipDesc(tip, lang) && (
+          <p className="text-xs text-gray-500 mt-0.5 line-clamp-2 leading-relaxed">
+            {tipDesc(tip, lang) || (lang !== 'en' ? `(EN: ${tip.description})` : '')}
+          </p>
+        )}
+      </div>
+      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <button type="button" onClick={onEdit} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-primary transition-colors">
+          <Pencil size={13} />
+        </button>
+        {isEn && (
+          <button type="button" onClick={onDelete} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TipForm({ isEn, langMeta, form, onTitleChange, onDescChange, onImgUpload, onImgClear, onSave, onCancel }: {
+  isEn: boolean
+  langMeta: typeof LANGS[0]
+  form: { title: string; desc: string; imageUrl: string; uploadingImg: boolean }
+  onTitleChange: (v: string) => void
+  onDescChange: (v: string) => void
+  onImgUpload: () => void
+  onImgClear: () => void
+  onSave: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="border-t border-gray-100 bg-gradient-to-b from-primary/5 to-primary/[0.02] px-5 py-4 space-y-3">
+      {/* Image upload */}
+      {isEn && (
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Tip Image <span className="font-normal text-gray-400">(optional)</span></label>
+          {form.imageUrl ? (
+            <div className="border border-gray-200 rounded-xl bg-white overflow-hidden">
+              <div style={{ aspectRatio: '487 / 311', width: '100%' }}>
+                <img src={form.imageUrl} className="w-full h-full object-cover" />
+              </div>
+              <div className="flex items-center justify-between px-3 py-2 border-t border-gray-100">
+                <p className="text-xs font-semibold text-gray-600">Image selected</p>
+                <div className="flex gap-1">
+                  <button type="button" onClick={onImgUpload} className="flex items-center gap-1 text-xs text-primary font-semibold px-2 py-1.5 rounded-lg hover:bg-primary/8 transition-colors">
+                    <Upload size={11} /> Replace
+                  </button>
+                  <button type="button" onClick={onImgClear} className="flex items-center gap-1 text-xs text-red-400 font-semibold px-2 py-1.5 rounded-lg hover:bg-red-50 transition-colors">
+                    <Trash2 size={11} /> Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onImgUpload}
+              disabled={form.uploadingImg}
+              className="flex items-center justify-center gap-2 w-full px-4 py-3.5 border border-dashed border-gray-300 rounded-xl text-xs text-gray-400 hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
+            >
+              {form.uploadingImg
+                ? <Loader2 size={16} className="animate-spin" />
+                : <ImageIcon size={16} />}
+              <span>{form.uploadingImg ? 'Uploading…' : 'Upload image for this tip'}</span>
+              {!form.uploadingImg && <Upload size={11} className="ml-auto opacity-50" />}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Title */}
+      <div>
+        <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+          {isEn ? 'Title' : `Title (${langMeta.flag} ${langMeta.label})`}
+        </label>
+        <input
+          type="text"
+          className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
+          placeholder={isEn ? 'e.g. Upload your first course' : `${langMeta.flag} translation…`}
+          value={form.title}
+          dir={langMeta.dir}
+          onChange={e => onTitleChange(e.target.value)}
+        />
+      </div>
+
+      {/* Description */}
+      <div>
+        <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+          {isEn ? 'Description' : `Description (${langMeta.flag} ${langMeta.label})`}
+        </label>
+        <textarea
+          className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
+          rows={3}
+          placeholder={isEn ? 'Optional description…' : `${langMeta.flag} translation…`}
+          value={form.desc}
+          dir={langMeta.dir}
+          onChange={e => onDescChange(e.target.value)}
+        />
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onSave}
+          className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary/90 transition-colors"
+        >
+          <Check size={13} /> Save Tip
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-600 text-xs font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+        >
+          <X size={13} /> Cancel
+        </button>
+      </div>
+    </div>
   )
 }
 
 // ─── Components ───────────────────────────────────────────────────────────────
 
-function ComponentsSection({ content, onChange, lang, onPushToAll, isPushingToAll, pushSuccess }: {
+interface ComponentsHandle {
+  flush: () => ComponentItem | null
+}
+
+const ComponentsSection = forwardRef<ComponentsHandle, {
   content: PlatformContent
   onChange: (c: PlatformContent) => void
   lang: LangCode
   onPushToAll?: () => Promise<void>
   isPushingToAll?: boolean
   pushSuccess?: boolean
-}) {
+}>(function ComponentsSection({ content, onChange, lang, onPushToAll, isPushingToAll, pushSuccess }, ref) {
   const [formIdx, setFormIdx] = useState<number | null>(null)
   const [f, setF] = useState({ name: '', desc: '', isBeta: false })
   const langMeta = LANGS.find(l => l.code === lang)!
   const isEn = lang === 'en'
+
+  useImperativeHandle(ref, () => ({
+    flush() {
+      if (formIdx === -1 && isEn && f.name.trim()) {
+        const item: ComponentItem = { name: f.name.trim(), description: f.desc.trim(), isBeta: f.isBeta }
+        setFormIdx(null)
+        return item
+      }
+      return null
+    },
+  }))
 
   function save() {
     if (isEn) {
@@ -813,61 +968,114 @@ function ComponentsSection({ content, onChange, lang, onPushToAll, isPushingToAl
     </label>
   )
 
+  function renderForm(fields: { label: string; value: string; onChange: (v: string) => void; multiline?: boolean; placeholder?: string; dir?: 'ltr' | 'rtl' }[], extra?: React.ReactNode) {
+    return (
+      <div className="border-t border-gray-100 bg-gradient-to-b from-primary/5 to-primary/[0.02] px-5 py-4 space-y-3">
+        {fields.map((field, idx) => (
+          <div key={idx}>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">{field.label}</label>
+            {field.multiline ? (
+              <textarea
+                className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
+                rows={3}
+                placeholder={field.placeholder}
+                value={field.value}
+                dir={field.dir}
+                onChange={e => field.onChange(e.target.value)}
+              />
+            ) : (
+              <input
+                type="text"
+                className="w-full text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
+                placeholder={field.placeholder}
+                value={field.value}
+                dir={field.dir}
+                onChange={e => field.onChange(e.target.value)}
+              />
+            )}
+          </div>
+        ))}
+        {extra}
+        <div className="flex gap-2 pt-1">
+          <button
+            type="button"
+            onClick={save}
+            className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Check size={13} /> Save
+          </button>
+          <button
+            type="button"
+            onClick={() => setFormIdx(null)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-600 text-xs font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            <X size={13} /> Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <SectionCard title="New Components" icon={Layers}>
       {content.components.length === 0 && formIdx === null && <EmptyState label="No components yet. Add your first component." />}
       {content.components.map((comp, i) => {
         if (formIdx === i) {
-          const nameField: FormField = {
-            label: isEn ? 'Name' : `Name (${langMeta.flag} ${langMeta.label})`,
-            value: f.name,
-            onChange: v => setF(x => ({ ...x, name: v })),
-            placeholder: isEn ? 'e.g. Community Forum' : `${langMeta.flag} translation…`,
-            dir: langMeta.dir,
-          }
-          const descField: FormField = {
-            label: isEn ? 'Description' : `Description (${langMeta.flag} ${langMeta.label})`,
-            value: f.desc,
-            onChange: v => setF(x => ({ ...x, desc: v })),
-            multiline: true,
-            placeholder: isEn ? undefined : `${langMeta.flag} translation…`,
-            dir: langMeta.dir,
-          }
-          return (
-            <InlineForm key={i}
-              fields={[nameField, descField]}
-              extra={isEn ? betaToggle : undefined}
-              onSave={save}
-              onCancel={() => setFormIdx(null)}
-            />
+          return renderForm(
+            [
+              { label: isEn ? 'Name' : `Name (${langMeta.flag} ${langMeta.label})`, value: f.name, onChange: v => setF(x => ({ ...x, name: v })), placeholder: isEn ? 'e.g. Community Forum' : `${langMeta.flag} translation…`, dir: langMeta.dir },
+              { label: isEn ? 'Description' : `Description (${langMeta.flag} ${langMeta.label})`, value: f.desc, onChange: v => setF(x => ({ ...x, desc: v })), multiline: true, placeholder: isEn ? undefined : `${langMeta.flag} translation…`, dir: langMeta.dir },
+            ],
+            isEn ? betaToggle : undefined,
           )
         }
         return (
-          <ListItem key={i}
-            title={compName(comp, lang)}
-            subtitle={compDesc(comp, lang)}
-            badge={comp.isBeta ? 'BETA' : null}
-            onEdit={() => openEdit(i)}
-            onDelete={() => del(i)}
-          />
+          <div key={i} className="flex items-start gap-3 px-5 py-3.5 border-t border-gray-100 group hover:bg-gray-50/60 transition-colors">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold text-gray-800">{compName(comp, lang)}</span>
+                {comp.isBeta && (
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-primary/10 text-primary tracking-wide">BETA</span>
+                )}
+              </div>
+              {compDesc(comp, lang) && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2 leading-relaxed">{compDesc(comp, lang)}</p>}
+            </div>
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              <button type="button" onClick={() => openEdit(i)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-primary transition-colors">
+                <Pencil size={13} />
+              </button>
+              <button type="button" onClick={() => del(i)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">
+                <Trash2 size={13} />
+              </button>
+            </div>
+          </div>
         )
       })}
+
       {isEn && (
-        formIdx === -1 ? (
-          <InlineForm
-            fields={[
-              { label: 'Name', value: f.name, onChange: v => setF(x => ({ ...x, name: v })), placeholder: 'e.g. Community Forum' },
-              { label: 'Description', value: f.desc, onChange: v => setF(x => ({ ...x, desc: v })), multiline: true },
-            ]}
-            extra={betaToggle} onSave={save} onCancel={() => setFormIdx(null)} />
-        ) : (
-          <AddButton label="Add Component" onClick={() => { setFormIdx(-1); setF({ name: '', desc: '', isBeta: false }) }} />
-        )
+        formIdx === -1
+          ? renderForm(
+              [
+                { label: 'Name', value: f.name, onChange: v => setF(x => ({ ...x, name: v })), placeholder: 'e.g. Community Forum' },
+                { label: 'Description', value: f.desc, onChange: v => setF(x => ({ ...x, desc: v })), multiline: true },
+              ],
+              betaToggle,
+            )
+          : (
+            <button
+              type="button"
+              onClick={() => { setFormIdx(-1); setF({ name: '', desc: '', isBeta: false }) }}
+              className="flex items-center gap-2 w-full px-5 py-3 text-sm text-primary font-medium hover:bg-primary/5 transition-colors border-t border-gray-100"
+            >
+              <PlusCircle size={15} /> Add Component
+            </button>
+          )
       )}
+
       {onPushToAll && <PushToAllButton onPushToAll={onPushToAll} isPushingToAll={!!isPushingToAll} pushSuccess={!!pushSuccess} />}
     </SectionCard>
   )
-}
+})
 
 // ─── Package editor ───────────────────────────────────────────────────────────
 
@@ -878,11 +1086,14 @@ function PackageEditor({ packageId }: { packageId: string }) {
   const [loadError, setLoadError] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState(false)
+  const [openFormWarning, setOpenFormWarning] = useState(false)
   const [lang, setLang] = useState<LangCode>('en')
   const [translating, setTranslating] = useState(false)
   const [translateError, setTranslateError] = useState<string | null>(null)
   const [pushingSection, setPushingSection] = useState<string | null>(null)
   const [pushSuccessSection, setPushSuccessSection] = useState<string | null>(null)
+  const tipsChainRef = useRef<TipsChainHandle>(null)
+  const componentsSectionRef = useRef<ComponentsHandle>(null)
 
   async function pushSectionToAllPackages(section: 'tips' | 'components') {
     if (!content || packageId === 'all_packages') return
@@ -908,7 +1119,7 @@ function PackageEditor({ packageId }: { packageId: string }) {
       setPushSuccessSection(section)
       setTimeout(() => setPushSuccessSection(null), 2500)
     } catch {
-      // silent — user can retry
+      // silent
     } finally {
       setPushingSection(null)
     }
@@ -925,9 +1136,28 @@ function PackageEditor({ packageId }: { packageId: string }) {
 
   async function handleSave() {
     if (!content) return
-    setSaving(true); setSaveError(false)
+
+    console.log('[handleSave] content.tipChain length:', content.tipChain.length)
+    console.log('[handleSave] tipChain pre-flush:', JSON.stringify(content.tipChain.map(s => ({ step: s.stepNumber, tips: s.tips.map(t => ({ title: t.title, imageUrl: t.imageUrl ? t.imageUrl.slice(0, 80) + '…' : 'NONE' })) }))))
+
+    // Flush any open tip form into the content before saving
+    const pendingTipChain = tipsChainRef.current?.flush() ?? null
+    const contentWithTips = pendingTipChain ? { ...content, tipChain: pendingTipChain } : content
+    if (pendingTipChain) setContent(contentWithTips)
+
+    // Flush any pending component form
+    const pendingComp = componentsSectionRef.current?.flush() ?? null
+    const contentToSave = pendingComp
+      ? { ...contentWithTips, components: [...contentWithTips.components, pendingComp] }
+      : contentWithTips
+
+    if (pendingComp) setContent(contentToSave)
+
+    console.log('[handleSave] contentToSave.tipChain length:', contentToSave.tipChain.length)
+    console.log('[handleSave] after flush:', JSON.stringify(contentToSave.tipChain.map(s => ({ step: s.stepNumber, tips: s.tips.map(t => ({ title: t.title, imageUrl: t.imageUrl ? t.imageUrl.slice(0, 80) + '…' : 'NONE' })) }))))
+    setSaving(true); setSaveError(false); setOpenFormWarning(false)
     try {
-      await apiSave(packageId, content)
+      await apiSave(packageId, contentToSave)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch {
@@ -1037,7 +1267,7 @@ function PackageEditor({ packageId }: { packageId: string }) {
       {loadError && (
         <div className="mx-5 mt-5 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600 flex items-center gap-2">
           <span>Failed to load content.</span>
-          <button onClick={load} className="ml-auto flex items-center gap-1 text-xs font-semibold hover:underline">
+          <button type="button" onClick={load} className="ml-auto flex items-center gap-1 text-xs font-semibold hover:underline">
             <RefreshCw size={12} /> Retry
           </button>
         </div>
@@ -1048,6 +1278,7 @@ function PackageEditor({ packageId }: { packageId: string }) {
         <LangTabs active={lang} onChange={setLang} />
         {lang === 'en' && (
           <button
+            type="button"
             onClick={() => void handleTranslateAll()}
             disabled={translating}
             className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors shrink-0"
@@ -1066,15 +1297,22 @@ function PackageEditor({ packageId }: { packageId: string }) {
       {translateError && (
         <div className="mx-5 mt-3 px-3 py-2 bg-red-50 border border-red-100 rounded-lg text-xs text-red-600 shrink-0">{translateError}</div>
       )}
+      {openFormWarning && (
+        <div className="mx-5 mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 shrink-0">
+          You have an unsaved component form. It will be included automatically when you save.
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-5 pb-0">
         <TipsChainSection
+          ref={tipsChainRef}
           content={content} onChange={setContent} lang={lang} packageId={packageId}
           onPushToAll={packageId !== 'all_packages' ? () => pushSectionToAllPackages('tips') : undefined}
           isPushingToAll={pushingSection === 'tips'}
           pushSuccess={pushSuccessSection === 'tips'}
         />
         <ComponentsSection
+          ref={componentsSectionRef}
           content={content} onChange={setContent} lang={lang}
           onPushToAll={packageId !== 'all_packages' ? () => pushSectionToAllPackages('components') : undefined}
           isPushingToAll={pushingSection === 'components'}
@@ -1085,9 +1323,14 @@ function PackageEditor({ packageId }: { packageId: string }) {
       {/* Sticky save bar */}
       <div className="px-5 py-4 bg-white border-t border-gray-100 flex items-center justify-end gap-3">
         <span aria-live="polite" className="min-w-0 text-sm font-semibold">
-          {saved ? <span className="flex items-center gap-1.5 text-emerald-600"><Check size={14} /> Saved successfully</span> : saveError ? <span className="text-red-500">Failed to save — try again</span> : <span aria-hidden="true" className="text-transparent">Save status</span>}
+          {saved
+            ? <span className="flex items-center gap-1.5 text-emerald-600"><Check size={14} /> Saved successfully</span>
+            : saveError
+              ? <span className="text-red-500">Failed to save — try again</span>
+              : <span aria-hidden="true" className="text-transparent">Save status</span>}
         </span>
         <button
+          type="button"
           onClick={handleSave}
           disabled={saving}
           className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-bold rounded-xl hover:bg-primary/90 disabled:opacity-60 transition-colors shadow-sm"
@@ -1112,7 +1355,6 @@ export function PlatformContent() {
     <div translate="no" className="notranslate flex h-full">
       {/* Left sidebar — package list */}
       <div className="w-56 shrink-0 border-r border-gray-100 bg-white flex flex-col">
-        {/* Sidebar header */}
         <div className="px-4 pt-5 pb-4 border-b border-gray-100">
           <div className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-primary/10">
@@ -1125,7 +1367,6 @@ export function PlatformContent() {
           </div>
         </div>
 
-        {/* Package nav */}
         <nav className="flex-1 p-3 space-y-1">
           {PACKAGES.map(pkg => {
             const Icon = pkg.icon
@@ -1133,11 +1374,10 @@ export function PlatformContent() {
             return (
               <button
                 key={pkg.id}
+                type="button"
                 onClick={() => setActiveTab(pkg.id)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${
-                  isActive
-                    ? `${pkg.activeBg} text-white shadow-sm`
-                    : `text-gray-600 hover:bg-gray-100`
+                  isActive ? `${pkg.activeBg} text-white shadow-sm` : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
                 <Icon size={16} className={isActive ? 'text-white' : pkg.color} />
@@ -1147,7 +1387,6 @@ export function PlatformContent() {
           })}
         </nav>
 
-        {/* Sidebar footer info */}
         <div className="p-3 border-t border-gray-100">
           <p className="text-[11px] text-gray-400 leading-relaxed">
             {t(
@@ -1160,7 +1399,6 @@ export function PlatformContent() {
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0 bg-gray-50">
-        {/* Content header */}
         <div className="bg-white border-b border-gray-100 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-xl ${active.bg}`}>
@@ -1177,7 +1415,6 @@ export function PlatformContent() {
           </div>
         </div>
 
-        {/* Package editor — remount on tab change to reset state */}
         <div className="flex-1 overflow-hidden flex flex-col">
           {PACKAGES.map(pkg => (
             <div key={pkg.id} className={`flex-1 flex flex-col overflow-hidden ${activeTab === pkg.id ? '' : 'hidden'}`}>
