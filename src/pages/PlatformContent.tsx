@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react'
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, useMemo } from 'react'
 import {
   Lightbulb, PlusCircle, Trash2, ChevronDown, ChevronUp,
   Save, Loader2, RefreshCw, ToggleLeft, ToggleRight,
   GripVertical, Pencil, X, Check,
-  Package, Layers, Users, Star, Zap, Globe, Upload, ImageIcon, Calendar, Info,
+  Package, Layers, Users, Star, Zap, Globe, Upload, ImageIcon, Calendar, Info, Tag,
 } from 'lucide-react'
 import { useLang } from '../contexts/LanguageContext'
 
@@ -159,6 +159,24 @@ async function apiSave(packageId: string, content: PlatformContent): Promise<voi
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
 }
 
+async function apiGetCategories(): Promise<string[]> {
+  try {
+    const res = await fetch(`${CF_BASE}/getCategories`, { headers: { 'x-webhook-secret': SECRET } })
+    if (!res.ok) return []
+    const data = await res.json() as { list?: unknown }
+    return Array.isArray(data.list) ? (data.list as string[]) : []
+  } catch { return [] }
+}
+
+async function apiSaveCategories(list: string[]): Promise<void> {
+  const res = await fetch(`${CF_BASE}/saveCategories`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-webhook-secret': SECRET },
+    body: JSON.stringify({ list }),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+}
+
 const TRANSLATE_MODEL = 'claude-haiku-4-5-20251001'
 
 async function apiTranslate(items: Array<{ id: string; text: string }>): Promise<Record<string, { he: string; ar: string; es: string }>> {
@@ -272,13 +290,15 @@ const TipsChainSection = forwardRef<TipsChainHandle, {
   onChange: (c: PlatformContent) => void
   lang: LangCode
   packageId: string
+  categories: string[]
   onPushToAll?: () => Promise<void>
   isPushingToAll?: boolean
   pushSuccess?: boolean
-}>(function TipsChainSection({ content, onChange, lang, packageId, onPushToAll, isPushingToAll, pushSuccess }, ref) {
+}>(function TipsChainSection({ content, onChange, lang, packageId, categories, onPushToAll, isPushingToAll, pushSuccess }, ref) {
   const [expandedStep, setExpandedStep] = useState<number | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
+  const [filterCategory, setFilterCategory] = useState<string | null>(null)
 
   type StepForm = {
     formIdx: number | null
@@ -471,6 +491,20 @@ const TipsChainSection = forwardRef<TipsChainHandle, {
     else onChange({ ...content, tipsCardSubtitleTranslations: { ...(content.tipsCardSubtitleTranslations ?? {}), [lang]: v } })
   }
 
+  const presentCats = useMemo(() =>
+    Array.from(new Set(
+      content.tipChain
+        .filter(s => s.sectionTitle && categories.includes(s.sectionTitle))
+        .map(s => s.sectionTitle as string)
+    )),
+  [content.tipChain, categories])
+
+  const displayedIndices = useMemo(() =>
+    filterCategory
+      ? content.tipChain.map((_, idx) => idx).filter(idx => content.tipChain[idx].sectionTitle === filterCategory)
+      : content.tipChain.map((_, idx) => idx),
+  [content.tipChain, filterCategory])
+
   return (
     <SectionCard title="Tips & Tricks Chain" icon={Lightbulb}>
 
@@ -520,9 +554,47 @@ const TipsChainSection = forwardRef<TipsChainHandle, {
           {isEn && <span className="normal-case font-normal"> (each section = one day's content)</span>}
         </p>
 
+        {isEn && presentCats.length > 0 && (
+          <div className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+            <div className="flex items-center gap-2 mb-2">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500 shrink-0"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">Filter by Category</span>
+              {filterCategory && (
+                <button
+                  type="button"
+                  onClick={() => setFilterCategory(null)}
+                  className="ml-auto text-[11px] text-gray-400 hover:text-gray-600 font-semibold flex items-center gap-1 transition-colors"
+                >
+                  <X size={11} /> Clear
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setFilterCategory(null)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${!filterCategory ? 'bg-gray-700 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-400 hover:text-gray-800'}`}
+              >
+                All sections
+              </button>
+              {presentCats.map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setFilterCategory(filterCategory === cat ? null : cat)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${filterCategory === cat ? 'bg-primary text-white shadow-sm' : 'bg-white text-primary border border-primary/30 hover:border-primary hover:bg-primary/5'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {content.tipChain.length > 0 && (
           <div className="border border-gray-200 rounded-xl overflow-hidden mb-2">
-            {content.tipChain.map((step, i) => {
+            {displayedIndices.map(i => {
+              const step = content.tipChain[i]
               const isExpanded = expandedStep === i
               const form = sf(i)
               const displayTitle = step.sectionTitle?.trim() || `Section ${step.stepNumber}`
@@ -593,6 +665,31 @@ const TipsChainSection = forwardRef<TipsChainHandle, {
                   {/* Expanded section */}
                   {isExpanded && (
                     <div className="bg-gray-50/70 border-t border-gray-100">
+
+                      {/* Category picker */}
+                      {isEn && categories.length > 0 && (
+                        <div className="px-5 py-3 border-b border-gray-100">
+                          <label className="block text-xs font-semibold text-gray-500 mb-2">
+                            Assign Category <span className="font-normal text-gray-400">(optional — replaces section title)</span>
+                          </label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {categories.map(cat => (
+                              <button
+                                key={cat}
+                                type="button"
+                                onClick={() => setSectionTitle(i, step.sectionTitle === cat ? '' : cat)}
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-colors ${
+                                  step.sectionTitle === cat
+                                    ? 'bg-primary text-white'
+                                    : 'bg-primary/8 text-primary border border-primary/20 hover:bg-primary/15'
+                                }`}
+                              >
+                                {cat}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Section title field */}
                       {isEn && (
@@ -815,22 +912,24 @@ function TipForm({ isEn, langMeta, form, onTitleChange, onDescChange, onImgUploa
               </div>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={onImgUpload}
-              disabled={form.uploadingImg}
-              className="flex items-center justify-center gap-2 w-full px-4 py-3.5 border border-dashed border-gray-300 rounded-xl text-xs text-gray-400 hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
-            >
-              {form.uploadingImg
-                ? <Loader2 size={16} className="animate-spin" />
-                : <ImageIcon size={16} />}
-              <span>{form.uploadingImg ? 'Uploading…' : 'Upload image for this tip'}</span>
-              {!form.uploadingImg && <Upload size={11} className="ml-auto opacity-50" />}
-            </button>
-            <p className="mt-1.5 flex items-center gap-1 text-[10px] font-semibold text-amber-600">
-              <Info size={10} />
-              Required dimensions: <span className="font-bold">487 × 311 px</span> (landscape). Other sizes will be cropped.
-            </p>
+            <>
+              <button
+                type="button"
+                onClick={onImgUpload}
+                disabled={form.uploadingImg}
+                className="flex items-center justify-center gap-2 w-full px-4 py-3.5 border border-dashed border-gray-300 rounded-xl text-xs text-gray-400 hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
+              >
+                {form.uploadingImg
+                  ? <Loader2 size={16} className="animate-spin" />
+                  : <ImageIcon size={16} />}
+                <span>{form.uploadingImg ? 'Uploading…' : 'Upload image for this tip'}</span>
+                {!form.uploadingImg && <Upload size={11} className="ml-auto opacity-50" />}
+              </button>
+              <p className="mt-1.5 flex items-center gap-1 text-[10px] font-semibold text-amber-600">
+                <Info size={10} />
+                Required dimensions: <span className="font-bold">487 × 311 px</span> (landscape). Other sizes will be cropped.
+              </p>
+            </>
           )}
         </div>
       )}
@@ -1067,9 +1166,106 @@ const ComponentsSection = forwardRef<ComponentsHandle, {
   )
 })
 
+// ─── Categories section ───────────────────────────────────────────────────────
+
+function CategoriesSection({ categories, onAdd, onRemove }: {
+  categories: string[]
+  onAdd: (name: string) => void
+  onRemove: (name: string) => void
+}) {
+  const [adding, setAdding] = useState(false)
+  const [newName, setNewName] = useState('')
+
+  function handleAdd() {
+    const trimmed = newName.trim()
+    if (!trimmed || categories.includes(trimmed)) { setNewName(''); return }
+    onAdd(trimmed)
+    setNewName('')
+    setAdding(false)
+  }
+
+  return (
+    <SectionCard title="Section Categories" icon={Tag}>
+      <div className="px-5 py-4">
+        <p className="text-[11px] text-gray-400 mb-3 flex items-center gap-1">
+          <Globe size={11} />
+          Global — shared across all packages. Saved with Save Changes.
+        </p>
+        {categories.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {categories.map(cat => (
+              <span
+                key={cat}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/8 border border-primary/20 text-primary text-xs font-semibold rounded-full"
+              >
+                {cat}
+                <button
+                  type="button"
+                  onClick={() => onRemove(cat)}
+                  className="hover:text-red-500 transition-colors"
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {categories.length === 0 && !adding && (
+          <EmptyState label="No categories yet. Create your first category below." />
+        )}
+        {adding ? (
+          <div className="flex items-center gap-2">
+            <input
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              type="text"
+              className="flex-1 text-sm border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
+              placeholder="Category name…"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleAdd()
+                if (e.key === 'Escape') { setAdding(false); setNewName('') }
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleAdd}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary/90 transition-colors shrink-0"
+            >
+              <Check size={13} /> Add
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAdding(false); setNewName('') }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-600 text-xs font-semibold rounded-lg hover:bg-gray-200 transition-colors shrink-0"
+            >
+              <X size={13} /> Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="flex items-center gap-2 text-sm text-primary font-semibold hover:underline"
+          >
+            <PlusCircle size={15} /> Create Category
+          </button>
+        )}
+      </div>
+    </SectionCard>
+  )
+}
+
 // ─── Package editor ───────────────────────────────────────────────────────────
 
-function PackageEditor({ packageId }: { packageId: string }) {
+function PackageEditor({ packageId, categories, onCategoriesChange, categoriesDirty, onCategoriesSaved }: {
+  packageId: string
+  categories: string[]
+  onCategoriesChange: (cats: string[]) => void
+  categoriesDirty: boolean
+  onCategoriesSaved: () => void
+}) {
   const [content, setContent] = useState<PlatformContent | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -1152,6 +1348,10 @@ function PackageEditor({ packageId }: { packageId: string }) {
     setSaving(true); setSaveError(false); setOpenFormWarning(false)
     try {
       await apiSave(packageId, finalContent)
+      if (categoriesDirty) {
+        await apiSaveCategories(categories)
+        onCategoriesSaved()
+      }
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch {
@@ -1298,9 +1498,15 @@ function PackageEditor({ packageId }: { packageId: string }) {
       )}
 
       <div className="flex-1 overflow-y-auto p-5 pb-0">
+        <CategoriesSection
+          categories={categories}
+          onAdd={name => onCategoriesChange([...categories, name])}
+          onRemove={name => onCategoriesChange(categories.filter(c => c !== name))}
+        />
         <TipsChainSection
           ref={tipsChainRef}
           content={content} onChange={setContent} lang={lang} packageId={packageId}
+          categories={categories}
           onPushToAll={packageId !== 'all_packages' ? () => pushSectionToAllPackages('tips') : undefined}
           isPushingToAll={pushingSection === 'tips'}
           pushSuccess={pushSuccessSection === 'tips'}
@@ -1341,7 +1547,13 @@ function PackageEditor({ packageId }: { packageId: string }) {
 
 export function PlatformContent() {
   const [activeTab, setActiveTab] = useState<string>(PACKAGES[0].id)
+  const [categories, setCategories] = useState<string[]>([])
+  const [categoriesDirty, setCategoriesDirty] = useState(false)
   const { t } = useLang()
+
+  useEffect(() => {
+    apiGetCategories().then(cats => setCategories(cats)).catch(() => {})
+  }, [])
 
   const active = PACKAGES.find(p => p.id === activeTab) ?? PACKAGES[0]
 
@@ -1412,7 +1624,13 @@ export function PlatformContent() {
         <div className="flex-1 overflow-hidden flex flex-col">
           {PACKAGES.map(pkg => (
             <div key={pkg.id} className={`flex-1 flex flex-col overflow-hidden ${activeTab === pkg.id ? '' : 'hidden'}`}>
-              <PackageEditor packageId={pkg.id} />
+              <PackageEditor
+                packageId={pkg.id}
+                categories={categories}
+                onCategoriesChange={cats => { setCategories(cats); setCategoriesDirty(true) }}
+                categoriesDirty={categoriesDirty}
+                onCategoriesSaved={() => setCategoriesDirty(false)}
+              />
             </div>
           ))}
         </div>
