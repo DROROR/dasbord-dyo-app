@@ -377,7 +377,9 @@ const TipsChainSection = forwardRef<TipsChainHandle, {
 
   function deleteSection(i: number) {
     if (!isEn) return
+    console.log('[deleteSection] deleting section', i, '— sectionTitle:', content.tipChain[i]?.sectionTitle, 'tips:', content.tipChain[i]?.tips.length)
     const chain = content.tipChain.filter((_, j) => j !== i).map((s, j) => ({ ...s, stepNumber: j + 1 }))
+    console.log('[deleteSection] chain after:', chain.map(s => ({ step: s.stepNumber, tips: s.tips.length })))
     onChange({ ...content, tipChain: chain })
     if (expandedStep === i) setExpandedStep(null)
   }
@@ -443,8 +445,10 @@ const TipsChainSection = forwardRef<TipsChainHandle, {
 
   function deleteTip(stepIdx: number, tipIdx: number) {
     if (!isEn) return
+    console.log('[deleteTip] stepIdx:', stepIdx, 'tipIdx:', tipIdx, 'title:', content.tipChain[stepIdx]?.tips[tipIdx]?.title)
     const chain = [...content.tipChain]
     chain[stepIdx] = { ...chain[stepIdx], tips: chain[stepIdx].tips.filter((_, i) => i !== tipIdx) }
+    console.log('[deleteTip] chain after:', chain.map(s => ({ step: s.stepNumber, tips: s.tips.length })))
     onChange({ ...content, tipChain: chain })
     setF(stepIdx, { formIdx: null })
   }
@@ -1153,11 +1157,15 @@ function PackageEditor({ packageId }: { packageId: string }) {
 
     if (pendingComp) setContent(contentToSave)
 
-    console.log('[handleSave] contentToSave.tipChain length:', contentToSave.tipChain.length)
-    console.log('[handleSave] after flush:', JSON.stringify(contentToSave.tipChain.map(s => ({ step: s.stepNumber, tips: s.tips.map(t => ({ title: t.title, imageUrl: t.imageUrl ? t.imageUrl.slice(0, 80) + '…' : 'NONE' })) }))))
+    // Always clear legacy fields — tipChain is the source of truth now
+    const finalContent: PlatformContent = { ...contentToSave, tips: [], tipsImageUrl: '' }
+
+    console.log('[handleSave] legacy tips in state (will be cleared):', contentToSave.tips.length)
+    console.log('[handleSave] contentToSave.tipChain length:', finalContent.tipChain.length)
+    console.log('[handleSave] after flush:', JSON.stringify(finalContent.tipChain.map(s => ({ step: s.stepNumber, tips: s.tips.map(t => ({ title: t.title, imageUrl: t.imageUrl ? t.imageUrl.slice(0, 80) + '…' : 'NONE' })) }))))
     setSaving(true); setSaveError(false); setOpenFormWarning(false)
     try {
-      await apiSave(packageId, contentToSave)
+      await apiSave(packageId, finalContent)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch {
