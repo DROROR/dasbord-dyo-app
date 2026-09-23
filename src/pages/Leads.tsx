@@ -25,6 +25,7 @@ type LeadType     = 'has_course' | 'producing'
 type LeadSource   = 'Facebook' | 'Instagram' | 'Manual'
 type FollowUpTone = 'friendly' | 'professional' | 'urgent'
 type ModalTab     = 'details' | 'whatsapp' | 'followup'
+type StatsRange   = 'all' | 'today' | 'yesterday' | '7d' | '30d'
 
 interface ChatMessage { from: 'us' | 'lead'; text: string; time: string }
 
@@ -77,6 +78,14 @@ const TONE_OPTIONS: Array<{ value: FollowUpTone; labelHe: string; labelEn: strin
   { value: 'friendly', labelHe: 'ידידותי', labelEn: 'Friendly' },
   { value: 'professional', labelHe: 'מקצועי', labelEn: 'Professional' },
   { value: 'urgent', labelHe: 'דחוף', labelEn: 'Urgent' },
+]
+
+const STATS_RANGE_OPTIONS: Array<{ value: StatsRange; labelHe: string; labelEn: string }> = [
+  { value: 'all', labelHe: 'כל הזמן', labelEn: 'All time' },
+  { value: 'today', labelHe: 'היום', labelEn: 'Today' },
+  { value: 'yesterday', labelHe: 'אתמול', labelEn: 'Yesterday' },
+  { value: '7d', labelHe: '7 ימים', labelEn: 'Last 7 days' },
+  { value: '30d', labelHe: '30 ימים', labelEn: 'Last 30 days' },
 ]
 
 // ─── DB → UI mapping ──────────────────────────────────────────────────────────
@@ -181,6 +190,21 @@ function fmtDateTime(iso: string, lang: 'he' | 'en'): string {
 
 function isLeadDueOverdue(lead: Lead): boolean {
   return lead.status === 'meeting_set' && !!lead.dueAt && new Date(lead.dueAt).getTime() < Date.now()
+}
+
+function getStatsRangeBounds(range: StatsRange, nowMs: number): { start?: number; end?: number } {
+  const now = new Date(nowMs)
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  if (range === 'today') return { start: startOfToday, end: nowMs }
+  if (range === 'yesterday') return { start: startOfToday - 864e5, end: startOfToday }
+  if (range === '7d') return { start: startOfToday - 6 * 864e5, end: nowMs }
+  if (range === '30d') return { start: startOfToday - 29 * 864e5, end: nowMs }
+  return {}
+}
+
+function isWithinStatsRange(iso: string, bounds: { start?: number; end?: number }): boolean {
+  const value = new Date(iso).getTime()
+  return Number.isFinite(value) && (bounds.start === undefined || value >= bounds.start) && (bounds.end === undefined || value < bounds.end)
 }
 
 function followUpUrgency(iso: string): 'overdue' | 'today' | 'upcoming' {
@@ -708,6 +732,7 @@ export function Leads() {
   const [sheetSyncedAt, setSheetSyncedAt] = useState<Date | null>(null)
   const [sheetConfigured, setSheetConfigured] = useState(false)
   const [clockNow, setClockNow] = useState(() => Date.now())
+  const [statsRange, setStatsRange] = useState<StatsRange>('all')
   useEffect(() => { const interval = window.setInterval(() => setClockNow(Date.now()), 60_000); return () => window.clearInterval(interval) }, [])
 
   const load = async (showLoading = true) => {
@@ -786,12 +811,15 @@ export function Leads() {
   const boardFiltersActive = Boolean(leadQuery || leadStatusFilter !== 'all' || leadSourceFilter !== 'all' || leadCategoryFilter !== 'all' || campaignFilter !== 'all' || clientFilter !== 'all' || entryDateFilter || callDateFilter || attemptFilter !== '' || attentionOnly || leadSort !== 'entry_desc')
 
   const activeLeads = leads.filter(lead => !isArchivedLead(lead))
+  const statsRangeBounds = getStatsRangeBounds(statsRange, clockNow)
+  const countHistory = (kind: DbLeadHistory['kind']) =>
+    activeLeads.reduce((total, lead) => total + lead.history.filter(entry => entry.kind === kind && isWithinStatsRange(entry.occurred_at, statsRangeBounds)).length, 0)
   const stats = {
     active: activeLeads.length,
     newToday: activeLeads.filter(lead => new Date(lead.entryDate).toDateString() === new Date().toDateString()).length,
     meetings: activeLeads.filter(lead => !!lead.dueAt && new Date(lead.dueAt).getTime() >= clockNow).length,
-    completedCalls: activeLeads.reduce((total, lead) => total + lead.history.filter(entry => entry.kind === 'completed_call').length, 0),
-    noAnswerAttempts: activeLeads.reduce((total, lead) => total + lead.history.filter(entry => entry.kind === 'no_answer').length, 0),
+    completedCalls: countHistory('completed_call'),
+    noAnswerAttempts: countHistory('no_answer'),
   }
 
   const handleUpdate = async (id: string, patch: Partial<Lead>) => {
@@ -883,6 +911,21 @@ export function Leads() {
   return (
     <div className="space-y-2">
       {/* Stats */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">{t('טווח נתוני שיחות', 'Call stats range')}</p>
+        <div className="flex flex-wrap items-center gap-1 rounded-xl bg-gray-100/60 p-1">
+          {STATS_RANGE_OPTIONS.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setStatsRange(option.value)}
+              className={`h-8 rounded-lg px-3 text-xs font-semibold transition-colors ${statsRange === option.value ? 'bg-surface text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              {t(option.labelHe, option.labelEn)}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard icon={<Users size={16} />}         label={t('לידים פעילים', 'Active leads')}    value={stats.active}    />
         <StatCard icon={<UserPlus size={16} />}      label={t('חדש היום', 'New today')}        value={stats.newToday}  />
