@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   Users, UserPlus, Calendar, Clock, AlertTriangle,
-  X, Check, CheckCheck, Phone, Mail, Archive,
+  X, Check, CheckCheck, Phone, PhoneOff, Mail, Archive,
   Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search, ArrowUp, ArrowDown, Pencil,
 } from 'lucide-react'
 import { getLeadPipelineStatuses, createLeadPipelineStatus, deleteLeadPipelineStatus, createManualLead, updateLead as dbUpdateLead, deleteLead as dbDeleteLead } from '../lib/database'
@@ -785,10 +785,13 @@ export function Leads() {
   })
   const boardFiltersActive = Boolean(leadQuery || leadStatusFilter !== 'all' || leadSourceFilter !== 'all' || leadCategoryFilter !== 'all' || campaignFilter !== 'all' || clientFilter !== 'all' || entryDateFilter || callDateFilter || attemptFilter !== '' || attentionOnly || leadSort !== 'entry_desc')
 
+  const activeLeads = leads.filter(lead => !isArchivedLead(lead))
   const stats = {
-    active: leads.filter(lead => !isArchivedLead(lead)).length,
-    newToday: leads.filter(lead => new Date(lead.entryDate).toDateString() === new Date().toDateString()).length,
-    meetings: leads.filter(lead => !isArchivedLead(lead) && !!lead.dueAt && new Date(lead.dueAt).getTime() >= clockNow).length,
+    active: activeLeads.length,
+    newToday: activeLeads.filter(lead => new Date(lead.entryDate).toDateString() === new Date().toDateString()).length,
+    meetings: activeLeads.filter(lead => !!lead.dueAt && new Date(lead.dueAt).getTime() >= clockNow).length,
+    completedCalls: activeLeads.reduce((total, lead) => total + lead.history.filter(entry => entry.kind === 'completed_call').length, 0),
+    noAnswerAttempts: activeLeads.reduce((total, lead) => total + lead.history.filter(entry => entry.kind === 'no_answer').length, 0),
   }
 
   const handleUpdate = async (id: string, patch: Partial<Lead>) => {
@@ -880,10 +883,12 @@ export function Leads() {
   return (
     <div className="space-y-2">
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard icon={<Users size={16} />}         label={t('לידים פעילים', 'Active leads')}    value={stats.active}    />
         <StatCard icon={<UserPlus size={16} />}      label={t('חדש היום', 'New today')}        value={stats.newToday}  />
         <StatCard icon={<Calendar size={16} />}      label={t('שיחות מתוזמנות', 'Scheduled Calls')} value={stats.meetings}  />
+        <StatCard icon={<Phone size={16} />}         label={t('שיחות שהושלמו', 'Completed Calls')} value={stats.completedCalls} />
+        <StatCard icon={<PhoneOff size={16} />}      label={t('אין מענה', 'No Answer Attempts')} value={stats.noAnswerAttempts} />
       </div>
 
       {/* View controls */}
