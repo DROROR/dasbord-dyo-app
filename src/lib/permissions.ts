@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react'
 import {
   LayoutDashboard, Users, CreditCard, MessageCircle, Target, Bot,
-  GraduationCap, Briefcase, Shield, Settings, FileText, Package,
+  GraduationCap, Briefcase, Shield, Settings, FileText, Package, Video,
 } from 'lucide-react'
 
 // ============================================================
@@ -37,7 +37,7 @@ import {
 export type PermissionModule =
   | 'dashboard' | 'clients' | 'billing' | 'whatsapp' | 'leads'
   | 'agents' | 'bot_training' | 'work' | 'work_docs' | 'pricing' | 'permissions'
-  | 'platform_content'
+  | 'platform_content' | 'meditations'
 
 export const LEVELS = ['none', 'view', 'edit', 'send', 'full'] as const
 export type PermissionLevel = typeof LEVELS[number]
@@ -89,6 +89,11 @@ export const PAGES: PageEntry[] = [
   { id: 'pricing', module: 'pricing', labelHe: 'הגדרות תמחור', labelEn: 'Pricing settings', icon: CreditCard, levels: ['none', 'full'], nav: 'none', staffDefault: 'none' },
   // module: null = no permission check — visible to all authenticated users. Change to 'platform_content' once testing is done.
   { id: 'platform_content', module: null, labelHe: 'תוכן פלטפורמה', labelEn: 'Platform Content', icon: Package, levels: ['none', 'view', 'full'], nav: 'main', staffDefault: 'view' },
+  // module: null = no permission check — every authenticated user may view
+  // AND manage the library, same as platform_content above. Deliberate for
+  // now; switch to 'meditations' here (plus RLS + a backfill) if it ever
+  // needs gating.
+  { id: 'meditations', module: null, labelHe: 'מדיטציות', labelEn: 'Meditations', icon: Video, levels: ['none', 'view', 'full'], nav: 'main', staffDefault: 'view' },
 ]
 
 // Dev-time guard: every module key must be unique across the registry

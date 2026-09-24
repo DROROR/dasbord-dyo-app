@@ -1886,3 +1886,80 @@ export async function setWorkReportAccess(profileId: string, accessLevel: WorkRe
   )
   if (error) throw error
 }
+
+// ── MEDITATIONS ───────────────────────────────────────────────────────────────
+// Session recordings, stored as links (Google Meet saves its recording to
+// Drive automatically) — no video is ever uploaded through this app.
+// created_by/created_at/updated_at are stamped server-side by the
+// stamp_meditation_creator trigger and are never sent from the client.
+// Visibility is open to every active team member; insert/update/delete are
+// gated by the "meditations: …" RLS policies (has_permission('meditations', …)),
+// which remain the authoritative check regardless of any client-side gating.
+
+export interface DbMeditation {
+  id: string
+  title: string
+  description: string | null
+  url: string
+  category: string | null
+  recorded_at: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MeditationInput {
+  title: string
+  description: string
+  url: string
+  category: string
+  recorded_at: string
+}
+
+// Empty strings are normalised to null so an untouched optional field is
+// stored as "absent" rather than as an empty value the UI has to special-case.
+function meditationToRow(input: MeditationInput): Record<string, unknown> {
+  return {
+    title: input.title,
+    description: input.description || null,
+    url: input.url,
+    category: input.category || null,
+    recorded_at: input.recorded_at || null,
+  }
+}
+
+export async function getMeditations(): Promise<DbMeditation[]> {
+  const { data, error } = await supabase
+    .from('meditations')
+    .select('*')
+    .order('recorded_at', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data as DbMeditation[]
+}
+
+export async function createMeditation(input: MeditationInput): Promise<DbMeditation> {
+  const { data, error } = await supabase
+    .from('meditations')
+    .insert(meditationToRow(input))
+    .select()
+    .single()
+  if (error) throw error
+  return data as DbMeditation
+}
+
+export async function updateMeditation(id: string, input: MeditationInput): Promise<DbMeditation> {
+  const { data, error } = await supabase
+    .from('meditations')
+    .update(meditationToRow(input))
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw error
+  return data as DbMeditation
+}
+
+export async function deleteMeditation(id: string): Promise<void> {
+  const { error } = await supabase.from('meditations').delete().eq('id', id)
+  if (error) throw error
+}

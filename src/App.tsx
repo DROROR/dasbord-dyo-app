@@ -12,6 +12,7 @@ import { BotTraining } from './pages/BotTraining'
 import { Permissions } from './pages/Permissions'
 import { Work } from './pages/Work'
 import { PlatformContent } from './pages/PlatformContent'
+import { Meditations } from './pages/Meditations'
 import { Login } from './pages/Login'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AccessDenied } from './components/AccessDenied'
@@ -37,6 +38,7 @@ const buildPages = (navigate: (page: string) => void): Record<string, () => Reac
   permissions: () => <Permissions />,
   work:             () => <Work />,
   platform_content: () => <PlatformContent />,
+  meditations:      () => <Meditations />,
   settings:         () => <Settings />,
 })
 
