@@ -148,16 +148,78 @@ async function apiFetch(packageId: string): Promise<PlatformContent> {
 }
 
 async function apiSave(packageId: string, content: PlatformContent): Promise<void> {
-  console.log('[apiSave] tipChain:', JSON.stringify(content.tipChain.map(s => ({ step: s.stepNumber, tips: s.tips.map(t => ({ title: t.title, imageUrl: t.imageUrl ? t.imageUrl.slice(0, 80) + '…' : 'NONE' })) }))))
   const body = JSON.stringify({ packageId, content })
-  console.log('[apiSave] request body size:', body.length, 'bytes')
   const res = await fetch(`${CF_BASE}/savePlatformContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-webhook-secret': SECRET },
     body,
   })
-  console.log('[apiSave] response status:', res.status)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
+}
+
+// When saving from All Packages, push translations to each individual package.
+// Only translation fields are merged — tip content, images, and structure stay per-package.
+async function pushTranslationsToPackages(source: PlatformContent): Promise<void> {
+  const OTHER_PACKAGES = ['solo_pro', 'master_class', 'community_master'] as const
+
+  const srcStepMap = new Map(source.tipChain.map(s => [s.stepNumber, s]))
+  const srcCompMap = new Map(source.components.map((c, i) => [i, c]))
+
+  await Promise.all(OTHER_PACKAGES.map(async pkgId => {
+    try {
+      const pkg = await apiFetch(pkgId)
+
+      // If the package is empty (no chain), copy source chain wholesale.
+      // Otherwise merge translations into existing per-package content.
+      const mergedChain = pkg.tipChain.length === 0
+        ? source.tipChain
+        : pkg.tipChain.map(step => {
+            const src = srcStepMap.get(step.stepNumber)
+            if (!src) return step
+            const mergedTips = step.tips.map((tip, ti) => {
+              const srcTip = src.tips[ti]
+              if (!srcTip) return tip
+              const merged: Record<string, { title?: string; description?: string }> = { ...(tip.translations ?? {}) }
+              for (const [lang, tr] of Object.entries(srcTip.translations ?? {})) {
+                merged[lang] = { ...(merged[lang] ?? {}), ...tr }
+              }
+              return { ...tip, translations: merged }
+            })
+            return {
+              ...step,
+              sectionTitleTranslations: { ...(step.sectionTitleTranslations ?? {}), ...(src.sectionTitleTranslations ?? {}) },
+              tips: mergedTips,
+            }
+          })
+
+      const mergedComponents = pkg.components.length === 0
+        ? source.components
+        : pkg.components.map((c, i) => {
+            const srcComp = srcCompMap.get(i)
+            if (!srcComp) return c
+            const merged: Record<string, { name?: string; description?: string }> = { ...(c.translations ?? {}) }
+            for (const [lang, tr] of Object.entries(srcComp.translations ?? {})) {
+              merged[lang] = { ...(merged[lang] ?? {}), ...tr }
+            }
+            return { ...c, translations: merged }
+          })
+
+      const mergedContent: PlatformContent = {
+        ...pkg,
+        tipChain: mergedChain,
+        components: mergedComponents,
+        tipsCardTitle: pkg.tipsCardTitle || source.tipsCardTitle,
+        tipsCardSubtitle: pkg.tipsCardSubtitle || source.tipsCardSubtitle,
+        tipsImageUrl: pkg.tipsImageUrl || source.tipsImageUrl,
+        tipsCardTitleTranslations: { ...(pkg.tipsCardTitleTranslations ?? {}), ...(source.tipsCardTitleTranslations ?? {}) },
+        tipsCardSubtitleTranslations: { ...(pkg.tipsCardSubtitleTranslations ?? {}), ...(source.tipsCardSubtitleTranslations ?? {}) },
+      }
+
+      await apiSave(pkgId, mergedContent)
+    } catch (err) {
+      console.error(`[pushTranslations] ✗ ${pkgId}:`, err)
+    }
+  }))
 }
 
 async function apiGetCategories(): Promise<string[]> {
@@ -189,26 +251,20 @@ async function apiTranslateBatch(items: Array<{ id: string; text: string }>, bat
     system,
     messages: [{ role: 'user', content: JSON.stringify(items.map(i => ({ id: i.id, text: i.text }))) }],
   })
-  console.log(`[apiTranslate] ${batchLabel} — ${items.length} items, body ${requestBody.length} bytes`)
   const res = await fetch('/api/claude/v1/translation-messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: requestBody,
   })
-  console.log(`[apiTranslate] ${batchLabel} — response status:`, res.status, res.statusText)
   if (!res.ok) {
     const errText = await res.text().catch(() => '<unreadable>')
-    console.error(`[apiTranslate] ${batchLabel} — error body:`, errText)
     throw new Error(`Proxy/Anthropic error ${res.status}: ${errText.slice(0, 200)}`)
   }
   const data = await res.json() as { content: Array<{ text: string }> }
   const text = data.content?.[0]?.text ?? ''
-  console.log(`[apiTranslate] ${batchLabel} — raw text (first 300):`, text.slice(0, 300))
   const match = text.match(/\{[\s\S]*\}/)
   if (!match) throw new Error(`No JSON in response for ${batchLabel} — raw: ` + text.slice(0, 200))
   const parsed = JSON.parse(match[0]) as { translations: Record<string, { he: string; ar: string; es: string }> }
-  const keys = Object.keys(parsed.translations ?? {})
-  console.log(`[apiTranslate] ${batchLabel} — translated keys (${keys.length}):`, keys)
   return parsed.translations ?? {}
 }
 
@@ -220,7 +276,6 @@ async function apiTranslate(
   for (let i = 0; i < items.length; i += TRANSLATE_BATCH_SIZE) {
     batches.push(items.slice(i, i + TRANSLATE_BATCH_SIZE))
   }
-  console.log('[apiTranslate] total items:', items.length, '→', batches.length, 'batches of ≤', TRANSLATE_BATCH_SIZE, '(all in parallel)')
 
   let done = 0
   const results = await Promise.all(
@@ -1361,9 +1416,6 @@ function PackageEditor({ packageId, categories, onCategoriesChange, categoriesDi
   async function handleSave() {
     if (!content) return
 
-    console.log('[handleSave] content.tipChain length:', content.tipChain.length)
-    console.log('[handleSave] tipChain pre-flush:', JSON.stringify(content.tipChain.map(s => ({ step: s.stepNumber, tips: s.tips.map(t => ({ title: t.title, imageUrl: t.imageUrl ? t.imageUrl.slice(0, 80) + '…' : 'NONE' })) }))))
-
     // Flush any open tip form into the content before saving
     const pendingTipChain = tipsChainRef.current?.flush() ?? null
     const contentWithTips = pendingTipChain ? { ...content, tipChain: pendingTipChain } : content
@@ -1380,12 +1432,27 @@ function PackageEditor({ packageId, categories, onCategoriesChange, categoriesDi
     // Always clear legacy fields — tipChain is the source of truth now
     const finalContent: PlatformContent = { ...contentToSave, tips: [], tipsImageUrl: '' }
 
-    console.log('[handleSave] legacy tips in state (will be cleared):', contentToSave.tips.length)
-    console.log('[handleSave] contentToSave.tipChain length:', finalContent.tipChain.length)
-    console.log('[handleSave] after flush:', JSON.stringify(finalContent.tipChain.map(s => ({ step: s.stepNumber, tips: s.tips.map(t => ({ title: t.title, imageUrl: t.imageUrl ? t.imageUrl.slice(0, 80) + '…' : 'NONE' })) }))))
+    const stepsWithSectionTitleTr = finalContent.tipChain.filter(s => s.sectionTitle?.trim() && Object.keys(s.sectionTitleTranslations ?? {}).length > 0)
+    const stepsWithoutSectionTitleTr = finalContent.tipChain.filter(s => s.sectionTitle?.trim() && !Object.keys(s.sectionTitleTranslations ?? {}).length)
+
+    // Guard: warn before overwriting Firestore translations with empty data
+    if (
+      packageId === 'all_packages' &&
+      stepsWithSectionTitleTr.length === 0 &&
+      stepsWithoutSectionTitleTr.length > 0
+    ) {
+      const proceed = window.confirm(
+        `⚠️ All ${stepsWithoutSectionTitleTr.length} steps are missing section title translations.\n\nSaving now will overwrite existing translations in Firestore with empty data.\n\nRun "Translate All" first, then save.\n\nContinue anyway?`
+      )
+      if (!proceed) return
+    }
+
     setSaving(true); setSaveError(false); setOpenFormWarning(false)
     try {
       await apiSave(packageId, finalContent)
+      if (packageId === 'all_packages') {
+        await pushTranslationsToPackages(finalContent)
+      }
       if (categoriesDirty) {
         await apiSaveCategories(categories)
         onCategoriesSaved()
@@ -1400,7 +1467,6 @@ function PackageEditor({ packageId, categories, onCategoriesChange, categoriesDi
 
   async function handleTranslateAll() {
     if (!content || translating) return
-    console.log('[handleTranslateAll] START — packageId:', packageId)
     setTranslating(true)
     setTranslateError(null)
     try {
@@ -1440,7 +1506,6 @@ function PackageEditor({ packageId, categories, onCategoriesChange, categoriesDi
         return
       }
 
-      console.log('[handleTranslateAll] items to translate:', items.length, '(skipped already-translated items)')
       const translations = await apiTranslate(items, (cur, tot) => setTranslateBatch({ current: cur, total: tot }))
 
       const newContent = { ...content }
