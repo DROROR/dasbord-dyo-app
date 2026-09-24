@@ -77,6 +77,7 @@ interface TipItem {
 interface TipStep {
   stepNumber: number
   sectionTitle?: string
+  sectionTitleTranslations?: Record<string, string>
   tips: TipItem[]
   pinnedDay?: number | null
   pinnedDate?: string | null
@@ -178,26 +179,62 @@ async function apiSaveCategories(list: string[]): Promise<void> {
 }
 
 const TRANSLATE_MODEL = 'claude-haiku-4-5-20251001'
+const TRANSLATE_BATCH_SIZE = 20
 
-async function apiTranslate(items: Array<{ id: string; text: string }>): Promise<Record<string, { he: string; ar: string; es: string }>> {
+async function apiTranslateBatch(items: Array<{ id: string; text: string }>, batchLabel: string): Promise<Record<string, { he: string; ar: string; es: string }>> {
   const system = 'You are a professional translator. Translate each item from English to Hebrew (he), Arabic (ar), and Spanish (es). Return ONLY valid JSON: {"translations":{"<id>":{"he":"...","ar":"...","es":"..."}, ...}}. Preserve formatting and brand names.'
+  const requestBody = JSON.stringify({
+    model: TRANSLATE_MODEL,
+    max_tokens: 8000,
+    system,
+    messages: [{ role: 'user', content: JSON.stringify(items.map(i => ({ id: i.id, text: i.text }))) }],
+  })
+  console.log(`[apiTranslate] ${batchLabel} — ${items.length} items, body ${requestBody.length} bytes`)
   const res = await fetch('/api/claude/v1/translation-messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: TRANSLATE_MODEL,
-      max_tokens: 4096,
-      system,
-      messages: [{ role: 'user', content: JSON.stringify(items.map(i => ({ id: i.id, text: i.text }))) }],
-    }),
+    body: requestBody,
   })
-  if (!res.ok) throw new Error(`Anthropic error ${res.status}`)
+  console.log(`[apiTranslate] ${batchLabel} — response status:`, res.status, res.statusText)
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '<unreadable>')
+    console.error(`[apiTranslate] ${batchLabel} — error body:`, errText)
+    throw new Error(`Proxy/Anthropic error ${res.status}: ${errText.slice(0, 200)}`)
+  }
   const data = await res.json() as { content: Array<{ text: string }> }
   const text = data.content?.[0]?.text ?? ''
+  console.log(`[apiTranslate] ${batchLabel} — raw text (first 300):`, text.slice(0, 300))
   const match = text.match(/\{[\s\S]*\}/)
-  if (!match) throw new Error('No JSON in response')
+  if (!match) throw new Error(`No JSON in response for ${batchLabel} — raw: ` + text.slice(0, 200))
   const parsed = JSON.parse(match[0]) as { translations: Record<string, { he: string; ar: string; es: string }> }
+  const keys = Object.keys(parsed.translations ?? {})
+  console.log(`[apiTranslate] ${batchLabel} — translated keys (${keys.length}):`, keys)
   return parsed.translations ?? {}
+}
+
+async function apiTranslate(
+  items: Array<{ id: string; text: string }>,
+  onBatch?: (done: number, total: number) => void,
+): Promise<Record<string, { he: string; ar: string; es: string }>> {
+  const batches: Array<typeof items> = []
+  for (let i = 0; i < items.length; i += TRANSLATE_BATCH_SIZE) {
+    batches.push(items.slice(i, i + TRANSLATE_BATCH_SIZE))
+  }
+  console.log('[apiTranslate] total items:', items.length, '→', batches.length, 'batches of ≤', TRANSLATE_BATCH_SIZE, '(all in parallel)')
+
+  let done = 0
+  const results = await Promise.all(
+    batches.map(async (batch, bi) => {
+      const r = await apiTranslateBatch(batch, `batch ${bi + 1}/${batches.length}`)
+      done++
+      onBatch?.(done, batches.length)
+      return r
+    })
+  )
+
+  const result: Record<string, { he: string; ar: string; es: string }> = {}
+  for (const r of results) Object.assign(result, r)
+  return result
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -1275,6 +1312,7 @@ function PackageEditor({ packageId, categories, onCategoriesChange, categoriesDi
   const [openFormWarning, setOpenFormWarning] = useState(false)
   const [lang, setLang] = useState<LangCode>('en')
   const [translating, setTranslating] = useState(false)
+  const [translateBatch, setTranslateBatch] = useState<{ current: number; total: number } | null>(null)
   const [translateError, setTranslateError] = useState<string | null>(null)
   const [pushingSection, setPushingSection] = useState<string | null>(null)
   const [pushSuccessSection, setPushSuccessSection] = useState<string | null>(null)
@@ -1362,49 +1400,77 @@ function PackageEditor({ packageId, categories, onCategoriesChange, categoriesDi
 
   async function handleTranslateAll() {
     if (!content || translating) return
+    console.log('[handleTranslateAll] START — packageId:', packageId)
     setTranslating(true)
     setTranslateError(null)
     try {
+      const TARGET = ['he', 'ar', 'es'] as const
+      const allLangs = (obj: Record<string, string> | undefined) =>
+        TARGET.every(l => !!obj?.[l]?.trim())
+      const tipField = (tip: TipItem, f: 'title' | 'description') =>
+        TARGET.every(l => !!tip.translations?.[l]?.[f]?.trim())
+      const compField = (c: ComponentItem, f: 'name' | 'description') =>
+        TARGET.every(l => !!c.translations?.[l]?.[f]?.trim())
+
       const items: Array<{ id: string; text: string }> = []
 
       content.tipChain.forEach((step, si) => {
+        if (step.sectionTitle?.trim() && !allLangs(step.sectionTitleTranslations))
+          items.push({ id: `chain_${si}_section_title`, text: step.sectionTitle })
         step.tips.forEach((tip, ti) => {
-          if (tip.title.trim()) items.push({ id: `chain_${si}_${ti}_title`, text: tip.title })
-          if (tip.description.trim()) items.push({ id: `chain_${si}_${ti}_desc`, text: tip.description })
+          if (tip.title.trim() && !tipField(tip, 'title'))
+            items.push({ id: `chain_${si}_${ti}_title`, text: tip.title })
+          if (tip.description.trim() && !tipField(tip, 'description'))
+            items.push({ id: `chain_${si}_${ti}_desc`, text: tip.description })
         })
       })
       content.components.forEach((c, i) => {
-        if (c.name.trim()) items.push({ id: `comp_${i}_name`, text: c.name })
-        if (c.description.trim()) items.push({ id: `comp_${i}_desc`, text: c.description })
+        if (c.name.trim() && !compField(c, 'name'))
+          items.push({ id: `comp_${i}_name`, text: c.name })
+        if (c.description.trim() && !compField(c, 'description'))
+          items.push({ id: `comp_${i}_desc`, text: c.description })
       })
-      if (content.tipsCardTitle.trim()) items.push({ id: 'card_title', text: content.tipsCardTitle })
-      if (content.tipsCardSubtitle.trim()) items.push({ id: 'card_subtitle', text: content.tipsCardSubtitle })
+      if (content.tipsCardTitle.trim() && !allLangs(content.tipsCardTitleTranslations))
+        items.push({ id: 'card_title', text: content.tipsCardTitle })
+      if (content.tipsCardSubtitle.trim() && !allLangs(content.tipsCardSubtitleTranslations))
+        items.push({ id: 'card_subtitle', text: content.tipsCardSubtitle })
 
       if (items.length === 0) {
-        setTranslateError('No content to translate. Add tips or components first.')
+        setTranslateError('All content is already translated into HE, AR and ES — nothing new to translate.')
         return
       }
 
-      const translations = await apiTranslate(items)
+      console.log('[handleTranslateAll] items to translate:', items.length, '(skipped already-translated items)')
+      const translations = await apiTranslate(items, (cur, tot) => setTranslateBatch({ current: cur, total: tot }))
 
       const newContent = { ...content }
 
-      newContent.tipChain = content.tipChain.map((step, si) => ({
-        ...step,
-        tips: step.tips.map((tip, ti) => {
-          const trTitle = translations[`chain_${si}_${ti}_title`]
-          const trDesc  = translations[`chain_${si}_${ti}_desc`]
-          const trans: Record<string, ItemTranslation> = { ...(tip.translations ?? {}) }
+      newContent.tipChain = content.tipChain.map((step, si) => {
+        const trSectionTitle = translations[`chain_${si}_section_title`]
+        const sectionTitleTranslations: Record<string, string> = { ...(step.sectionTitleTranslations ?? {}) }
+        if (trSectionTitle) {
           for (const l of ['he', 'ar', 'es'] as const) {
-            trans[l] = {
-              ...(trans[l] ?? {}),
-              ...(trTitle?.[l] !== undefined ? { title: trTitle[l] } : {}),
-              ...(trDesc?.[l]  !== undefined ? { description: trDesc[l]  } : {}),
-            }
+            if (trSectionTitle[l]) sectionTitleTranslations[l] = trSectionTitle[l]
           }
-          return { ...tip, translations: trans }
-        }),
-      }))
+        }
+        return {
+          ...step,
+          sectionTitleTranslations,
+          tips: step.tips.map((tip, ti) => {
+            const trTitle = translations[`chain_${si}_${ti}_title`]
+            const trDesc  = translations[`chain_${si}_${ti}_desc`]
+            const trans: Record<string, ItemTranslation> = { ...(tip.translations ?? {}) }
+            for (const l of ['he', 'ar', 'es'] as const) {
+              trans[l] = {
+                ...(trans[l] ?? {}),
+                ...(trTitle?.[l] !== undefined ? { title: trTitle[l] } : {}),
+                ...(trDesc?.[l]  !== undefined ? { description: trDesc[l]  } : {}),
+              }
+            }
+            return { ...tip, translations: trans }
+          }),
+        }
+      })
 
       newContent.components = content.components.map((c, i) => {
         const trName = translations[`comp_${i}_name`]
@@ -1437,10 +1503,13 @@ function PackageEditor({ packageId, categories, onCategoriesChange, categoriesDi
 
       setContent(newContent)
       setLang('he')
-    } catch {
-      setTranslateError('Translation failed — check your connection and try again.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[handleTranslateAll] FAILED:', msg, err)
+      setTranslateError(`Translation failed — ${msg}`)
     } finally {
       setTranslating(false)
+      setTranslateBatch(null)
     }
   }
 
@@ -1478,7 +1547,11 @@ function PackageEditor({ packageId, categories, onCategoriesChange, categoriesDi
             className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors shrink-0"
           >
             {translating ? <Loader2 size={12} className="animate-spin" /> : <span>🌐</span>}
-            {translating ? 'Translating…' : 'Translate All'}
+            {translating
+              ? translateBatch
+                ? `${translateBatch.current}/${translateBatch.total} done…`
+                : 'Translating…'
+              : 'Translate All'}
           </button>
         )}
       </div>
