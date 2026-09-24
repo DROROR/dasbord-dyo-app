@@ -911,33 +911,28 @@ export function Leads() {
   return (
     <div className="space-y-2">
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
         <StatCard icon={<Users size={16} />}         label={t('לידים פעילים', 'Active leads')}    value={stats.active}    />
         <StatCard icon={<UserPlus size={16} />}      label={t('חדש היום', 'New today')}        value={stats.newToday}  />
         <StatCard icon={<Calendar size={16} />}      label={t('שיחות מתוזמנות', 'Scheduled Calls')} value={stats.meetings}  />
-      </div>
-      <section className="rounded-xl border border-gray-100 bg-surface p-2.5">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-bold text-gray-800">{t('פעילות שיחות', 'Call activity')}</h3>
-            <p className="text-xs text-gray-400">{t('מסנן את שני המדדים לפי תקופה', 'Filters the two call counters by period')}</p>
+        <div className="col-span-2 grid grid-cols-1 gap-2 rounded-xl border border-gray-100 bg-surface p-1.5 sm:grid-cols-2 xl:col-span-2">
+          <div className="col-span-1 flex items-center justify-between gap-2 px-1 sm:col-span-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">{t('פעילות שיחות', 'Call activity')}</p>
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-500">
+              {t('טווח', 'Range')}
+              <select
+                value={statsRange}
+                onChange={event => setStatsRange(event.target.value as StatsRange)}
+                className="h-8 min-w-32 rounded-lg border border-gray-200 bg-surface px-2.5 text-xs font-semibold text-gray-700 outline-none focus:border-primary"
+              >
+                {STATS_RANGE_OPTIONS.map(option => <option key={option.value} value={option.value}>{t(option.labelHe, option.labelEn)}</option>)}
+              </select>
+            </label>
           </div>
-          <label className="flex items-center gap-2 text-xs font-semibold text-gray-500">
-            {t('טווח', 'Range')}
-            <select
-              value={statsRange}
-              onChange={event => setStatsRange(event.target.value as StatsRange)}
-              className="h-9 min-w-36 rounded-lg border border-gray-200 bg-surface px-3 text-xs font-semibold text-gray-700 outline-none focus:border-primary"
-            >
-              {STATS_RANGE_OPTIONS.map(option => <option key={option.value} value={option.value}>{t(option.labelHe, option.labelEn)}</option>)}
-            </select>
-          </label>
-        </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <StatCard icon={<Phone size={16} />}         label={t('שיחות שהושלמו', 'Completed Calls')} value={stats.completedCalls} />
           <StatCard icon={<PhoneOff size={16} />}      label={t('אין מענה', 'No Answer Attempts')} value={stats.noAnswerAttempts} />
         </div>
-      </section>
+      </div>
 
       {/* View controls */}
       <div className="flex w-full flex-wrap items-center gap-1 rounded-xl bg-gray-100/60 p-1">
