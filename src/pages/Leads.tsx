@@ -25,7 +25,7 @@ type LeadType     = 'has_course' | 'producing'
 type LeadSource   = 'Facebook' | 'Instagram' | 'Manual'
 type FollowUpTone = 'friendly' | 'professional' | 'urgent'
 type ModalTab     = 'details' | 'whatsapp' | 'followup'
-type StatsRange   = 'all' | 'today' | 'yesterday' | '7d' | '30d'
+type StatsRange   = 'all' | 'today' | 'yesterday' | 'week' | '30d'
 
 interface ChatMessage { from: 'us' | 'lead'; text: string; time: string }
 
@@ -84,7 +84,7 @@ const STATS_RANGE_OPTIONS: Array<{ value: StatsRange; labelHe: string; labelEn: 
   { value: 'all', labelHe: 'כל הזמן', labelEn: 'All time' },
   { value: 'today', labelHe: 'היום', labelEn: 'Today' },
   { value: 'yesterday', labelHe: 'אתמול', labelEn: 'Yesterday' },
-  { value: '7d', labelHe: '7 ימים', labelEn: 'Last 7 days' },
+  { value: 'week', labelHe: 'השבוע', labelEn: 'This week' },
   { value: '30d', labelHe: '30 ימים', labelEn: 'Last 30 days' },
 ]
 
@@ -197,7 +197,7 @@ function getStatsRangeBounds(range: StatsRange, nowMs: number): { start?: number
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   if (range === 'today') return { start: startOfToday, end: nowMs }
   if (range === 'yesterday') return { start: startOfToday - 864e5, end: startOfToday }
-  if (range === '7d') return { start: startOfToday - 6 * 864e5, end: nowMs }
+  if (range === 'week') return { start: startOfToday - now.getDay() * 864e5, end: nowMs }
   if (range === '30d') return { start: startOfToday - 29 * 864e5, end: nowMs }
   return {}
 }
@@ -911,28 +911,33 @@ export function Leads() {
   return (
     <div className="space-y-2">
       {/* Stats */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">{t('טווח נתוני שיחות', 'Call stats range')}</p>
-        <div className="flex flex-wrap items-center gap-1 rounded-xl bg-gray-100/60 p-1">
-          {STATS_RANGE_OPTIONS.map(option => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setStatsRange(option.value)}
-              className={`h-8 rounded-lg px-3 text-xs font-semibold transition-colors ${statsRange === option.value ? 'bg-surface text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              {t(option.labelHe, option.labelEn)}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <StatCard icon={<Users size={16} />}         label={t('לידים פעילים', 'Active leads')}    value={stats.active}    />
         <StatCard icon={<UserPlus size={16} />}      label={t('חדש היום', 'New today')}        value={stats.newToday}  />
         <StatCard icon={<Calendar size={16} />}      label={t('שיחות מתוזמנות', 'Scheduled Calls')} value={stats.meetings}  />
-        <StatCard icon={<Phone size={16} />}         label={t('שיחות שהושלמו', 'Completed Calls')} value={stats.completedCalls} />
-        <StatCard icon={<PhoneOff size={16} />}      label={t('אין מענה', 'No Answer Attempts')} value={stats.noAnswerAttempts} />
       </div>
+      <section className="rounded-xl border border-gray-100 bg-surface p-2.5">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-gray-800">{t('פעילות שיחות', 'Call activity')}</h3>
+            <p className="text-xs text-gray-400">{t('מסנן את שני המדדים לפי תקופה', 'Filters the two call counters by period')}</p>
+          </div>
+          <label className="flex items-center gap-2 text-xs font-semibold text-gray-500">
+            {t('טווח', 'Range')}
+            <select
+              value={statsRange}
+              onChange={event => setStatsRange(event.target.value as StatsRange)}
+              className="h-9 min-w-36 rounded-lg border border-gray-200 bg-surface px-3 text-xs font-semibold text-gray-700 outline-none focus:border-primary"
+            >
+              {STATS_RANGE_OPTIONS.map(option => <option key={option.value} value={option.value}>{t(option.labelHe, option.labelEn)}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <StatCard icon={<Phone size={16} />}         label={t('שיחות שהושלמו', 'Completed Calls')} value={stats.completedCalls} />
+          <StatCard icon={<PhoneOff size={16} />}      label={t('אין מענה', 'No Answer Attempts')} value={stats.noAnswerAttempts} />
+        </div>
+      </section>
 
       {/* View controls */}
       <div className="flex w-full flex-wrap items-center gap-1 rounded-xl bg-gray-100/60 p-1">
