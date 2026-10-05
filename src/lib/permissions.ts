@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react'
 import {
   LayoutDashboard, Users, CreditCard, MessageCircle, Target, Bot,
-  GraduationCap, Briefcase, Shield, Settings, FileText, Package, Video,
+  GraduationCap, Briefcase, Shield, Settings, FileText, Package, Video, Ticket,
 } from 'lucide-react'
 
 // ============================================================
@@ -37,7 +37,7 @@ import {
 export type PermissionModule =
   | 'dashboard' | 'clients' | 'billing' | 'whatsapp' | 'leads'
   | 'agents' | 'bot_training' | 'work' | 'work_docs' | 'pricing' | 'permissions'
-  | 'platform_content' | 'meditations'
+  | 'platform_content' | 'meditations' | 'support_tickets'
 
 export const LEVELS = ['none', 'view', 'edit', 'send', 'full'] as const
 export type PermissionLevel = typeof LEVELS[number]
@@ -94,6 +94,11 @@ export const PAGES: PageEntry[] = [
   // now; switch to 'meditations' here (plus RLS + a backfill) if it ever
   // needs gating.
   { id: 'meditations', module: null, labelHe: 'מדיטציות', labelEn: 'Meditations', icon: Video, levels: ['none', 'view', 'full'], nav: 'main', staffDefault: 'view' },
+  // Not a Sidebar page — a sub-tab inside the Client Detail panel — but its
+  // own permission module so the admin can grant or revoke access to support
+  // ticket history independently of general Clients access. staffDefault:
+  // 'none' means new staff members don't see it until the admin grants it.
+  { id: 'support_tickets', module: 'support_tickets', labelHe: 'כרטיסי תמיכה', labelEn: 'Support Tickets', icon: Ticket, levels: ['none', 'view', 'full'], nav: 'none', staffDefault: 'none' },
 ]
 
 // Dev-time guard: every module key must be unique across the registry

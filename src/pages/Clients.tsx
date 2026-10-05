@@ -866,9 +866,10 @@ const TABS: { id: TabId; he: string; en: string }[] = [
   { id: 'tickets',  he: 'תמיכה',   en: 'Support'  },
 ]
 
-function ClientDetail({ client, onBack, onSave, canEdit }: { client: Client; onBack: () => void; onSave: (c: Client) => void; canEdit: boolean }) {
+function ClientDetail({ client, onBack, onSave, canEdit, canViewTickets }: { client: Client; onBack: () => void; onSave: (c: Client) => void; canEdit: boolean; canViewTickets: boolean }) {
   const { t } = useLang()
   const [tab, setTab] = useState<TabId>('details')
+  const visibleTabs = TABS.filter(tb => tb.id !== 'tickets' || canViewTickets)
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -897,7 +898,7 @@ function ClientDetail({ client, onBack, onSave, canEdit }: { client: Client; onB
         </div>
 
         <div className="flex gap-1 px-5 pt-3 border-b border-gray-100">
-          {TABS.map(({ id, he, en }) => (
+          {visibleTabs.map(({ id, he, en }) => (
             <button
               key={id} onClick={() => setTab(id)}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${
@@ -912,7 +913,7 @@ function ClientDetail({ client, onBack, onSave, canEdit }: { client: Client; onB
         {tab === 'details'  && <DetailsTab  client={client} onSave={onSave} canEdit={canEdit} />}
         {tab === 'billing'  && <BillingTab  client={client} />}
         {tab === 'whatsapp' && <WhatsAppTab clientId={client.id} contacts={client.contacts} />}
-        {tab === 'tickets'  && <TicketsTab  clientId={client.id} />}
+        {tab === 'tickets'  && canViewTickets && <TicketsTab clientId={client.id} />}
       </Card>
     </div>
   )
@@ -1089,8 +1090,9 @@ function ClientsList({ clients, onSelect }: { clients: Client[]; onSelect: (c: C
 
 export function Clients() {
   const { t } = useLang()
-  const canEdit  = useCan('clients', 'edit')
-  const canMerge = useCan('clients', 'full')
+  const canEdit        = useCan('clients', 'edit')
+  const canMerge       = useCan('clients', 'full')
+  const canViewTickets = useCan('support_tickets', 'view')
   const [clients,   setClients]   = useState<Client[]>([])
   const [selected,  setSelected]  = useState<Client | null>(null)
   const [loading,   setLoading]   = useState(true)
@@ -1148,7 +1150,7 @@ export function Clients() {
     return (
       <>
         {saveError && <SaveErrorBanner message={saveError} onDismiss={() => setSaveError(null)} />}
-        <ClientDetail client={selected} onBack={() => { setSelected(null); setSaveError(null) }} onSave={handleSave} canEdit={canEdit} />
+        <ClientDetail client={selected} onBack={() => { setSelected(null); setSaveError(null) }} onSave={handleSave} canEdit={canEdit} canViewTickets={canViewTickets} />
       </>
     )
   }
