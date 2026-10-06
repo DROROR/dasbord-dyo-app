@@ -8,7 +8,7 @@ import { Avatar } from '../Avatar'
 import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import type { WorkDoc, WorkDocFolder, DocAccessLevel } from '../../types/work'
 import {
-  getWorkDocs, createWorkDoc, updateWorkDoc, moveWorkDocToFolder,
+  getWorkDocs, createWorkDoc, updateWorkDoc, moveWorkDocToFolder, deleteWorkDoc,
   getWorkDocFolders, createWorkDocFolder, renameWorkDocFolder, deleteWorkDocFolder,
   getResourceAccess, setResourceAccess,
 } from '../../lib/database'
@@ -464,6 +464,7 @@ export function DocsTab({
   const [renaming, setRenaming] = useState(false)
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [docDeleteConfirm, setDocDeleteConfirm] = useState<DocRow | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
@@ -536,6 +537,27 @@ export function DocsTab({
       if (currentFolderId === id) setCurrentFolderId(null)
     } catch (err) {
       setDeleteError(errorText(err, tr('מחיקת התיקייה נכשלה', 'Folder deletion failed')))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  // Deleting a document was reachable in the data layer (deleteWorkDoc has
+  // existed all along) but had no control anywhere in this tab, which also made
+  // a non-empty folder impossible to empty and therefore impossible to delete.
+  // RLS ("work_docs: delete") requires work_docs:'full' plus doc access 'full',
+  // which is what canCreate && myLevel === 'full' mirrors on the button below.
+  async function confirmDeleteDoc(doc: DocRow) {
+    if (deleting) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteWorkDoc(doc.id)
+      setDocs(prev => prev.filter(d => d.id !== doc.id))
+      setDocDeleteConfirm(null)
+      if (selectedId === doc.id) setSelectedId(null)
+    } catch (err) {
+      setDeleteError(errorText(err, tr('מחיקת המסמך נכשלה', 'Document deletion failed')))
     } finally {
       setDeleting(false)
     }
@@ -711,10 +733,17 @@ export function DocsTab({
           {docsHere.map(doc => {
             const canEdit = doc.myLevel === 'full'
             return (
-              <button
+              // A div, not a button: the delete control below is itself a real
+              // <button>, and nesting one button inside another is invalid HTML
+              // with inconsistent click behaviour. role + onKeyDown keeps the
+              // row keyboard-activatable, the same pattern the task cards use.
+              <div
                 key={doc.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => setSelectedId(doc.id)}
-                className="flex items-center gap-4 bg-white border border-gray-100 rounded-xl px-5 py-3.5 hover:border-gray-200 hover:shadow-sm transition-all text-left w-full"
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(doc.id) } }}
+                className="group flex items-center gap-4 bg-white border border-gray-100 rounded-xl px-5 py-3.5 hover:border-gray-200 hover:shadow-sm transition-all text-left w-full cursor-pointer"
               >
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                   <FileText size={18} className="text-primary" />
@@ -728,7 +757,16 @@ export function DocsTab({
                 <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 flex items-center gap-1 ${canEdit ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'}`}>
                   {canEdit ? <><Edit3 size={9} /> {tr('עריכה', 'Edit')}</> : accessLabel(doc.myLevel, tr)}
                 </span>
-              </button>
+                {canCreate && canEdit && (
+                  <button
+                    onClick={e => { e.stopPropagation(); setDocDeleteConfirm(doc); setDeleteError(null) }}
+                    title={tr('מחק', 'Delete')}
+                    className="p-1.5 rounded-lg text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-red-50 hover:text-red-500 shrink-0"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
             )
           })}
         </div>
@@ -762,6 +800,41 @@ export function DocsTab({
                 {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} {tr('מחק', 'Delete')}
               </button>
               <button onClick={() => setDeleteConfirmId(null)} disabled={deleting} className="px-3 py-2 border border-gray-200 text-gray-500 text-xs font-semibold rounded-lg hover:bg-gray-50">
+                {tr('ביטול', 'Cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {docDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => !deleting && setDocDeleteConfirm(null)}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
+                <FileText size={18} className="text-red-500" />
+              </div>
+              <p className="text-sm font-semibold text-gray-800">
+                {tr('למחוק את המסמך', 'Delete document')} "{docDeleteConfirm.title || tr('ללא כותרת', 'Untitled')}"?
+              </p>
+            </div>
+            <p className="text-xs text-gray-500">
+              {tr('המסמך יימחק לצמיתות ולא ניתן לשחזר אותו.', 'The document is permanently deleted and cannot be restored.')}
+            </p>
+            {deleteError && (
+              <div className="flex items-center gap-2 text-xs text-red-500">
+                <AlertCircle size={13} /> {deleteError}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => void confirmDeleteDoc(docDeleteConfirm)}
+                disabled={deleting}
+                className="flex-1 px-3 py-2 bg-red-500 text-white text-xs font-semibold rounded-lg hover:bg-red-600 disabled:opacity-60 flex items-center justify-center gap-1.5"
+              >
+                {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} {tr('מחק', 'Delete')}
+              </button>
+              <button onClick={() => setDocDeleteConfirm(null)} disabled={deleting} className="px-3 py-2 border border-gray-200 text-gray-500 text-xs font-semibold rounded-lg hover:bg-gray-50">
                 {tr('ביטול', 'Cancel')}
               </button>
             </div>
