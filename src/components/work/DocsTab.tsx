@@ -2,7 +2,7 @@ import { Fragment, useState, useRef, useEffect, useCallback } from 'react'
 import {
   FileText, Plus, ArrowLeft, Save, Lock, Edit3, Loader2, AlertCircle, Check,
   Bold, Italic, Underline, List, ListOrdered, Table, Heading1, Heading2, Heading3,
-  Folder, FolderPlus, ChevronLeft, ChevronRight, ChevronDown, Pencil, Trash2, FolderInput,
+  Folder, FolderPlus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Pencil, Trash2, FolderInput,
   Paperclip, Download, X, File as FileIcon,
   FileSpreadsheet, FileArchive, FileAudio, FileVideo, FileCode, Presentation,
 } from 'lucide-react'
@@ -1069,9 +1069,7 @@ export function DocsTab({
                 title={expandedFolders.has(child.id) ? tr('סגור', 'Collapse') : tr('פתח', 'Expand')}
                 className="shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
               >
-                {expandedFolders.has(child.id)
-                  ? <ChevronDown size={13} />
-                  : <><ChevronLeft size={13} className="rtl:hidden" /><ChevronRight size={13} className="ltr:hidden" /></>}
+                {expandedFolders.has(child.id) ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
               </button>
               <span className="text-sm leading-none">{child.icon ? child.icon : <Folder size={13} className="text-amber-500" />}</span>
               <button onClick={() => setCurrentFolderId(child.id)} className="min-w-0 flex-1 truncate text-start text-[12px] font-semibold text-gray-700">
@@ -1240,9 +1238,7 @@ export function DocsTab({
                   title={isExpanded ? tr('סגור', 'Collapse') : tr('הצג את התוכן', 'Show what is inside')}
                   className="shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
                 >
-                  {isExpanded
-                    ? <ChevronDown size={14} />
-                    : <><ChevronLeft size={14} className="rtl:hidden" /><ChevronRight size={14} className="ltr:hidden" /></>}
+                  {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 </button>
                 <div className="relative shrink-0">
                   <button
