@@ -15,7 +15,7 @@ import { AddLeadModal } from '../components/leads/AddLeadModal'
 import { LeadCalendar } from '../components/leads/LeadCalendar'
 import { getAllLeads, getLeadHistory, addLeadHistory, updateLeadPipelineStatus } from '../lib/leadHistory'
 import { LeadHistoryPanel } from '../components/leads/LeadHistoryPanel'
-import { getGoogleSheetSyncStatus, syncGoogleSheetLeads, type GoogleSheetSyncResult } from '../lib/googleSheets'
+import { getGoogleSheetSyncStatus, syncGoogleSheetLeads, syncColdCallLeads, type GoogleSheetSyncResult } from '../lib/googleSheets'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -731,6 +731,8 @@ export function Leads() {
   const [sheetSyncError, setSheetSyncError] = useState('')
   const [sheetSyncedAt, setSheetSyncedAt] = useState<Date | null>(null)
   const [sheetConfigured, setSheetConfigured] = useState(false)
+  const [coldConfigured, setColdConfigured] = useState(false)
+  const [syncingCold, setSyncingCold] = useState(false)
   const [clockNow, setClockNow] = useState(() => Date.now())
   const [statsRange, setStatsRange] = useState<StatsRange>('all')
   useEffect(() => { const interval = window.setInterval(() => setClockNow(Date.now()), 60_000); return () => window.clearInterval(interval) }, [])
@@ -754,7 +756,9 @@ export function Leads() {
   useEffect(() => { void load() }, [])
   useEffect(() => {
     if (!canDeleteStatuses) return
-    void getGoogleSheetSyncStatus().then(status => setSheetConfigured(status.configured)).catch(() => setSheetConfigured(false))
+    void getGoogleSheetSyncStatus()
+      .then(status => { setSheetConfigured(status.configured); setColdConfigured(status.coldCall?.configured === true) })
+      .catch(() => { setSheetConfigured(false); setColdConfigured(false) })
   }, [canDeleteStatuses])
 
   const handleSheetSync = async () => {
@@ -771,6 +775,26 @@ export function Leads() {
       setSheetSyncError(error instanceof Error ? error.message : t('סנכרון Google Sheets נכשל', 'Google Sheets sync failed'))
     } finally {
       setSyncingSheet(false)
+    }
+  }
+
+  // The cold-call sheet is a separate research list whose rows land in the
+  // `cold call` pipeline status. Same permission gate and the same result
+  // banner as the lead-form sheet above; only the endpoint differs.
+  const handleColdSync = async () => {
+    if (syncingCold) return
+    setSyncingCold(true)
+    setSheetSyncError('')
+    try {
+      const result = await syncColdCallLeads()
+      setSheetSyncResult(result)
+      setSheetSyncedAt(new Date())
+      await load(false)
+    } catch (error) {
+      setSheetSyncResult(null)
+      setSheetSyncError(error instanceof Error ? error.message : t('סנכרון שיחות קרות נכשל', 'Cold-call sheet sync failed'))
+    } finally {
+      setSyncingCold(false)
     }
   }
 
@@ -941,6 +965,7 @@ export function Leads() {
         <button onClick={() => setView('archive')} className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${view === 'archive' ? 'bg-surface text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}><Archive size={13} />{t('ארכיב', 'Archive')}{archived.length > 0 && <span className="rounded-md bg-gray-200 px-1.5 py-0.5 text-xs text-gray-500">{archived.length}</span>}</button>
         <div dir="ltr" className="ms-auto flex flex-wrap items-center gap-1.5">
           {canDeleteStatuses && <button onClick={() => void handleSheetSync()} disabled={syncingSheet || !sheetConfigured} title={!sheetConfigured ? t('ממתין להגדרת חשבון השירות', 'Waiting for service-account configuration') : undefined} className={`flex h-9 items-center gap-2 rounded-lg border px-3.5 text-sm font-semibold transition-colors ${sheetConfigured ? 'border-[#0F9D58] bg-[#0F9D58] text-white hover:bg-[#0B8043]' : 'cursor-not-allowed border-green-200 bg-green-50 text-green-700'}`}><img src="/google-sheets-logo.svg" alt="" className="h-[18px] w-[14px] shrink-0 object-contain" />{syncingSheet ? t('מסנכרן...', 'Syncing...') : !sheetConfigured ? t('Google Sheet לא מוגדר', 'Google Sheet not configured') : t('סנכרן Google Sheet', 'Sync Google Sheet')}</button>}
+          {canDeleteStatuses && coldConfigured && <button onClick={() => void handleColdSync()} disabled={syncingCold} title={t('מייבא מגיליון השיחות הקרות אל סטטוס cold call', 'Imports the cold-call sheet into the cold call status')} className="flex h-9 items-center gap-2 rounded-lg border border-[#1a73e8] bg-[#1a73e8] px-3.5 text-sm font-semibold text-white transition-colors hover:bg-[#1557b0] disabled:cursor-not-allowed disabled:opacity-60"><img src="/google-sheets-logo.svg" alt="" className="h-[18px] w-[14px] shrink-0 object-contain" />{syncingCold ? t('מסנכרן...', 'Syncing...') : t('סנכרן Cold Call', 'Sync Cold Call')}</button>}
           {canEdit && <button onClick={() => setAddingLead(true)} className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"><UserPlus size={15} />{t('הוסף ליד', 'Add Lead')}</button>}
           {view === 'kanban' && canEdit && <><span className="mx-1 h-6 w-px bg-gray-300" aria-hidden="true" /><button onClick={() => setAddingStatus(true)} className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"><Plus size={15} />{t('הוסף סטטוס', 'Add Status')}</button></>}
         </div>

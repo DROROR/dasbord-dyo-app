@@ -15,6 +15,22 @@ const REQUIRED_HEADERS = ['id', 'created_time', 'מה_מתאר_אותך_הכי_�
 let syncPromise = null
 let lastSync = null
 
+// ── Cold-call sheet ───────────────────────────────────────────────────────────
+// A second, completely different sheet ("DYO – מעקב פניות למנטורים ויוצרי
+// קורסים") whose rows land in the `cold call` pipeline status instead of
+// `New lead`. It shares this service's Google auth, dedupe and
+// permanently-deleted exclusions, but nothing else: its columns have no overlap
+// with the lead-form sheet, so it gets its own mapper below rather than a
+// parameter on the existing one.
+const COLD_SHEET_ID = process.env.GOOGLE_COLD_CALL_SHEET_ID
+const COLD_TAB = process.env.GOOGLE_COLD_CALL_TAB_NAME
+// Looked up by label because this status, unlike the original five, has no
+// legacy_status to match on.
+const COLD_STATUS_LABEL = process.env.GOOGLE_COLD_CALL_STATUS_LABEL || 'cold call'
+const COLD_REQUIRED_HEADERS = ['שם', 'טלפון / מייל']
+let coldSyncPromise = null
+let coldLastSync = null
+
 function sendJson(response, status, body) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
   response.end(JSON.stringify(body))
@@ -22,6 +38,10 @@ function sendJson(response, status, body) {
 
 function configured() {
   return Boolean(SUPABASE_URL && SERVICE_KEY && SHEET_ID && SHEET_TAB && (CREDENTIALS_FILE || CREDENTIALS_JSON))
+}
+
+function coldConfigured() {
+  return Boolean(SUPABASE_URL && SERVICE_KEY && COLD_SHEET_ID && COLD_TAB && (CREDENTIALS_FILE || CREDENTIALS_JSON))
 }
 
 function base64url(value) {
@@ -165,6 +185,149 @@ async function syncSheet() {
   return { created, existing: existingCount, excluded: excludedCount, skipped, total: leads.length }
 }
 
+// ── Cold-call row mapping ─────────────────────────────────────────────────────
+// Column E holds a phone and/or an email in one free-text cell ("054-6696232",
+// sometimes an address). leads.phone is NOT NULL, so a row with no usable phone
+// is skipped rather than invented.
+function splitContact(raw) {
+  const parts = String(raw || '').split(/[\/,;|]|\s{2,}/).map(part => part.trim()).filter(Boolean)
+  let email = null
+  let phone = null
+  for (const part of parts.length ? parts : [String(raw || '').trim()]) {
+    if (!email && part.includes('@')) { email = part; continue }
+    if (!phone && part.replace(/\D/g, '').length >= 7) phone = part
+  }
+  // A single cell such as "054-880-4422" splits on the slashes above, so fall
+  // back to the whole value once nothing matched piecewise.
+  if (!phone) {
+    const whole = String(raw || '').trim()
+    if (!whole.includes('@') && whole.replace(/\D/g, '').length >= 7) phone = whole
+  }
+  return { phone, email }
+}
+
+// Sheet dates are Hebrew-locale day-first, with the year sometimes omitted
+// ("04/10/2026", "6/10"). Anything unparseable falls back to null so the caller
+// can decide, rather than silently becoming today.
+function parseSheetDate(raw) {
+  const match = String(raw || '').trim().match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/)
+  if (!match) return null
+  const day = Number(match[1])
+  const month = Number(match[2])
+  let year = match[3] ? Number(match[3]) : new Date().getFullYear()
+  if (year < 100) year += 2000
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+// The rich research columns have nowhere of their own in `leads`, and throwing
+// them away would lose the reason the lead is worth calling. Collected into
+// notes, each labelled, so the lead dialog shows the full context.
+function coldNotes(get) {
+  const lines = [
+    ['ערוץ פנייה', get('ערוץ פנייה')],
+    ['קישור לפרופיל', get('קישור לפרופיל')],
+    ['גודל קהל משוער', get('גודל קהל משוער')],
+    ['איך עובדים היום', get('איך עובדים היום')],
+    ['מה ראיתי', get('מה ראיתי (לפרסונליזציה)')],
+    ['סטטוס בגיליון', get('סטטוס')],
+    ['עדיפות', get('עדיפות')],
+    ['הערות', get('הערות')],
+    ['הודעת פתיחה מומלצת', get('הודעת פתיחה מומלצת')],
+  ].filter(([, value]) => value)
+  return lines.length ? lines.map(([label, value]) => `${label}: ${value}`).join('\n') : null
+}
+
+async function syncColdCallSheet() {
+  const token = await googleAccessToken()
+  const range = encodeURIComponent(`${COLD_TAB}!A:O`)
+  const sheetResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(COLD_SHEET_ID)}/values/${range}?majorDimension=ROWS`, {
+    headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000),
+  })
+  if (!sheetResponse.ok) throw new Error(`Cold-call sheet read failed (${sheetResponse.status})`)
+  const rows = (await sheetResponse.json()).values || []
+  if (!rows.length) return { created: 0, existing: 0, excluded: 0, skipped: 0, total: 0 }
+  const headers = rows[0].map(value => String(value).trim())
+  const missing = COLD_REQUIRED_HEADERS.filter(header => !headers.includes(header))
+  if (missing.length) throw new Error(`Missing cold-call sheet headers: ${missing.join(', ')}`)
+  const index = Object.fromEntries(headers.map((header, position) => [header, position]))
+
+  const statusResponse = await fetch(`${SUPABASE_URL}/rest/v1/lead_pipeline_statuses?label_en=eq.${encodeURIComponent(COLD_STATUS_LABEL)}&select=id&limit=1`, { headers: adminHeaders() })
+  if (!statusResponse.ok) throw new Error('Could not load the cold-call pipeline status')
+  const coldStatusId = (await statusResponse.json())[0]?.id
+  if (!coldStatusId) throw new Error(`Pipeline status "${COLD_STATUS_LABEL}" does not exist — create it in the Leads board first`)
+
+  let skipped = 0
+  const leads = rows.slice(1).flatMap(row => {
+    const get = header => String(row[index[header]] ?? '').trim()
+    const name = get('שם')
+    // The first data row is a filled-in template ("דוגמה: …"), not a real lead.
+    if (!name || name.startsWith('דוגמה')) { skipped += 1; return [] }
+    const { phone, email } = splitContact(get('טלפון / מייל'))
+    if (!phone) { skipped += 1; return [] }
+    const profileLink = get('קישור לפרופיל')
+    // No id column exists, so identity is the profile link when there is one and
+    // otherwise name+phone. Never the row number: rows get sorted and inserted,
+    // which would re-import everything under new keys.
+    const identity = createHash('sha256').update(profileLink || `${name}|${phone}`).digest('hex')
+    const firstContact = parseSheetDate(get('תאריך פנייה ראשונה'))
+    const followUp = parseSheetDate(get('תאריך פולואפ הבא'))
+    return [{
+      sheet_row_key: `google:${COLD_SHEET_ID}:${identity}`,
+      name,
+      client_name: name,
+      phone,
+      email: email || null,
+      // The category badge on each lead card reads form_answer.
+      form_answer: get('תחום') || null,
+      // "מקור הליד" is free text (גוגל, ספריית מודעות, הפניה מלקוח, אחר) and the
+      // leads.source enum only holds facebook/instagram, so it goes to the
+      // campaign field, which the board already offers as a filter.
+      campaign_name: get('מקור הליד') || null,
+      source: null,
+      notes: coldNotes(get),
+      follow_up_date: followUp ? followUp.toISOString().slice(0, 10) : null,
+      // status is a NOT NULL enum with no cold-call member; the pipeline status
+      // below is what the board actually displays.
+      status: 'new',
+      pipeline_status_id: coldStatusId,
+      created_at: (firstContact ?? new Date()).toISOString(),
+    }]
+  })
+
+  const existingResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads?sheet_row_key=like.google:${encodeURIComponent(COLD_SHEET_ID)}:*&select=sheet_row_key`, { headers: adminHeaders() })
+  if (!existingResponse.ok) throw new Error('Could not check existing cold-call leads')
+  const existing = new Set((await existingResponse.json()).map(row => row.sheet_row_key))
+  const exclusionsResponse = await fetch(`${SUPABASE_URL}/rest/v1/lead_sync_exclusions?select=sheet_row_key`, { headers: adminHeaders() })
+  if (!exclusionsResponse.ok) throw new Error('Could not load permanently deleted leads')
+  const excluded = new Set((await exclusionsResponse.json()).map(row => row.sheet_row_key))
+
+  const newLeads = leads.filter(lead => !existing.has(lead.sheet_row_key) && !excluded.has(lead.sheet_row_key))
+  if (newLeads.length) {
+    const insertResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads`, {
+      method: 'POST', headers: { ...adminHeaders(), Prefer: 'return=minimal' }, body: JSON.stringify(newLeads),
+    })
+    if (!insertResponse.ok) throw new Error(`Cold-call lead sync failed (${insertResponse.status}): ${(await insertResponse.text()).slice(0, 200)}`)
+  }
+  return {
+    created: newLeads.length,
+    existing: leads.filter(lead => existing.has(lead.sheet_row_key)).length,
+    excluded: leads.filter(lead => excluded.has(lead.sheet_row_key)).length,
+    skipped,
+    total: leads.length,
+  }
+}
+
+async function runColdSync() {
+  if (coldSyncPromise) return coldSyncPromise
+  coldSyncPromise = syncColdCallSheet()
+    .then(result => { coldLastSync = { at: new Date().toISOString(), ok: true, result }; return result })
+    .catch(error => { coldLastSync = { at: new Date().toISOString(), ok: false, error: error instanceof Error ? error.message : 'Unknown error' }; throw error })
+    .finally(() => { coldSyncPromise = null })
+  return coldSyncPromise
+}
+
 async function runSync() {
   if (syncPromise) return syncPromise
   syncPromise = syncSheet()
@@ -175,15 +338,31 @@ async function runSync() {
 }
 
 const server = http.createServer(async (request, response) => {
-  if (request.method === 'GET' && request.url === '/health') return sendJson(response, 200, { status: 'ok', configured: configured(), lastSync })
-  if (request.method !== 'POST' || request.url !== '/sync') return sendJson(response, 404, { error: 'Not found' })
-  if (!configured()) return sendJson(response, 503, { error: 'Google Sheets sync is not configured yet' })
+  if (request.method === 'GET' && request.url === '/health') {
+    return sendJson(response, 200, {
+      status: 'ok',
+      configured: configured(),
+      lastSync,
+      coldCall: { configured: coldConfigured(), lastSync: coldLastSync },
+    })
+  }
+
+  const isLeadFormSync = request.method === 'POST' && request.url === '/sync'
+  const isColdCallSync = request.method === 'POST' && request.url === '/cold-call/sync'
+  if (!isLeadFormSync && !isColdCallSync) return sendJson(response, 404, { error: 'Not found' })
+
+  const ready = isColdCallSync ? coldConfigured() : configured()
+  if (!ready) return sendJson(response, 503, { error: 'Google Sheets sync is not configured yet' })
+
   try {
+    // Both sheets sit behind the same check the lead board uses, so a member
+    // who may not manage leads cannot pull either one in.
     if (!await authorize(request)) return sendJson(response, 403, { error: 'Full Leads permission is required' })
-    return sendJson(response, 200, await runSync())
+    return sendJson(response, 200, isColdCallSync ? await runColdSync() : await runSync())
   } catch (error) {
-    console.error('Google Sheets sync failed:', error instanceof Error ? error.message : 'Unknown error')
-    return sendJson(response, 502, { error: error instanceof Error ? error.message : 'Google Sheets sync failed' })
+    const label = isColdCallSync ? 'Cold-call sheet sync' : 'Google Sheets sync'
+    console.error(`${label} failed:`, error instanceof Error ? error.message : 'Unknown error')
+    return sendJson(response, 502, { error: error instanceof Error ? error.message : `${label} failed` })
   }
 })
 
@@ -195,5 +374,10 @@ server.listen(PORT, HOST, () => {
     const scheduled = () => runSync().catch(error => console.error('Scheduled Google Sheets sync failed:', error instanceof Error ? error.message : 'Unknown error'))
     void scheduled()
     setInterval(scheduled, Math.max(SYNC_INTERVAL_MS, 60_000))
+  }
+  if (coldConfigured()) {
+    const scheduledCold = () => runColdSync().catch(error => console.error('Scheduled cold-call sheet sync failed:', error instanceof Error ? error.message : 'Unknown error'))
+    void scheduledCold()
+    setInterval(scheduledCold, Math.max(SYNC_INTERVAL_MS, 60_000))
   }
 })
