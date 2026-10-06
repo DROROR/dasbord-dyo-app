@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   Users, UserPlus, Calendar, Clock, AlertTriangle,
   X, Check, CheckCheck, Phone, PhoneOff, Mail, Archive,
-  Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search, ArrowUp, ArrowDown, Pencil,
+  Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search, ArrowUp, ArrowDown, Pencil, PhoneCall,
 } from 'lucide-react'
 import { getLeadPipelineStatuses, createLeadPipelineStatus, deleteLeadPipelineStatus, createManualLead, updateLead as dbUpdateLead, deleteLead as dbDeleteLead } from '../lib/database'
 import type { DbLead, DbLeadHistory, DbLeadPipelineStatus, LeadStatusColor } from '../lib/database'
@@ -223,18 +223,20 @@ function leadCategoryColor(answer: string): string {
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
-function StatCard({ icon, label, value, alert = false }: {
-  icon: React.ReactNode; label: string; value: number; alert?: boolean
+// `compact` shrinks the card so five of them stack into two rows beside the
+// call-activity box without the whole stats strip growing taller than it.
+function StatCard({ icon, label, value, alert = false, compact = false }: {
+  icon: React.ReactNode; label: string; value: number; alert?: boolean; compact?: boolean
 }) {
   const hot = alert && value > 0
   return (
-    <div className={`bg-surface rounded-2xl border shadow-sm p-3 flex items-start gap-2.5 ${hot ? 'border-red-200 bg-red-50/30' : 'border-gray-100'}`}>
-      <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${hot ? 'bg-red-100 text-red-500' : 'bg-primary/10 text-primary'}`}>
+    <div className={`bg-surface rounded-2xl border shadow-sm flex items-center gap-2.5 h-full ${compact ? 'p-2' : 'p-3'} ${hot ? 'border-red-200 bg-red-50/30' : 'border-gray-100'}`}>
+      <div className={`rounded-xl flex items-center justify-center shrink-0 ${compact ? 'w-8 h-8' : 'w-9 h-9'} ${hot ? 'bg-red-100 text-red-500' : 'bg-primary/10 text-primary'}`}>
         {icon}
       </div>
-      <div>
-        <p className={`text-xl font-bold leading-none mb-0.5 ${hot ? 'text-red-600' : 'text-gray-800'}`}>{value}</p>
-        <p className="text-xs text-gray-400 leading-snug">{label}</p>
+      <div className="min-w-0">
+        <p className={`font-bold leading-none mb-0.5 ${compact ? 'text-lg' : 'text-xl'} ${hot ? 'text-red-600' : 'text-gray-800'}`}>{value}</p>
+        <p className={`text-gray-400 leading-snug ${compact ? 'text-[11px]' : 'text-xs'}`}>{label}</p>
       </div>
     </div>
   )
@@ -334,6 +336,10 @@ function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, c
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const modalPipeline = statuses.find(status => status.id === lead.pipelineStatusId)
+  // The archived status is what "not relevant" means here: the board filters
+  // it out of the columns and the Archive view keys off is_archived, so moving
+  // a lead there takes it off the board without destroying any of its history.
+  const archivedStatus = statuses.find(status => status.is_archived)
   const needsAttention = (modalPipeline?.legacy_status === 'meeting' || (!modalPipeline && lead.status === 'meeting_set')) && !!lead.dueAt && new Date(lead.dueAt).getTime() < Date.now()
 
   const persistPatch = async (patch: Partial<Lead>): Promise<boolean> => {
@@ -613,6 +619,15 @@ function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, c
         </div>
         {saveError && <p className="px-5 py-2 text-xs text-red-600">{saveError}</p>}
         <div className="flex shrink-0 items-center gap-2 border-t border-gray-100 bg-surface px-5 py-3">
+          {canEdit && archivedStatus && lead.pipelineStatusId !== archivedStatus.id && (
+            <button
+              onClick={() => changePipelineStatus(archivedStatus.id)}
+              title={t('מעביר את הליד לארכיון — ההיסטוריה נשמרת', 'Moves the lead to the archive — its history is kept')}
+              className="flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-sm font-semibold text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50"
+            >
+              <Archive size={14} />{t('לא רלוונטי', 'Not relevant')}
+            </button>
+          )}
           {canDelete && <button onClick={() => { setDeleteError(''); setConfirmDelete(true) }} className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"><Trash2 size={14} />{t('מחק ליד', 'Delete lead')}</button>}
           <div className="ms-auto flex items-center gap-2">
             <button onClick={onClose} className="h-9 px-3 text-sm text-gray-500">{t('סגור', 'Close')}</button>
@@ -838,8 +853,14 @@ export function Leads() {
   const statsRangeBounds = getStatsRangeBounds(statsRange, clockNow)
   const countHistory = (kind: DbLeadHistory['kind']) =>
     activeLeads.reduce((total, lead) => total + lead.history.filter(entry => entry.kind === kind && isWithinStatsRange(entry.occurred_at, statsRangeBounds)).length, 0)
+  // The archived status is the single source of "not relevant" — the board
+  // filters it out of the columns, so without a counter it is invisible.
+  const coldCallStatus = statuses.find(status => (status.label_en || '').trim().toLowerCase() === 'cold call'
+    || (status.label_he || '').trim().toLowerCase() === 'cold call')
   const stats = {
     active: activeLeads.length,
+    notRelevant: archived.length,
+    coldCall: coldCallStatus ? leads.filter(lead => lead.pipelineStatusId === coldCallStatus.id).length : 0,
     newToday: activeLeads.filter(lead => new Date(lead.entryDate).toDateString() === new Date().toDateString()).length,
     meetings: activeLeads.filter(lead => !!lead.dueAt && new Date(lead.dueAt).getTime() >= clockNow).length,
     completedCalls: countHistory('completed_call'),
@@ -948,11 +969,17 @@ export function Leads() {
   return (
     <div className="space-y-2">
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
-        <StatCard icon={<Users size={16} />}         label={t('לידים פעילים', 'Active leads')}    value={stats.active}    />
-        <StatCard icon={<UserPlus size={16} />}      label={t('חדש היום', 'New today')}        value={stats.newToday}  />
-        <StatCard icon={<Calendar size={16} />}      label={t('שיחות מתוזמנות', 'Scheduled Calls')} value={stats.meetings}  />
-        <div className="col-span-2 grid grid-cols-1 gap-2 rounded-xl border border-gray-100 bg-surface p-1.5 sm:grid-cols-2 xl:col-span-2">
+      <div className="grid grid-cols-1 gap-2 xl:grid-cols-5">
+        {/* Five compact cards in two rows, so this half matches the height of
+            the call-activity box beside it instead of leaving it overhanging. */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:col-span-3">
+          <StatCard compact icon={<Users size={16} />}    label={t('לידים פעילים', 'Active leads')}    value={stats.active}   />
+          <StatCard compact icon={<UserPlus size={16} />} label={t('חדש היום', 'New today')}        value={stats.newToday} />
+          <StatCard compact icon={<Calendar size={16} />} label={t('שיחות מתוזמנות', 'Scheduled Calls')} value={stats.meetings} />
+          <StatCard compact icon={<Archive size={16} />}  label={t('לא רלוונטי', 'Not relevant')}     value={stats.notRelevant} />
+          <StatCard compact icon={<PhoneCall size={16} />} label={t('שיחות קרות', 'Cold call')}       value={stats.coldCall} />
+        </div>
+        <div className="grid grid-cols-1 gap-2 rounded-xl border border-gray-100 bg-surface p-1.5 sm:grid-cols-2 xl:col-span-2">
           <div className="col-span-1 flex items-center justify-between gap-2 px-1 sm:col-span-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">{t('פעילות שיחות', 'Call activity')}</p>
             <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-500">
