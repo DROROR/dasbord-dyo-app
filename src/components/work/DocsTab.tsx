@@ -995,14 +995,14 @@ export function DocsTab({
       )}
 
       {!loading && !loadError && (subfoldersHere.length > 0 || docsHere.length > 0) && (
-        <div className="flex flex-col gap-2 overflow-y-auto flex-1 min-h-0 pb-4">
+        <div className="flex flex-col gap-1.5 overflow-y-auto flex-1 min-h-0 pb-4">
           {subfoldersHere.map(folder => {
             const isRenaming = renamingFolderId === folder.id
             const canManageFolder = canCreate && folder.myLevel === 'full'
             return (
-              <div key={folder.id} className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-5 py-3.5 hover:border-gray-200 hover:shadow-sm transition-all">
-                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-                  <Folder size={18} className="text-amber-500" />
+              <div key={folder.id} className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-4 py-2 hover:border-gray-200 hover:shadow-sm transition-all">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                  <Folder size={15} className="text-amber-500" />
                 </div>
                 {isRenaming ? (
                   <div className="flex-1 flex items-center gap-2">
@@ -1018,8 +1018,8 @@ export function DocsTab({
                   </div>
                 ) : (
                   <button onClick={() => setCurrentFolderId(folder.id)} className="flex-1 text-left min-w-0">
-                    <p className="text-sm font-semibold text-gray-800 truncate">{folder.name}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">{accessLabel(folder.myLevel, tr)}</p>
+                    <p className="text-[13px] font-semibold text-gray-800 truncate leading-tight">{folder.name}</p>
+                    <p className="text-[10px] text-gray-400 leading-tight">{accessLabel(folder.myLevel, tr)}</p>
                   </button>
                 )}
                 {!isRenaming && canManageFolder && (
@@ -1049,14 +1049,14 @@ export function DocsTab({
                 tabIndex={0}
                 onClick={() => setSelectedId(doc.id)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(doc.id) } }}
-                className="group flex items-center gap-4 bg-white border border-gray-100 rounded-xl px-5 py-3.5 hover:border-gray-200 hover:shadow-sm transition-all text-left w-full cursor-pointer"
+                className="group flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-4 py-2 hover:border-gray-200 hover:shadow-sm transition-all text-left w-full cursor-pointer"
               >
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                  <FileText size={18} className="text-primary" />
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <FileText size={15} className="text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{doc.title || tr('ללא כותרת', 'Untitled')}</p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">
+                  <p className="text-[13px] font-semibold text-gray-800 truncate leading-tight">{doc.title || tr('ללא כותרת', 'Untitled')}</p>
+                  <p className="text-[10px] text-gray-400 leading-tight">
                     {tr('עודכן', 'Updated')} {new Date(doc.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} · {tr('על ידי', 'by')} {doc.createdBy}
                   </p>
                 </div>
