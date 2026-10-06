@@ -153,6 +153,17 @@ function RichEditor({ content, onChange, readOnly }: { content: string; onChange
     updateActiveFormats()
   }, [onChange])
 
+  // A click inside a contentEditable only moves the caret, so a pasted link
+  // looked like a link and did nothing. Open it instead; the caret can still be
+  // put inside the text with the arrow keys.
+  const handleClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const anchor = (event.target as HTMLElement | null)?.closest('a')
+    const href = anchor?.getAttribute('href')
+    if (!href) return
+    event.preventDefault()
+    window.open(href, '_blank', 'noopener,noreferrer')
+  }, [])
+
   // The browser's own paste keeps the source's colours, classes and <style>
   // blocks. Insert the cleaned markup instead: same text, emoji, headings,
   // bold, lists, tables and links, but the theme's colours.
@@ -197,6 +208,7 @@ function RichEditor({ content, onChange, readOnly }: { content: string; onChange
         suppressContentEditableWarning
         onInput={handleInput}
         onPaste={handlePaste}
+        onClick={handleClick}
         onKeyUp={updateActiveFormats}
         onMouseUp={updateActiveFormats}
         className={`doc-editor flex-1 min-h-0 overflow-y-auto px-5 py-4 text-sm text-gray-700 leading-relaxed focus:outline-none ${readOnly ? 'bg-gray-50 cursor-not-allowed' : 'bg-white'}`}
@@ -220,7 +232,7 @@ function RichEditor({ content, onChange, readOnly }: { content: string; onChange
         .doc-editor table { border-collapse: collapse; width: 100%; margin: 8px 0; }
         .doc-editor td, .doc-editor th { border: 1px solid #e5e7eb; padding: 6px 10px; min-width: 70px; }
         .doc-editor th { background: #f9fafb; font-weight: 600; }
-        .doc-editor a { color: #2563eb; text-decoration: underline; }
+        .doc-editor a { color: #2563eb; text-decoration: underline; cursor: pointer; }
         .doc-editor blockquote { border-inline-start: 3px solid #e5e7eb; padding-inline-start: 0.75em; margin: 0.4em 0; color: #6b7280; }
         .doc-editor code { background: #f3f4f6; border-radius: 4px; padding: 0.1em 0.3em; font-size: 0.9em; }
         .doc-editor pre { background: #f3f4f6; border-radius: 8px; padding: 0.6em 0.8em; overflow-x: auto; }

@@ -28,12 +28,14 @@ const DROP_TAGS = new Set([
 ])
 
 /**
- * Inline styles that carry meaning rather than theme. Colour, background,
- * font-family and font-size are deliberately absent: they are what makes
- * pasted text unreadable in the other mode.
+ * Inline styles that carry meaning rather than theme. Colour, background and
+ * font-family are deliberately absent: those are what make pasted text
+ * unreadable in the other mode. font-size and font-weight stay, because a
+ * heading copied from Google Docs or a web page is often just a styled <span>
+ * — strip them and it lands as plain body text.
  */
 const KEEP_STYLES = new Set([
-  'text-align', 'font-weight', 'font-style', 'text-decoration',
+  'text-align', 'font-weight', 'font-size', 'font-style', 'text-decoration',
   'text-decoration-line', 'vertical-align',
 ])
 
@@ -74,6 +76,51 @@ function unwrap(element: Element): void {
   parent.removeChild(element)
 }
 
+// A URL, up to the first whitespace or bracket. Trailing sentence punctuation
+// is given back, so "see https://x.com/a." does not swallow the full stop.
+const URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>"'`)\]}]+/gi
+// A separate, non-global copy for the cheap pre-check: calling .test() on the
+// global one would move its lastIndex and make the next node start mid-string.
+const URL_PRESENT = /(?:https?:\/\/|www\.)/i
+
+/**
+ * Turns bare URLs in text into real links, so a pasted address is clickable
+ * instead of being a string that looks like one. Text already inside an <a>,
+ * or inside code, is left alone.
+ */
+function autoLink(root: ParentNode, doc: Document): void {
+  const walker = doc.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */)
+  const targets: Text[] = []
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node as Text
+    if (!text.data || !URL_PRESENT.test(text.data)) continue
+    if ((text.parentElement?.closest('a, code, pre')) != null) continue
+    targets.push(text)
+  }
+
+  for (const text of targets) {
+    const fragment = doc.createDocumentFragment()
+    let cursor = 0
+    for (const match of text.data.matchAll(URL_PATTERN)) {
+      const start = match.index ?? 0
+      let url = match[0]
+      // Keep the sentence's punctuation out of the href.
+      const trailing = url.match(/[.,;:!?]+$/)
+      if (trailing) url = url.slice(0, -trailing[0].length)
+      if (start > cursor) fragment.appendChild(doc.createTextNode(text.data.slice(cursor, start)))
+      const anchor = doc.createElement('a')
+      anchor.setAttribute('href', url.toLowerCase().startsWith('www.') ? `https://${url}` : url)
+      anchor.setAttribute('target', '_blank')
+      anchor.setAttribute('rel', 'noopener noreferrer')
+      anchor.textContent = url
+      fragment.appendChild(anchor)
+      cursor = start + url.length
+    }
+    if (cursor < text.data.length) fragment.appendChild(doc.createTextNode(text.data.slice(cursor)))
+    text.parentNode?.replaceChild(fragment, text)
+  }
+}
+
 /**
  * Returns HTML safe to drop into the editor: same words, same emoji, same
  * structure, none of the source's colours, classes or scripts.
@@ -111,14 +158,19 @@ export function sanitizePastedHtml(html: string): string {
     }
   }
 
+  autoLink(doc.body, doc)
   return doc.body.innerHTML
 }
 
-/** Plain-text paste: keep the line breaks the text actually has. */
+/** Plain-text paste: keep the line breaks, and make any URL a real link. */
 export function plainTextToHtml(text: string): string {
-  const escaped = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-  return escaped.replace(/\r\n|\r|\n/g, '<br>')
+  const doc = new DOMParser().parseFromString('<body></body>', 'text/html')
+  const lines = text.split(/\r\n|\r|\n/)
+  lines.forEach((line, i) => {
+    if (i > 0) doc.body.appendChild(doc.createElement('br'))
+    // Via a text node, so < & > cannot become markup.
+    if (line) doc.body.appendChild(doc.createTextNode(line))
+  })
+  autoLink(doc.body, doc)
+  return doc.body.innerHTML
 }
