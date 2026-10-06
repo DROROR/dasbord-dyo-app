@@ -9,6 +9,7 @@
 
 export const MODULES = [
   'dashboard', 'clients', 'billing', 'whatsapp', 'leads', 'agents', 'bot_training', 'work', 'work_docs', 'pricing', 'permissions',
+  'support_tickets',
 ] as const
 export type PermissionModule = typeof MODULES[number]
 
@@ -32,6 +33,8 @@ export const DEFAULT_STAFF_PERMISSIONS: Record<PermissionModule, PermissionLevel
   dashboard: 'view', clients: 'view', billing: 'none',
   whatsapp: 'none', leads: 'view', agents: 'none', bot_training: 'none',
   work: 'edit', work_docs: 'none', pricing: 'none', permissions: 'none',
+  // Support-ticket history is granted explicitly, never by default.
+  support_tickets: 'none',
 }
 
 // Boards use a separate, 4-value access vocabulary (none/view/comment/full,
