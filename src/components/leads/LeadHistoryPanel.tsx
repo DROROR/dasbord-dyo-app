@@ -1,12 +1,16 @@
 import { useState } from 'react'
-import { Calendar, Loader2, PhoneOff, PhoneCall, Plus } from 'lucide-react'
+import { Archive, Calendar, Loader2, PhoneOff, PhoneCall, Plus } from 'lucide-react'
 import { useLang } from '../../contexts/LanguageContext'
 import type { DbLeadHistory } from '../../lib/database'
 
-export function LeadHistoryPanel({ entries, canEdit, onAdd }: {
+export function LeadHistoryPanel({ entries, canEdit, onAdd, onNotRelevant }: {
   entries: DbLeadHistory[]
   canEdit: boolean
   onAdd: (kind: DbLeadHistory['kind'], body?: string, occurredAt?: string) => Promise<void>
+  /** Archives the lead. Sits with the other call outcomes because that is where
+   *  it gets used — straight after a call that went nowhere. Omitted when the
+   *  lead is already archived. */
+  onNotRelevant?: () => void
 }) {
   const { t, lang } = useLang()
   const [note, setNote] = useState('')
@@ -41,6 +45,7 @@ export function LeadHistoryPanel({ entries, canEdit, onAdd }: {
         <input type="datetime-local" value={callAt} max={latestAllowed} onChange={event => setCallAt(event.target.value)} className="h-9 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-700" />
         <button onClick={() => void add('completed_call')} disabled={saving || !callAt} className="flex h-9 items-center gap-1 rounded-lg border border-primary px-3 text-xs font-semibold text-primary disabled:opacity-40"><PhoneCall size={13} />{t('רשום שיחה שהושלמה', 'Record Completed Call')}</button>
         <button onClick={() => void add('no_answer')} disabled={saving} className="flex h-9 items-center gap-1 rounded-lg border border-amber-300 px-3 text-xs font-semibold text-amber-700 disabled:opacity-40"><PhoneOff size={13} />{t('ניסיון קשר — אין מענה', 'Contact Attempt — No Answer')}</button>
+        {onNotRelevant && <button onClick={onNotRelevant} disabled={saving} title={t('מעביר את הליד לארכיון — ההיסטוריה נשמרת', 'Moves the lead to the archive — its history is kept')} className="flex h-9 items-center gap-1 rounded-lg border border-gray-300 px-3 text-xs font-semibold text-gray-600 transition-colors hover:border-gray-400 hover:bg-gray-50 disabled:opacity-40"><Archive size={13} />{t('לא רלוונטי', 'Not relevant')}</button>}
         {saving && <Loader2 size={14} className="animate-spin text-primary" />}
       </div>
       {error && <p className="text-xs text-red-600">{error}</p>}
