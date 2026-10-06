@@ -346,7 +346,15 @@ const server = http.createServer(async (request, response) => {
       status: 'ok',
       configured: configured(),
       lastSync,
-      coldCall: { configured: coldConfigured(), lastSync: coldLastSync },
+      coldCall: {
+        configured: coldConfigured(),
+        lastSync: coldLastSync,
+        // Lets the board tell a cold-call lead from a form lead after it has
+        // been archived, which overwrites the pipeline status but never the
+        // row key. Not a secret: the sheet itself stays private to the
+        // service account (anonymous reads get 401).
+        keyPrefix: COLD_SHEET_ID ? `google:${COLD_SHEET_ID}:` : null,
+      },
     })
   }
 

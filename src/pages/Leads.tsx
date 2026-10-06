@@ -34,6 +34,7 @@ interface Lead {
   id: string; name: string; phone: string; email: string
   source: LeadSource; imported: boolean; leadType: LeadType; status: LeadStatus
   pipelineStatusId: string | null
+  sheetRowKey: string | null
   formAnswer: string
   dueAt: string | null
   statusUpdatedAt: string
@@ -122,6 +123,7 @@ function dbLeadToLead(row: DbLead): Lead {
     leadType:      row.lead_type ?? 'has_course',
     status:        DB_STATUS_MAP[row.status],
     pipelineStatusId: row.pipeline_status_id,
+    sheetRowKey:   row.sheet_row_key,
     campaignName: row.campaign_name ?? '',
     clientName: row.client_name ?? row.name,
     history: [],
@@ -738,6 +740,7 @@ export function Leads() {
   const [sheetSyncedAt, setSheetSyncedAt] = useState<Date | null>(null)
   const [sheetConfigured, setSheetConfigured] = useState(false)
   const [coldConfigured, setColdConfigured] = useState(false)
+  const [coldKeyPrefix, setColdKeyPrefix] = useState('')
   const [syncingCold, setSyncingCold] = useState(false)
   const [clockNow, setClockNow] = useState(() => Date.now())
   const [statsRange, setStatsRange] = useState<StatsRange>('all')
@@ -761,11 +764,16 @@ export function Leads() {
 
   useEffect(() => { void load() }, [])
   useEffect(() => {
-    if (!canDeleteStatuses) return
+    // Not gated on canDeleteStatuses: the sync buttons are (where they are
+    // rendered), but every member sees the counters that need keyPrefix.
     void getGoogleSheetSyncStatus()
-      .then(status => { setSheetConfigured(status.configured); setColdConfigured(status.coldCall?.configured === true) })
+      .then(status => {
+        setSheetConfigured(status.configured)
+        setColdConfigured(status.coldCall?.configured === true)
+        setColdKeyPrefix(status.coldCall?.keyPrefix ?? '')
+      })
       .catch(() => { setSheetConfigured(false); setColdConfigured(false) })
-  }, [canDeleteStatuses])
+  }, [])
 
   const handleSheetSync = async () => {
     if (syncingSheet) return
@@ -848,9 +856,17 @@ export function Leads() {
   // filters it out of the columns, so without a counter it is invisible.
   const coldCallStatus = statuses.find(status => (status.label_en || '').trim().toLowerCase() === 'cold call'
     || (status.label_he || '').trim().toLowerCase() === 'cold call')
+  // Archiving overwrites pipeline_status_id, so after the fact only the row
+  // key still says where a lead came from — every cold-call row carries the
+  // cold sheet's prefix. One sitting in the cold-call column counts too, so
+  // a hand-added one is attributed correctly until it is archived.
+  const isColdCallLead = (lead: Lead) =>
+    (coldKeyPrefix !== '' && (lead.sheetRowKey ?? '').startsWith(coldKeyPrefix))
+    || (coldCallStatus !== undefined && lead.pipelineStatusId === coldCallStatus.id)
   const stats = {
     active: activeLeads.length,
-    notRelevant: archived.length,
+    notRelevantLeads: archived.filter(lead => !isColdCallLead(lead)).length,
+    notRelevantCold: archived.filter(isColdCallLead).length,
     coldCall: coldCallStatus ? leads.filter(lead => lead.pipelineStatusId === coldCallStatus.id).length : 0,
     newToday: activeLeads.filter(lead => new Date(lead.entryDate).toDateString() === new Date().toDateString()).length,
     meetings: activeLeads.filter(lead => !!lead.dueAt && new Date(lead.dueAt).getTime() >= clockNow).length,
@@ -961,14 +977,15 @@ export function Leads() {
     <div className="space-y-2">
       {/* Stats */}
       <div className="grid grid-cols-1 gap-2 xl:grid-cols-5">
-        {/* Five compact cards in two rows, so this half matches the height of
+        {/* Six compact cards in two rows, so this half matches the height of
             the call-activity box beside it instead of leaving it overhanging. */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:col-span-3">
           <StatCard compact icon={<Users size={16} />}    label={t('לידים פעילים', 'Active leads')}    value={stats.active}   />
           <StatCard compact icon={<UserPlus size={16} />} label={t('חדש היום', 'New today')}        value={stats.newToday} />
           <StatCard compact icon={<Calendar size={16} />} label={t('שיחות מתוזמנות', 'Scheduled Calls')} value={stats.meetings} />
-          <StatCard compact icon={<Archive size={16} />}  label={t('לא רלוונטי', 'Not relevant')}     value={stats.notRelevant} />
           <StatCard compact icon={<PhoneCall size={16} />} label={t('שיחות קרות', 'Cold call')}       value={stats.coldCall} />
+          <StatCard compact icon={<Archive size={16} />}  label={t('לא רלוונטי — לידים', 'Not relevant — leads')}       value={stats.notRelevantLeads} />
+          <StatCard compact icon={<Archive size={16} />}  label={t('לא רלוונטי — שיחות קרות', 'Not relevant — cold calls')} value={stats.notRelevantCold} />
         </div>
         <div className="grid grid-cols-1 gap-2 rounded-xl border border-gray-100 bg-surface p-1.5 sm:grid-cols-2 xl:col-span-2">
           <div className="col-span-1 flex items-center justify-between gap-2 px-1 sm:col-span-2">

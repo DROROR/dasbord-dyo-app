@@ -11,7 +11,11 @@ export interface GoogleSheetSyncResult {
 export interface GoogleSheetSyncStatus {
   configured: boolean
   /** The second sheet (cold-call research list). Absent on an older service build. */
-  coldCall?: { configured: boolean }
+  coldCall?: {
+    configured: boolean
+    /** `sheet_row_key` prefix of rows imported from that sheet. */
+    keyPrefix?: string | null
+  }
 }
 
 export async function getGoogleSheetSyncStatus(): Promise<GoogleSheetSyncStatus> {
