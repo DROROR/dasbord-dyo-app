@@ -173,7 +173,7 @@ export interface WorkDoc {
 export interface WorkDocFolder {
   id: string
   name: string
-  /** null = a root-level folder; a two-level hierarchy max (root + one subfolder level) is enforced server-side. */
+  /** null = a root-level folder; folders nest to any depth, capped server-side (enforce_folder_depth). */
   parentId: string | null
   createdBy: string
   updatedAt: string

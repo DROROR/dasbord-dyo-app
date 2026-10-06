@@ -14,7 +14,7 @@ import {
   getWorkDocFolders, createWorkDocFolder, renameWorkDocFolder, deleteWorkDocFolder,
   getResourceAccess, setResourceAccess,
   getWorkDocAttachments, uploadWorkDocAttachment, deleteWorkDocAttachment, signWorkDocAttachment,
-  getWorkDocAttachmentCounts, setWorkDocIcon, setWorkDocFolderIcon, moveWorkDocFolder,
+  getWorkDocAttachmentCounts, setWorkDocIcon, setWorkDocFolderIcon,
   type DbWorkDocAttachment,
 } from '../../lib/database'
 import { sanitizePastedHtml, plainTextToHtml } from '../../lib/richText'
@@ -901,19 +901,6 @@ export function DocsTab({
     }
   }
 
-  async function moveFolder(id: string, parentId: string | null) {
-    setIconError(null)
-    try {
-      const updated = await moveWorkDocFolder(id, parentId, profileNames)
-      setFolders(prev => prev.map(f => f.id === id ? updated : f))
-      // Following it is the least surprising thing to do: the folder is no
-      // longer in the list the person is looking at.
-      if (parentId !== null) setCurrentFolderId(parentId)
-    } catch (err) {
-      setIconError(errorText(err, tr('העברת התיקייה נכשלה', 'Could not move the folder')))
-    }
-  }
-
   async function applyFolderIcon(id: string, icon: string | null) {
     setIconPickerFor(null)
     setIconError(null)
@@ -945,10 +932,16 @@ export function DocsTab({
   }, [currentFolderId])
 
   const currentFolder = currentFolderId ? folders.find(f => f.id === currentFolderId) ?? null : null
-  const parentFolder = currentFolder?.parentId ? folders.find(f => f.id === currentFolder.parentId) ?? null : null
-  // Two-level max: a subfolder (parentId set) can never itself contain a
-  // "New Folder" action — matches the server's own enforce_folder_depth.
-  const canCreateSubfolderHere = currentFolder === null
+  // The trail from the root down to the folder being viewed, for the breadcrumb.
+  // Guarded against a missing link so a folder whose parent is not in the list
+  // (no access to it) cannot loop forever.
+  const folderTrail: WorkDocFolder[] = []
+  for (let node = currentFolder; node; node = node.parentId ? folders.find(f => f.id === node!.parentId) ?? null : null) {
+    folderTrail.unshift(node)
+    if (folderTrail.length > 20) break
+  }
+  // Nesting is no longer capped at two levels (20261006170000), so a folder can
+  // hold folders at any depth the server still allows.
   const canCreateHere = canCreate && (currentFolderId === null || currentFolder?.myLevel === 'full')
 
   const subfoldersHere = folders.filter(f => (f.parentId ?? null) === currentFolderId)
@@ -1049,8 +1042,8 @@ export function DocsTab({
 
   // The contents of an expanded folder, indented under its row: subfolders
   // first (expandable in turn), then its documents. A plain function rather
-  // than a component so it keeps the list's own handlers, and recursive
-  // because the tree is at most two levels deep anyway.
+  // than a component so it keeps the list's own handlers, and recursive because
+  // folders nest as deep as the person needs.
   function renderFolderChildren(parentId: string) {
     const childFolders = folders.filter(f => f.parentId === parentId)
     const childDocs = docs.filter(d => (d.folderId ?? null) === parentId)
@@ -1127,23 +1120,18 @@ export function DocsTab({
           >
             {tr('דוקומנטציה', 'Documentation')}
           </button>
-          {parentFolder && (
-            <>
+          {folderTrail.map((node, index) => (
+            <Fragment key={node.id}>
               <ChevronLeft size={11} className="rtl:hidden" />
               <ChevronRight size={11} className="ltr:hidden" />
-              <button onClick={() => setCurrentFolderId(parentFolder.id)} className="hover:text-gray-700 transition-colors">{parentFolder.name}</button>
-            </>
-          )}
-          {currentFolder && (
-            <>
-              <ChevronLeft size={11} className="rtl:hidden" />
-              <ChevronRight size={11} className="ltr:hidden" />
-              <span className="text-gray-700">{currentFolder.name}</span>
-            </>
-          )}
+              {index === folderTrail.length - 1
+                ? <span className="text-gray-700">{node.name}</span>
+                : <button onClick={() => setCurrentFolderId(node.id)} className="hover:text-gray-700 transition-colors">{node.name}</button>}
+            </Fragment>
+          ))}
         </div>
         <div className="flex items-center gap-2">
-          {canCreateHere && canCreateSubfolderHere && (
+          {canCreateHere && (
             <button
               onClick={() => setNewFolderOpen(s => !s)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-white border border-gray-200 text-gray-600 hover:border-gray-300 transition-colors"
@@ -1226,10 +1214,6 @@ export function DocsTab({
             const isRenaming = renamingFolderId === folder.id
             const canManageFolder = canCreate && folder.myLevel === 'full'
             const isExpanded = expandedFolders.has(folder.id)
-            // Depth is capped at two levels, so a folder that holds subfolders
-            // can only sit at the root; otherwise any root folder but itself.
-            const moveTargets = folders.filter(f => f.parentId === null && f.id !== folder.id && f.myLevel === 'full')
-            const canNest = !folders.some(f => f.parentId === folder.id)
             return (
               <Fragment key={folder.id}>
               <div className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2 hover:border-gray-200 hover:shadow-sm transition-all">
@@ -1272,19 +1256,6 @@ export function DocsTab({
                 )}
                 {!isRenaming && canManageFolder && (
                   <div className="flex items-center gap-1 shrink-0">
-                    {(moveTargets.length > 0 || folder.parentId !== null) && (
-                      <select
-                        value={folder.parentId ?? ''}
-                        onChange={e => void moveFolder(folder.id, e.target.value || null)}
-                        title={tr('העבר לתיקייה', 'Move into a folder')}
-                        className="rounded-lg border border-gray-200 bg-white px-1.5 py-1 text-[11px] text-gray-500 focus:border-primary focus:outline-none"
-                      >
-                        <option value="">{tr('שורש דוקומנטציה', 'Documentation root')}</option>
-                        {canNest && moveTargets.map(target => (
-                          <option key={target.id} value={target.id}>{target.name}</option>
-                        ))}
-                      </select>
-                    )}
                     <button onClick={() => { setRenamingFolderId(folder.id); setRenameValue(folder.name) }} title={tr('שנה שם', 'Rename')} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600">
                       <Pencil size={13} />
                     </button>

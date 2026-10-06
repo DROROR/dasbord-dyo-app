@@ -1598,9 +1598,9 @@ export async function renameWorkDocFolder(id: string, name: string, profileNames
   return dbToWorkDocFolder(data as unknown as DbWorkDocFolder, profileNames)
 }
 
-// Server-side (enforce_folder_depth trigger) rejects a self-parent, a
-// parent cycle, or a resulting depth beyond two levels — this call
-// surfaces whatever error message that trigger raises verbatim.
+// Server-side (enforce_folder_depth trigger) rejects a self-parent, a move
+// beneath the folder's own descendants, or a chain deeper than the cap — this
+// call surfaces whatever error message that trigger raises verbatim.
 export async function moveWorkDocFolder(id: string, parentId: string | null, profileNames: Record<string, string>): Promise<WorkDocFolder> {
   const { data, error } = await supabase
     .from('work_doc_folders')
