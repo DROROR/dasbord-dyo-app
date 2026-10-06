@@ -3,6 +3,7 @@ import {
   FileText, Plus, ArrowLeft, Save, Lock, Edit3, Loader2, AlertCircle, Check,
   Bold, Italic, Underline, List, ListOrdered, Table, Heading1, Heading2, Heading3,
   Folder, FolderPlus, ChevronLeft, ChevronRight, Pencil, Trash2, FolderInput,
+  Paperclip, Download, X, File as FileIcon,
 } from 'lucide-react'
 import { Avatar } from '../Avatar'
 import { useWorkLang } from '../../contexts/WorkLanguageContext'
@@ -11,6 +12,8 @@ import {
   getWorkDocs, createWorkDoc, updateWorkDoc, moveWorkDocToFolder, deleteWorkDoc,
   getWorkDocFolders, createWorkDocFolder, renameWorkDocFolder, deleteWorkDocFolder,
   getResourceAccess, setResourceAccess,
+  getWorkDocAttachments, uploadWorkDocAttachment, deleteWorkDocAttachment, signWorkDocAttachment,
+  type DbWorkDocAttachment,
 } from '../../lib/database'
 import { sanitizePastedHtml, plainTextToHtml } from '../../lib/richText'
 
@@ -349,6 +352,242 @@ function AccessPanel({
   )
 }
 
+
+// ─── Attachments ──────────────────────────────────────────────────────────────
+// Files hanging off the document, under the editor: images preview in place,
+// everything else shows as a file card, and both open full size and download.
+
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+
+function formatBytes(bytes: number | null): string {
+  if (bytes === null) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function isImage(attachment: DbWorkDocAttachment): boolean {
+  return (attachment.mime_type ?? '').startsWith('image/')
+    || /\.(png|jpe?g|gif|webp|svg|avif|bmp)$/i.test(attachment.name)
+}
+
+function isPdf(attachment: DbWorkDocAttachment): boolean {
+  return attachment.mime_type === 'application/pdf' || /\.pdf$/i.test(attachment.name)
+}
+
+/** Forces a save-as rather than a navigation — Supabase honours ?download. */
+function downloadUrl(signedUrl: string, name: string): string {
+  return `${signedUrl}${signedUrl.includes('?') ? '&' : '?'}download=${encodeURIComponent(name)}`
+}
+
+function AttachmentsPanel({ docId, canEdit }: { docId: string; canEdit: boolean }) {
+  const { t: tr } = useWorkLang()
+  const [attachments, setAttachments] = useState<DbWorkDocAttachment[]>([])
+  const [urls, setUrls] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [preview, setPreview] = useState<DbWorkDocAttachment | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Signed links expire, so they are fetched for the list rather than stored.
+  const signAll = useCallback(async (rows: DbWorkDocAttachment[]) => {
+    const signed = await Promise.all(rows.map(async row => {
+      try { return [row.id, await signWorkDocAttachment(row.storage_path)] as const }
+      catch { return null }
+    }))
+    setUrls(Object.fromEntries(signed.filter(entry => entry !== null) as (readonly [string, string])[]))
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    void getWorkDocAttachments(docId)
+      .then(async rows => {
+        if (cancelled) return
+        setAttachments(rows)
+        setError(null)
+        await signAll(rows)
+      })
+      .catch(err => { if (!cancelled) setError(errorText(err, tr('טעינת הקבצים נכשלה', 'Could not load the attachments'))) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docId])
+
+  async function handleFiles(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (!files.length) return
+    const tooBig = files.find(file => file.size > MAX_ATTACHMENT_BYTES)
+    if (tooBig) {
+      setError(tr(`הקובץ ${tooBig.name} גדול מ-20MB`, `${tooBig.name} is larger than 20 MB`))
+      return
+    }
+    setUploading(true)
+    setError(null)
+    try {
+      for (const file of files) {
+        const created = await uploadWorkDocAttachment(docId, file)
+        setAttachments(prev => [created, ...prev])
+        try {
+          const signed = await signWorkDocAttachment(created.storage_path)
+          setUrls(prev => ({ ...prev, [created.id]: signed }))
+        } catch { /* the card still lists it; the link is refetched on reload */ }
+      }
+    } catch (err) {
+      setError(errorText(err, tr('העלאת הקובץ נכשלה', 'Upload failed')))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function confirmDelete(attachment: DbWorkDocAttachment) {
+    setDeletingId(attachment.id)
+    setError(null)
+    try {
+      await deleteWorkDocAttachment(attachment)
+      setAttachments(prev => prev.filter(row => row.id !== attachment.id))
+      setConfirmId(null)
+    } catch (err) {
+      setError(errorText(err, tr('מחיקת הקובץ נכשלה', 'Could not delete the file')))
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  return (
+    <div className="shrink-0 rounded-xl border border-gray-200 bg-gray-50 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+          <Paperclip size={11} /> {tr('קבצים מצורפים', 'Attachments')}
+          {attachments.length > 0 && <span className="text-gray-400">({attachments.length})</span>}
+        </p>
+        {canEdit && (
+          <>
+            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={e => void handleFiles(e)} />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:border-gray-300 disabled:opacity-60"
+            >
+              {uploading
+                ? <><Loader2 size={11} className="animate-spin" /> {tr('מעלה...', 'Uploading...')}</>
+                : <><Plus size={11} /> {tr('צרף קובץ', 'Attach file')}</>}
+            </button>
+          </>
+        )}
+      </div>
+
+      {error && (
+        <div className="mb-2 flex items-center gap-2 text-xs text-red-500">
+          <AlertCircle size={13} /> {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center gap-2 py-1 text-xs text-gray-400">
+          <Loader2 size={13} className="animate-spin" /> {tr('טוען קבצים...', 'Loading attachments...')}
+        </div>
+      ) : attachments.length === 0 ? (
+        <p className="py-1 text-xs text-gray-400">
+          {canEdit ? tr('אין קבצים. אפשר לצרף תמונות, PDF או כל קובץ אחר.', 'No files yet — attach images, PDFs or any other file.') : tr('אין קבצים מצורפים', 'No attachments')}
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {attachments.map(attachment => {
+            const url = urls[attachment.id]
+            const openable = isImage(attachment) || isPdf(attachment)
+            return (
+              <div key={attachment.id} className="group relative overflow-hidden rounded-lg border border-gray-200 bg-white">
+                <button
+                  onClick={() => { if (url && openable) setPreview(attachment) }}
+                  disabled={!url || !openable}
+                  title={openable ? tr('פתח תצוגה מקדימה', 'Open preview') : attachment.name}
+                  className="flex h-20 w-full items-center justify-center bg-gray-50 disabled:cursor-default"
+                >
+                  {isImage(attachment) && url
+                    ? <img src={url} alt={attachment.name} className="h-full w-full object-cover" />
+                    : <FileIcon size={22} className="text-gray-300" />}
+                </button>
+                <div className="flex items-center gap-1 px-2 py-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[11px] font-semibold text-gray-700" title={attachment.name}>{attachment.name}</p>
+                    <p className="text-[10px] text-gray-400">{formatBytes(attachment.size_bytes)}</p>
+                  </div>
+                  {url && (
+                    <a
+                      href={downloadUrl(url, attachment.name)}
+                      download={attachment.name}
+                      title={tr('הורד', 'Download')}
+                      className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                    >
+                      <Download size={12} />
+                    </a>
+                  )}
+                  {canEdit && (
+                    <button
+                      onClick={() => setConfirmId(attachment.id)}
+                      title={tr('מחק', 'Delete')}
+                      className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+
+                {confirmId === attachment.id && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white/95 p-2 text-center">
+                    <p className="text-[11px] font-semibold text-gray-700">{tr('למחוק את הקובץ?', 'Delete this file?')}</p>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setConfirmId(null)} className="rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-500">
+                        {tr('ביטול', 'Cancel')}
+                      </button>
+                      <button
+                        onClick={() => void confirmDelete(attachment)}
+                        disabled={deletingId === attachment.id}
+                        className="flex items-center gap-1 rounded-lg bg-red-500 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-60"
+                      >
+                        {deletingId === attachment.id && <Loader2 size={10} className="animate-spin" />}
+                        {tr('מחק', 'Delete')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {preview && urls[preview.id] && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/80 p-4" onClick={() => setPreview(null)}>
+          <div className="mb-2 flex items-center gap-3 text-white" onClick={event => event.stopPropagation()}>
+            <p className="min-w-0 flex-1 truncate text-sm font-semibold">{preview.name}</p>
+            <a
+              href={downloadUrl(urls[preview.id], preview.name)}
+              download={preview.name}
+              className="flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-semibold hover:bg-white/25"
+            >
+              <Download size={12} /> {tr('הורד', 'Download')}
+            </a>
+            <button onClick={() => setPreview(null)} className="rounded-lg bg-white/15 p-1.5 hover:bg-white/25">
+              <X size={14} />
+            </button>
+          </div>
+          <div className="flex min-h-0 flex-1 items-center justify-center" onClick={event => event.stopPropagation()}>
+            {isImage(preview)
+              ? <img src={urls[preview.id]} alt={preview.name} className="max-h-full max-w-full rounded-lg object-contain" />
+              : <iframe src={urls[preview.id]} title={preview.name} className="h-full w-full rounded-lg bg-white" />}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── DocEditor ────────────────────────────────────────────────────────────────
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
@@ -479,6 +718,8 @@ function DocEditor({
       )}
 
       <RichEditor content={content} onChange={setContent} readOnly={!canEdit} />
+
+      <AttachmentsPanel docId={doc.id} canEdit={canEdit} />
 
       <div className="shrink-0 text-[10px] text-gray-400">
         {tr('נוצר על ידי', 'Created by')} {doc.createdBy} · {tr('עודכן לאחרונה', 'Last updated')} {new Date(doc.updatedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}

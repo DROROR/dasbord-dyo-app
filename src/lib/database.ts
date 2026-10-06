@@ -1392,6 +1392,100 @@ export async function deleteWorkDoc(id: string): Promise<void> {
   if (error) throw error
 }
 
+// ── WORK DOC ATTACHMENTS ────────────────────────────────────────────────────
+// Files hanging off a document. The bytes live in the private
+// `work-doc-attachments` bucket (20261006120000) and are only ever handed to
+// the UI as a signed URL; this table is the metadata the list is built from.
+
+export const WORK_DOC_ATTACHMENTS_BUCKET = 'work-doc-attachments'
+
+export interface DbWorkDocAttachment {
+  id: string
+  doc_id: string
+  name: string
+  mime_type: string | null
+  size_bytes: number | null
+  storage_path: string
+  uploaded_by: string | null
+  created_at: string
+}
+
+const DOC_ATTACHMENT_COLUMNS = 'id, doc_id, name, mime_type, size_bytes, storage_path, uploaded_by, created_at'
+
+export async function getWorkDocAttachments(docId: string): Promise<DbWorkDocAttachment[]> {
+  const { data, error } = await supabase
+    .from('work_doc_attachments')
+    .select(DOC_ATTACHMENT_COLUMNS)
+    .eq('doc_id', docId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data as DbWorkDocAttachment[]
+}
+
+/**
+ * Uploads the file, then records it. The path carries the document id as its
+ * first segment, which is what the storage policies read access off.
+ */
+export async function uploadWorkDocAttachment(docId: string, file: File): Promise<DbWorkDocAttachment> {
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'attachment'
+  const storagePath = `${docId}/${crypto.randomUUID()}-${safeName}`
+  const { error: uploadError } = await supabase.storage
+    .from(WORK_DOC_ATTACHMENTS_BUCKET)
+    .upload(storagePath, file, {
+      cacheControl: '3600',
+      contentType: file.type || 'application/octet-stream',
+      upsert: false,
+    })
+  if (uploadError) throw uploadError
+
+  // Insert and read back separately, as createWorkDoc explains: the view policy
+  // calls has_doc_access(), which cannot see a row mid-insert.
+  const id = crypto.randomUUID()
+  const { error: insertError } = await supabase
+    .from('work_doc_attachments')
+    .insert({
+      id,
+      doc_id: docId,
+      name: file.name,
+      mime_type: file.type || null,
+      size_bytes: file.size,
+      storage_path: storagePath,
+    })
+  if (insertError) {
+    // Nothing points at the uploaded object now, so leave no orphan behind.
+    await supabase.storage.from(WORK_DOC_ATTACHMENTS_BUCKET).remove([storagePath])
+    throw insertError
+  }
+
+  const { data, error } = await supabase
+    .from('work_doc_attachments')
+    .select(DOC_ATTACHMENT_COLUMNS)
+    .eq('id', id)
+    .single()
+  if (error) throw error
+  return data as DbWorkDocAttachment
+}
+
+/** Short-lived link for previewing or downloading one attachment. */
+export async function signWorkDocAttachment(storagePath: string, expiresInSeconds = 3600): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from(WORK_DOC_ATTACHMENTS_BUCKET)
+    .createSignedUrl(storagePath, expiresInSeconds)
+  if (error) throw error
+  return data.signedUrl
+}
+
+export async function deleteWorkDocAttachment(attachment: DbWorkDocAttachment): Promise<void> {
+  const { error } = await supabase.from('work_doc_attachments').delete().eq('id', attachment.id)
+  if (error) throw error
+  // The row is the record; a failure to clear the bytes should not read as a
+  // failed delete, so it is logged rather than thrown.
+  const { error: storageError } = await supabase.storage
+    .from(WORK_DOC_ATTACHMENTS_BUCKET)
+    .remove([attachment.storage_path])
+  if (storageError) console.warn('Could not remove the attachment file:', storageError.message)
+}
+
 // ── WORK DOC FOLDERS ────────────────────────────────────────────────────────
 // access is deliberately excluded here too — same reasoning as work_docs:
 // only fetched on demand via getResourceAccess('work_doc_folders', ...).
