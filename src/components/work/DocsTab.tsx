@@ -14,7 +14,7 @@ import {
   getWorkDocFolders, createWorkDocFolder, renameWorkDocFolder, deleteWorkDocFolder,
   getResourceAccess, setResourceAccess,
   getWorkDocAttachments, uploadWorkDocAttachment, deleteWorkDocAttachment, signWorkDocAttachment,
-  getWorkDocAttachmentCounts,
+  getWorkDocAttachmentCounts, setWorkDocIcon, setWorkDocFolderIcon,
   type DbWorkDocAttachment,
 } from '../../lib/database'
 import { sanitizePastedHtml, plainTextToHtml } from '../../lib/richText'
@@ -760,7 +760,75 @@ function DocEditor({
   )
 }
 
+// ─── Icon picker ──────────────────────────────────────────────────────────────
+// The emoji that replaces the default icon on a row. A small set to click plus a
+// field to paste any other one, because no list of favourites covers everybody.
+
+const EMOJI_CHOICES = [
+  '📁', '📂', '🗂️', '📄', '📝', '📋', '📊', '📈',
+  '💰', '🧾', '⚙️', '🔧', '🛠️', '🚀', '🎯', '✅',
+  '⚠️', '🔒', '🔑', '💡', '📌', '⭐', '🔥', '❤️',
+  '🎓', '🎥', '🎨', '📷', '📞', '✉️', '🌐', '🤖',
+  '🧠', '📚', '🗓️', '⏱️', '🏆', '🧩', '🩺', '🍀',
+]
+
+function IconPicker({ current, onPick, onClose }: {
+  current: string | null | undefined
+  onPick: (icon: string | null) => void
+  onClose: () => void
+}) {
+  const { t: tr } = useWorkLang()
+  const [typed, setTyped] = useState('')
+  return (
+    <>
+      {/* Click anywhere else to dismiss. */}
+      <div className="fixed inset-0 z-30" onClick={e => { e.stopPropagation(); onClose() }} />
+      <div
+        className="absolute top-full z-40 mt-1 w-60 rounded-xl border border-gray-200 bg-white p-2 shadow-xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="grid grid-cols-8 gap-0.5">
+          {EMOJI_CHOICES.map(emoji => (
+            <button
+              key={emoji}
+              onClick={() => onPick(emoji)}
+              className={`h-7 rounded-lg text-base leading-none transition-colors hover:bg-gray-100 ${current === emoji ? 'bg-primary/10' : ''}`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+        <div className="mt-2 flex items-center gap-1.5">
+          <input
+            autoFocus
+            value={typed}
+            onChange={e => setTyped(e.target.value.slice(0, 16))}
+            onKeyDown={e => { if (e.key === 'Enter' && typed.trim()) onPick(typed.trim()) }}
+            placeholder={tr('הדביקו אימוג׳י...', 'Paste an emoji...')}
+            className="h-8 min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-2 text-sm focus:border-primary focus:outline-none"
+          />
+          <button
+            onClick={() => typed.trim() && onPick(typed.trim())}
+            disabled={!typed.trim()}
+            className="h-8 shrink-0 rounded-lg bg-primary px-2.5 text-xs font-semibold text-white disabled:opacity-40"
+          >
+            {tr('קבע', 'Set')}
+          </button>
+        </div>
+        <button
+          onClick={() => onPick(null)}
+          className="mt-1.5 w-full rounded-lg px-2 py-1.5 text-start text-[11px] font-semibold text-gray-500 hover:bg-gray-50"
+        >
+          {tr('חזרה לאייקון המקורי', 'Back to the default icon')}
+        </button>
+      </div>
+    </>
+  )
+}
+
 // ─── DocsTab ──────────────────────────────────────────────────────────────────
+
+const OPEN_FOLDER_KEY = 'work-docs:open-folder'
 
 export function DocsTab({
   profiles, canManagePermissions, canCreate,
@@ -775,9 +843,16 @@ export function DocsTab({
   const [loading, setLoading]   = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
+  // Remembered across reloads: a refresh (or a deploy) used to drop the view
+  // back to the Documentation root, and a document created right afterwards
+  // landed there instead of in the folder the person thought they were in.
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(() => {
+    try { return localStorage.getItem(OPEN_FOLDER_KEY) || null } catch { return null }
+  })
   const [creatingDoc, setCreatingDoc] = useState(false)
   const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({})
+  const [iconPickerFor, setIconPickerFor] = useState<string | null>(null)
+  const [iconError, setIconError] = useState<string | null>(null)
 
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
@@ -799,7 +874,13 @@ export function DocsTab({
   // null) already covers the reset, so the effect only needs the fetch.
   useEffect(() => {
     Promise.all([getWorkDocs(profileNames), getWorkDocFolders(profileNames)])
-      .then(([d, f]) => { setDocs(d); setFolders(f) })
+      .then(([d, f]) => {
+        setDocs(d)
+        setFolders(f)
+        // A remembered folder that has since been deleted (or is no longer
+        // shared) must not leave the view pointing at nothing.
+        setCurrentFolderId(prev => prev !== null && !f.some(folder => folder.id === prev) ? null : prev)
+      })
       .catch((err: Error) => setLoadError(err.message))
       .finally(() => setLoading(false))
     // profileNames is derived fresh each render from `profiles`; this must
@@ -807,6 +888,28 @@ export function DocsTab({
     // change would be wasteful and isn't needed for this screen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function applyDocIcon(id: string, icon: string | null) {
+    setIconPickerFor(null)
+    setIconError(null)
+    try {
+      const updated = await setWorkDocIcon(id, icon, profileNames)
+      setDocs(prev => prev.map(d => d.id === id ? updated : d))
+    } catch (err) {
+      setIconError(errorText(err, tr('שמירת האייקון נכשלה', 'Could not save the icon')))
+    }
+  }
+
+  async function applyFolderIcon(id: string, icon: string | null) {
+    setIconPickerFor(null)
+    setIconError(null)
+    try {
+      const updated = await setWorkDocFolderIcon(id, icon, profileNames)
+      setFolders(prev => prev.map(f => f.id === id ? updated : f))
+    } catch (err) {
+      setIconError(errorText(err, tr('שמירת האייקון נכשלה', 'Could not save the icon')))
+    }
+  }
 
   // The paperclip count is fetched for the list, and again whenever the list
   // comes back into view — a file attached inside a document has to show up on
@@ -819,6 +922,13 @@ export function DocsTab({
       .catch(() => { /* the rows just show no paperclip */ })
     return () => { cancelled = true }
   }, [selectedId])
+
+  useEffect(() => {
+    try {
+      if (currentFolderId) localStorage.setItem(OPEN_FOLDER_KEY, currentFolderId)
+      else localStorage.removeItem(OPEN_FOLDER_KEY)
+    } catch { /* private mode: the folder just is not remembered */ }
+  }, [currentFolderId])
 
   const currentFolder = currentFolderId ? folders.find(f => f.id === currentFolderId) ?? null : null
   const parentFolder = currentFolder?.parentId ? folders.find(f => f.id === currentFolder.parentId) ?? null : null
@@ -969,6 +1079,9 @@ export function DocsTab({
             <button
               onClick={() => void createDoc()}
               disabled={creatingDoc}
+              title={currentFolder
+                ? tr(`ייווצר בתוך ${currentFolder.name}`, `Will be created inside ${currentFolder.name}`)
+                : tr('ייווצר בשורש דוקומנטציה', 'Will be created in the Documentation root')}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-60"
             >
               {creatingDoc ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} {tr('מסמך חדש', 'New Doc')}
@@ -1025,6 +1138,12 @@ export function DocsTab({
         </div>
       )}
 
+      {iconError && (
+        <div className="flex items-center gap-2 text-xs text-red-500 shrink-0">
+          <AlertCircle size={13} /> {iconError}
+        </div>
+      )}
+
       {!loading && !loadError && (subfoldersHere.length > 0 || docsHere.length > 0) && (
         <div className="flex flex-col gap-1.5 overflow-y-auto flex-1 min-h-0 pb-4">
           {subfoldersHere.map(folder => {
@@ -1032,8 +1151,18 @@ export function DocsTab({
             const canManageFolder = canCreate && folder.myLevel === 'full'
             return (
               <div key={folder.id} className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-4 py-2 hover:border-gray-200 hover:shadow-sm transition-all">
-                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
-                  <Folder size={15} className="text-amber-500" />
+                <div className="relative shrink-0">
+                  <button
+                    onClick={() => canManageFolder && setIconPickerFor(prev => prev === folder.id ? null : folder.id)}
+                    disabled={!canManageFolder}
+                    title={canManageFolder ? tr('בחרו אייקון', 'Choose an icon') : undefined}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-base leading-none transition-colors enabled:hover:ring-2 enabled:hover:ring-amber-200 disabled:cursor-default"
+                  >
+                    {folder.icon ? folder.icon : <Folder size={15} className="text-amber-500" />}
+                  </button>
+                  {iconPickerFor === folder.id && (
+                    <IconPicker current={folder.icon} onPick={icon => void applyFolderIcon(folder.id, icon)} onClose={() => setIconPickerFor(null)} />
+                  )}
                 </div>
                 {isRenaming ? (
                   <div className="flex-1 flex items-center gap-2">
@@ -1050,7 +1179,6 @@ export function DocsTab({
                 ) : (
                   <button onClick={() => setCurrentFolderId(folder.id)} className="flex-1 text-left min-w-0">
                     <p className="text-[13px] font-semibold text-gray-800 truncate leading-tight">{folder.name}</p>
-                    <p className="text-[10px] text-gray-400 leading-tight">{accessLabel(folder.myLevel, tr)}</p>
                   </button>
                 )}
                 {!isRenaming && canManageFolder && (
@@ -1082,8 +1210,18 @@ export function DocsTab({
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(doc.id) } }}
                 className="group flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-4 py-2 hover:border-gray-200 hover:shadow-sm transition-all text-left w-full cursor-pointer"
               >
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <FileText size={15} className="text-primary" />
+                <div className="relative shrink-0" onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={() => canEdit && setIconPickerFor(prev => prev === doc.id ? null : doc.id)}
+                    disabled={!canEdit}
+                    title={canEdit ? tr('בחרו אייקון', 'Choose an icon') : undefined}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-base leading-none transition-colors enabled:hover:ring-2 enabled:hover:ring-primary/20 disabled:cursor-default"
+                  >
+                    {doc.icon ? doc.icon : <FileText size={15} className="text-primary" />}
+                  </button>
+                  {iconPickerFor === doc.id && (
+                    <IconPicker current={doc.icon} onPick={icon => void applyDocIcon(doc.id, icon)} onClose={() => setIconPickerFor(null)} />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] font-semibold text-gray-800 truncate leading-tight">{doc.title || tr('ללא כותרת', 'Untitled')}</p>

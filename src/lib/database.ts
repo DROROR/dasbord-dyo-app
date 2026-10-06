@@ -1303,10 +1303,11 @@ interface DbWorkDoc {
   created_by: string | null
   updated_at: string
   folder_id: string | null
+  icon: string | null
   my_doc_access_level: DocAccessLevel
 }
 
-const WORK_DOC_COLUMNS = 'id, title, content, created_by, updated_at, folder_id, my_doc_access_level'
+const WORK_DOC_COLUMNS = 'id, title, content, created_by, updated_at, folder_id, icon, my_doc_access_level'
 
 function dbToWorkDoc(d: DbWorkDoc, profileNames: Record<string, string>): WorkDoc & { myLevel: DocAccessLevel } {
   return {
@@ -1316,6 +1317,7 @@ function dbToWorkDoc(d: DbWorkDoc, profileNames: Record<string, string>): WorkDo
     createdBy: (d.created_by && profileNames[d.created_by]) || 'Unknown',
     updatedAt: d.updated_at,
     folderId: d.folder_id,
+    icon: d.icon,
     myLevel: d.my_doc_access_level,
   }
 }
@@ -1365,6 +1367,22 @@ export async function updateWorkDoc(id: string, title: string, content: string, 
   const { data, error } = await supabase
     .from('work_docs')
     .update({ title, content, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select(WORK_DOC_COLUMNS)
+    .single()
+  if (error) throw error
+  return dbToWorkDoc(data as unknown as DbWorkDoc, profileNames)
+}
+
+/**
+ * The emoji on a document's row. Passing null puts the default icon back. Its
+ * own statement rather than part of the save, because it is set from the list
+ * where there is no draft to save.
+ */
+export async function setWorkDocIcon(id: string, icon: string | null, profileNames: Record<string, string>): Promise<WorkDoc & { myLevel: DocAccessLevel }> {
+  const { data, error } = await supabase
+    .from('work_docs')
+    .update({ icon })
     .eq('id', id)
     .select(WORK_DOC_COLUMNS)
     .single()
@@ -1508,10 +1526,11 @@ interface DbWorkDocFolder {
   parent_id: string | null
   created_by: string | null
   updated_at: string
+  icon: string | null
   my_folder_access_level: DocAccessLevel
 }
 
-const WORK_DOC_FOLDER_COLUMNS = 'id, name, parent_id, created_by, updated_at, my_folder_access_level'
+const WORK_DOC_FOLDER_COLUMNS = 'id, name, parent_id, created_by, updated_at, icon, my_folder_access_level'
 
 function dbToWorkDocFolder(f: DbWorkDocFolder, profileNames: Record<string, string>): WorkDocFolder {
   return {
@@ -1520,6 +1539,7 @@ function dbToWorkDocFolder(f: DbWorkDocFolder, profileNames: Record<string, stri
     parentId: f.parent_id,
     createdBy: (f.created_by && profileNames[f.created_by]) || 'Unknown',
     updatedAt: f.updated_at,
+    icon: f.icon,
     myLevel: f.my_folder_access_level,
   }
 }
@@ -1550,6 +1570,18 @@ export async function createWorkDocFolder(name: string, parentId: string | null,
     .from('work_doc_folders')
     .select(WORK_DOC_FOLDER_COLUMNS)
     .eq('id', id)
+    .single()
+  if (error) throw error
+  return dbToWorkDocFolder(data as unknown as DbWorkDocFolder, profileNames)
+}
+
+/** The emoji on a folder's row; null restores the default icon. */
+export async function setWorkDocFolderIcon(id: string, icon: string | null, profileNames: Record<string, string>): Promise<WorkDocFolder> {
+  const { data, error } = await supabase
+    .from('work_doc_folders')
+    .update({ icon })
+    .eq('id', id)
+    .select(WORK_DOC_FOLDER_COLUMNS)
     .single()
   if (error) throw error
   return dbToWorkDocFolder(data as unknown as DbWorkDocFolder, profileNames)

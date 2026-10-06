@@ -166,6 +166,8 @@ export interface WorkDoc {
   folderId?: string | null
   /** profile UUID -> access level. Populated only when explicitly fetched via update-resource-access; omitted from the regular doc list/fetch. */
   access?: Record<string, DocAccessLevel>
+  /** A chosen emoji shown instead of the default icon; null/undefined = default. */
+  icon?: string | null
 }
 
 export interface WorkDocFolder {
@@ -177,6 +179,8 @@ export interface WorkDocFolder {
   updatedAt: string
   /** The caller's own effective level on this folder (owner/active bypass -> 'full'). */
   myLevel: DocAccessLevel
+  /** A chosen emoji shown instead of the default icon; null/undefined = default. */
+  icon?: string | null
 }
 
 export interface Board {
