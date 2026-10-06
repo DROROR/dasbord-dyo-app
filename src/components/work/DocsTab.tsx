@@ -12,6 +12,7 @@ import {
   getWorkDocFolders, createWorkDocFolder, renameWorkDocFolder, deleteWorkDocFolder,
   getResourceAccess, setResourceAccess,
 } from '../../lib/database'
+import { sanitizePastedHtml, plainTextToHtml } from '../../lib/richText'
 
 // Supabase/PostgREST rejections arrive as plain objects, not Error instances,
 // so `err instanceof Error ? err.message : fallback` threw the real reason away
@@ -98,7 +99,7 @@ function RichEditor({ content, onChange, readOnly }: { content: string; onChange
     if (!editorRef.current) return
     // Only reset innerHTML when external content changes (not our own onChange)
     if (content !== lastContentRef.current) {
-      editorRef.current.innerHTML = content
+      editorRef.current.innerHTML = sanitizePastedHtml(content)
       lastContentRef.current = content
     }
   }, [content])
@@ -106,7 +107,10 @@ function RichEditor({ content, onChange, readOnly }: { content: string; onChange
   // Set initial content on mount
   useEffect(() => {
     if (editorRef.current) {
-      editorRef.current.innerHTML = content
+      // Documents saved before the paste cleanup existed still carry the colours
+      // of whatever they were pasted from, so clean on the way in as well —
+      // otherwise old text stays black in dark mode until it is retyped.
+      editorRef.current.innerHTML = sanitizePastedHtml(content)
       lastContentRef.current = content
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,14 +132,13 @@ function RichEditor({ content, onChange, readOnly }: { content: string; onChange
 
   function insertTable(rows: number, cols: number) {
     const tbl = document.createElement('table')
-    tbl.style.cssText = 'border-collapse:collapse;width:100%;margin:8px 0'
     for (let r = 0; r < rows; r++) {
       const tr = tbl.insertRow()
       for (let c = 0; c < cols; c++) {
         const td = r === 0 ? document.createElement('th') : tr.insertCell()
         if (r === 0) tr.appendChild(td)
-        td.contentEditable = 'true'
-        td.style.cssText = `border:1px solid #e5e7eb;padding:6px 10px;min-width:70px;${r === 0 ? 'background:#f9fafb;font-weight:600;' : ''}`
+        // Borders and the header tint come from the stylesheet below, which
+        // has a dark-mode counterpart; inline colours would not.
         td.innerHTML = '&nbsp;'
       }
     }
@@ -149,6 +152,20 @@ function RichEditor({ content, onChange, readOnly }: { content: string; onChange
     onChange(html)
     updateActiveFormats()
   }, [onChange])
+
+  // The browser's own paste keeps the source's colours, classes and <style>
+  // blocks. Insert the cleaned markup instead: same text, emoji, headings,
+  // bold, lists, tables and links, but the theme's colours.
+  const handlePaste = useCallback((event: React.ClipboardEvent<HTMLDivElement>) => {
+    if (readOnly) return
+    const html = event.clipboardData.getData('text/html')
+    const text = event.clipboardData.getData('text/plain')
+    // A pasted file (a screenshot, say) has neither — leave it to the browser.
+    if (!html && !text) return
+    event.preventDefault()
+    document.execCommand('insertHTML', false, html ? sanitizePastedHtml(html) : plainTextToHtml(text))
+    handleInput()
+  }, [readOnly, handleInput])
 
   return (
     <div className="flex flex-col flex-1 min-h-0 border border-gray-200 rounded-xl overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/10 transition">
@@ -179,26 +196,48 @@ function RichEditor({ content, onChange, readOnly }: { content: string; onChange
         contentEditable={!readOnly}
         suppressContentEditableWarning
         onInput={handleInput}
+        onPaste={handlePaste}
         onKeyUp={updateActiveFormats}
         onMouseUp={updateActiveFormats}
-        className={`flex-1 min-h-0 overflow-y-auto px-5 py-4 text-sm text-gray-700 leading-relaxed focus:outline-none ${readOnly ? 'bg-gray-50 cursor-not-allowed' : 'bg-white'}`}
+        className={`doc-editor flex-1 min-h-0 overflow-y-auto px-5 py-4 text-sm text-gray-700 leading-relaxed focus:outline-none ${readOnly ? 'bg-gray-50 cursor-not-allowed' : 'bg-white'}`}
         style={{
           // Prose-style heading + list formatting
           '--tw-prose-h1': '1.4em',
         } as React.CSSProperties}
       />
 
+      {/* Scoped to .doc-editor (not every [contenteditable] on the page) and
+          written as a light half plus a dark half, because the pasted text
+          inherits these colours now that its own are stripped. */}
       <style>{`
-        [contenteditable] h1 { font-size: 1.5em; font-weight: 700; margin: 0.5em 0 0.25em; color: #111827; }
-        [contenteditable] h2 { font-size: 1.25em; font-weight: 600; margin: 0.5em 0 0.2em; color: #1f2937; }
-        [contenteditable] h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0 0.15em; color: #374151; }
-        [contenteditable] ul { list-style: disc; padding-right: 1.5em; margin: 0.3em 0; }
-        [contenteditable] ol { list-style: decimal; padding-right: 1.5em; margin: 0.3em 0; }
-        [contenteditable] li { margin: 0.15em 0; }
-        [contenteditable] table { border-collapse: collapse; width: 100%; margin: 8px 0; }
-        [contenteditable] td, [contenteditable] th { border: 1px solid #e5e7eb; padding: 6px 10px; min-width: 70px; }
-        [contenteditable] th { background: #f9fafb; font-weight: 600; }
-        [contenteditable]:empty:before { content: attr(data-placeholder); color: #d1d5db; }
+        .doc-editor h1 { font-size: 1.5em; font-weight: 700; margin: 0.5em 0 0.25em; color: #111827; }
+        .doc-editor h2 { font-size: 1.25em; font-weight: 600; margin: 0.5em 0 0.2em; color: #1f2937; }
+        .doc-editor h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0 0.15em; color: #374151; }
+        .doc-editor h4, .doc-editor h5, .doc-editor h6 { font-weight: 600; margin: 0.4em 0 0.15em; color: #374151; }
+        .doc-editor ul { list-style: disc; padding-right: 1.5em; margin: 0.3em 0; }
+        .doc-editor ol { list-style: decimal; padding-right: 1.5em; margin: 0.3em 0; }
+        .doc-editor li { margin: 0.15em 0; }
+        .doc-editor table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+        .doc-editor td, .doc-editor th { border: 1px solid #e5e7eb; padding: 6px 10px; min-width: 70px; }
+        .doc-editor th { background: #f9fafb; font-weight: 600; }
+        .doc-editor a { color: #2563eb; text-decoration: underline; }
+        .doc-editor blockquote { border-inline-start: 3px solid #e5e7eb; padding-inline-start: 0.75em; margin: 0.4em 0; color: #6b7280; }
+        .doc-editor code { background: #f3f4f6; border-radius: 4px; padding: 0.1em 0.3em; font-size: 0.9em; }
+        .doc-editor pre { background: #f3f4f6; border-radius: 8px; padding: 0.6em 0.8em; overflow-x: auto; }
+        .doc-editor hr { border: 0; border-top: 1px solid #e5e7eb; margin: 0.8em 0; }
+        .doc-editor img { max-width: 100%; height: auto; border-radius: 6px; }
+        .doc-editor:empty:before { content: attr(data-placeholder); color: #d1d5db; }
+
+        .dark .doc-editor h1 { color: #f8fafc; }
+        .dark .doc-editor h2 { color: #e5e7eb; }
+        .dark .doc-editor h3, .dark .doc-editor h4, .dark .doc-editor h5, .dark .doc-editor h6 { color: #d1d5db; }
+        .dark .doc-editor td, .dark .doc-editor th { border-color: #2c3a4f; }
+        .dark .doc-editor th { background: #161f2f; }
+        .dark .doc-editor a { color: #7dd3fc; }
+        .dark .doc-editor blockquote { border-color: #2c3a4f; color: #a3b1c6; }
+        .dark .doc-editor code, .dark .doc-editor pre { background: #1e293b; }
+        .dark .doc-editor hr { border-top-color: #2c3a4f; }
+        .dark .doc-editor:empty:before { color: #4b5563; }
       `}</style>
     </div>
   )
