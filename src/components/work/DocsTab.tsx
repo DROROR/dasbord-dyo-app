@@ -13,6 +13,24 @@ import {
   getResourceAccess, setResourceAccess,
 } from '../../lib/database'
 
+// Supabase/PostgREST rejections arrive as plain objects, not Error instances,
+// so `err instanceof Error ? err.message : fallback` threw the real reason away
+// and left only a generic failure. That is how "folder is not empty (1
+// document(s)) — move or delete its contents first" reached the user as nothing
+// but "Folder deletion failed". Read the message off whichever shape arrived,
+// and keep the fallback for the genuinely messageless case.
+function errorText(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message.trim()) return err.message
+  if (typeof err === 'object' && err !== null) {
+    const e = err as Record<string, unknown>
+    for (const key of ['message', 'details', 'hint', 'error_description', 'error']) {
+      const value = e[key]
+      if (typeof value === 'string' && value.trim()) return value
+    }
+  }
+  return fallback
+}
+
 const ACCESS_LEVELS: DocAccessLevel[] = ['none', 'view', 'full']
 function accessLabel(level: DocAccessLevel, tr: (he: string, en: string) => string): string {
   return level === 'none' ? tr('אין גישה', 'No Access') : level === 'view' ? tr('צפייה', 'View') : tr('עריכה', 'Edit')
@@ -230,7 +248,7 @@ function AccessPanel({
       setSavedId(profileId)
       setTimeout(() => setSavedId(cur => cur === profileId ? null : cur), 1500)
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : tr('השמירה נכשלה', 'Save failed'))
+      setSaveError(errorText(err, tr('השמירה נכשלה', 'Save failed')))
     } finally {
       setSavingId(null)
     }
@@ -322,7 +340,7 @@ function DocEditor({
       setTimeout(() => setSaveState(cur => cur === 'saved' ? 'idle' : cur), 1500)
     } catch (err) {
       setSaveState('error')
-      setSaveError(err instanceof Error ? err.message : tr('השמירה נכשלה', 'Save failed'))
+      setSaveError(errorText(err, tr('השמירה נכשלה', 'Save failed')))
     }
   }
 
@@ -334,7 +352,7 @@ function DocEditor({
       const updated = await moveWorkDocToFolder(doc.id, folderId || null, profileNames)
       onMoved(updated)
     } catch (err) {
-      setMoveError(err instanceof Error ? err.message : tr('ההעברה נכשלה', 'Move failed'))
+      setMoveError(errorText(err, tr('ההעברה נכשלה', 'Move failed')))
     } finally {
       setMoving(false)
     }
@@ -485,7 +503,7 @@ export function DocsTab({
       setNewFolderName('')
       setNewFolderOpen(false)
     } catch (err) {
-      setFolderOpError(err instanceof Error ? err.message : tr('יצירת התיקייה נכשלה', 'Folder creation failed'))
+      setFolderOpError(errorText(err, tr('יצירת התיקייה נכשלה', 'Folder creation failed')))
     } finally {
       setCreatingFolder(false)
     }
@@ -501,7 +519,7 @@ export function DocsTab({
       setFolders(prev => prev.map(f => f.id === updated.id ? updated : f))
       setRenamingFolderId(null)
     } catch (err) {
-      setFolderOpError(err instanceof Error ? err.message : tr('שינוי השם נכשל', 'Rename failed'))
+      setFolderOpError(errorText(err, tr('שינוי השם נכשל', 'Rename failed')))
     } finally {
       setRenaming(false)
     }
@@ -517,7 +535,7 @@ export function DocsTab({
       setDeleteConfirmId(null)
       if (currentFolderId === id) setCurrentFolderId(null)
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : tr('מחיקת התיקייה נכשלה', 'Folder deletion failed'))
+      setDeleteError(errorText(err, tr('מחיקת התיקייה נכשלה', 'Folder deletion failed')))
     } finally {
       setDeleting(false)
     }
@@ -531,7 +549,7 @@ export function DocsTab({
       setDocs(prev => [created, ...prev])
       setSelectedId(created.id)
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : tr('יצירת המסמך נכשלה', 'Document creation failed'))
+      setLoadError(errorText(err, tr('יצירת המסמך נכשלה', 'Document creation failed')))
     } finally {
       setCreatingDoc(false)
     }
