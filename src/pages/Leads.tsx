@@ -900,13 +900,26 @@ export function Leads() {
 
   const handleMoveStatus = async (id: string, direction: -1 | 1) => {
     if (reorderingStatus) return
-    const ordered = [...statuses].sort((a, b) => a.position - b.position)
-    const index = ordered.findIndex(status => status.id === id)
+    // Reorder among the statuses the board actually draws. The archived status
+    // still occupies a position in the middle of the list, and the previous
+    // version treated it as an ordinary neighbour and refused to swap with it —
+    // which made it an invisible wall: a column could not be moved past the
+    // point where "Not relevant" happened to sit, even though nothing is
+    // rendered there. The up/down buttons were already enabled from the
+    // filtered list, so the two disagreed and the arrow silently did nothing.
+    const visible = [...statuses].filter(status => !status.is_archived).sort((a, b) => a.position - b.position)
+    const archived = [...statuses].filter(status => status.is_archived).sort((a, b) => a.position - b.position)
+    const index = visible.findIndex(status => status.id === id)
     const target = index + direction
-    if (index < 0 || target < 0 || target >= ordered.length || ordered[target].is_archived) return
+    if (index < 0 || target < 0 || target >= visible.length) return
     setStatusOrderError('')
     setReorderingStatus(true)
-    ;[ordered[index], ordered[target]] = [ordered[target], ordered[index]]
+    ;[visible[index], visible[target]] = [visible[target], visible[index]]
+    // Archived statuses are renumbered after the visible ones: their position
+    // is never displayed anywhere (the board filters them out and the Archive
+    // view keys off is_archived), so parking them at the end keeps them from
+    // ever blocking a move again.
+    const ordered = [...visible, ...archived]
     try {
       const updated = await Promise.all(ordered.map((status, position) => updateLeadPipelineStatus(status.id, { position: (position + 1) * 10 })))
       setStatuses(updated.sort((a, b) => a.position - b.position))
@@ -965,7 +978,7 @@ export function Leads() {
         <button onClick={() => setView('archive')} className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${view === 'archive' ? 'bg-surface text-primary shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}><Archive size={13} />{t('ארכיב', 'Archive')}{archived.length > 0 && <span className="rounded-md bg-gray-200 px-1.5 py-0.5 text-xs text-gray-500">{archived.length}</span>}</button>
         <div dir="ltr" className="ms-auto flex flex-wrap items-center gap-1.5">
           {canDeleteStatuses && <button onClick={() => void handleSheetSync()} disabled={syncingSheet || !sheetConfigured} title={!sheetConfigured ? t('ממתין להגדרת חשבון השירות', 'Waiting for service-account configuration') : undefined} className={`flex h-9 items-center gap-2 rounded-lg border px-3.5 text-sm font-semibold transition-colors ${sheetConfigured ? 'border-[#0F9D58] bg-[#0F9D58] text-white hover:bg-[#0B8043]' : 'cursor-not-allowed border-green-200 bg-green-50 text-green-700'}`}><img src="/google-sheets-logo.svg" alt="" className="h-[18px] w-[14px] shrink-0 object-contain" />{syncingSheet ? t('מסנכרן...', 'Syncing...') : !sheetConfigured ? t('Google Sheet לא מוגדר', 'Google Sheet not configured') : t('סנכרן Google Sheet', 'Sync Google Sheet')}</button>}
-          {canDeleteStatuses && coldConfigured && <button onClick={() => void handleColdSync()} disabled={syncingCold} title={t('מייבא מגיליון השיחות הקרות אל סטטוס cold call', 'Imports the cold-call sheet into the cold call status')} className="flex h-9 items-center gap-2 rounded-lg border border-[#1a73e8] bg-[#1a73e8] px-3.5 text-sm font-semibold text-white transition-colors hover:bg-[#1557b0] disabled:cursor-not-allowed disabled:opacity-60"><img src="/google-sheets-logo.svg" alt="" className="h-[18px] w-[14px] shrink-0 object-contain" />{syncingCold ? t('מסנכרן...', 'Syncing...') : t('סנכרן Cold Call', 'Sync Cold Call')}</button>}
+          {canDeleteStatuses && coldConfigured && <button onClick={() => void handleColdSync()} disabled={syncingCold} title={t('מייבא מגיליון השיחות הקרות אל סטטוס cold call', 'Imports the cold-call sheet into the cold call status')} className="flex h-9 items-center gap-2 rounded-lg border border-[#0F9D58] bg-[#0F9D58] px-3.5 text-sm font-semibold text-white transition-colors hover:bg-[#0B8043] disabled:cursor-not-allowed disabled:opacity-60"><img src="/google-sheets-logo.svg" alt="" className="h-[18px] w-[14px] shrink-0 object-contain" />{syncingCold ? t('מסנכרן...', 'Syncing...') : t('סנכרן Cold Call', 'Sync Cold Call')}</button>}
           {canEdit && <button onClick={() => setAddingLead(true)} className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"><UserPlus size={15} />{t('הוסף ליד', 'Add Lead')}</button>}
           {view === 'kanban' && canEdit && <><span className="mx-1 h-6 w-px bg-gray-300" aria-hidden="true" /><button onClick={() => setAddingStatus(true)} className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary/90"><Plus size={15} />{t('הוסף סטטוס', 'Add Status')}</button></>}
         </div>

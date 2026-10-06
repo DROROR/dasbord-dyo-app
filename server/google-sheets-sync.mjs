@@ -265,7 +265,10 @@ async function syncColdCallSheet() {
     // The first data row is a filled-in template ("דוגמה: …"), not a real lead.
     if (!name || name.startsWith('דוגמה')) { skipped += 1; return [] }
     const { phone, email } = splitContact(get('טלפון / מייל'))
-    if (!phone) { skipped += 1; return [] }
+    // leads.phone is NOT NULL but an empty string satisfies it, so a row whose
+    // contact cell is blank or holds only an email is still imported — the
+    // research behind it is the point, and the number can be filled in later.
+    // Only a nameless row or the template is dropped.
     const profileLink = get('קישור לפרופיל')
     // No id column exists, so identity is the profile link when there is one and
     // otherwise name+phone. Never the row number: rows get sorted and inserted,
@@ -277,7 +280,7 @@ async function syncColdCallSheet() {
       sheet_row_key: `google:${COLD_SHEET_ID}:${identity}`,
       name,
       client_name: name,
-      phone,
+      phone: phone || '',
       email: email || null,
       // The category badge on each lead card reads form_answer.
       form_answer: get('תחום') || null,
