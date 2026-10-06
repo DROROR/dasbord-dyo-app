@@ -4,6 +4,7 @@ import {
   Bold, Italic, Underline, List, ListOrdered, Table, Heading1, Heading2, Heading3,
   Folder, FolderPlus, ChevronLeft, ChevronRight, Pencil, Trash2, FolderInput,
   Paperclip, Download, X, File as FileIcon,
+  FileSpreadsheet, FileArchive, FileAudio, FileVideo, FileCode, Presentation,
 } from 'lucide-react'
 import { Avatar } from '../Avatar'
 import { useWorkLang } from '../../contexts/WorkLanguageContext'
@@ -372,6 +373,32 @@ function isImage(attachment: DbWorkDocAttachment): boolean {
     || /\.(png|jpe?g|gif|webp|svg|avif|bmp)$/i.test(attachment.name)
 }
 
+/**
+ * The card for a non-image file: a coloured icon and its extension, so a PDF is
+ * recognisable at a glance instead of every file looking the same. The tints are
+ * written as /10 over the card's own background, which keeps them right in dark
+ * mode too.
+ */
+function fileVisual(name: string, mimeType: string | null): {
+  Icon: typeof FileIcon; tint: string; label: string
+} {
+  const ext = (name.split('.').pop() ?? '').toLowerCase()
+  const mime = mimeType ?? ''
+  const label = ext.length > 0 && ext.length <= 5 ? ext.toUpperCase() : ''
+  const of = (Icon: typeof FileIcon, tint: string) => ({ Icon, tint, label })
+
+  if (ext === 'pdf' || mime === 'application/pdf') return of(FileText, 'bg-red-500/10 text-red-500')
+  if (['doc', 'docx', 'rtf', 'odt', 'pages'].includes(ext)) return of(FileText, 'bg-blue-500/10 text-blue-500')
+  if (['xls', 'xlsx', 'csv', 'ods', 'tsv'].includes(ext)) return of(FileSpreadsheet, 'bg-emerald-500/10 text-emerald-500')
+  if (['ppt', 'pptx', 'key', 'odp'].includes(ext)) return of(Presentation, 'bg-orange-500/10 text-orange-500')
+  if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2'].includes(ext)) return of(FileArchive, 'bg-amber-500/10 text-amber-500')
+  if (mime.startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return of(FileVideo, 'bg-violet-500/10 text-violet-500')
+  if (mime.startsWith('audio/') || ['mp3', 'wav', 'm4a', 'ogg', 'aac'].includes(ext)) return of(FileAudio, 'bg-pink-500/10 text-pink-500')
+  if (['js', 'ts', 'tsx', 'jsx', 'json', 'html', 'css', 'py', 'sql', 'sh', 'xml', 'yml', 'yaml'].includes(ext)) return of(FileCode, 'bg-cyan-500/10 text-cyan-600')
+  if (['txt', 'md', 'log'].includes(ext)) return of(FileText, 'bg-slate-500/10 text-slate-500')
+  return of(FileIcon, 'bg-gray-500/10 text-gray-500')
+}
+
 function isPdf(attachment: DbWorkDocAttachment): boolean {
   return attachment.mime_type === 'application/pdf' || /\.pdf$/i.test(attachment.name)
 }
@@ -501,17 +528,21 @@ function AttachmentsPanel({ docId, canEdit }: { docId: string; canEdit: boolean 
           {attachments.map(attachment => {
             const url = urls[attachment.id]
             const openable = isImage(attachment) || isPdf(attachment)
+            const { Icon, tint, label } = fileVisual(attachment.name, attachment.mime_type)
             return (
               <div key={attachment.id} className="group relative overflow-hidden rounded-lg border border-gray-200 bg-white">
                 <button
                   onClick={() => { if (url && openable) setPreview(attachment) }}
                   disabled={!url || !openable}
                   title={openable ? tr('פתח תצוגה מקדימה', 'Open preview') : attachment.name}
-                  className="flex h-20 w-full items-center justify-center bg-gray-50 disabled:cursor-default"
+                  className={`flex h-20 w-full items-center justify-center gap-1.5 disabled:cursor-default ${isImage(attachment) && url ? 'bg-gray-50' : tint}`}
                 >
                   {isImage(attachment) && url
                     ? <img src={url} alt={attachment.name} className="h-full w-full object-cover" />
-                    : <FileIcon size={22} className="text-gray-300" />}
+                    : <>
+                        <Icon size={26} strokeWidth={1.75} />
+                        {label && <span className="text-[10px] font-bold tracking-wide">{label}</span>}
+                      </>}
                 </button>
                 <div className="flex items-center gap-1 px-2 py-1.5">
                   <div className="min-w-0 flex-1">
