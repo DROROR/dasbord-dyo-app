@@ -13,6 +13,7 @@ import {
   getWorkDocFolders, createWorkDocFolder, renameWorkDocFolder, deleteWorkDocFolder,
   getResourceAccess, setResourceAccess,
   getWorkDocAttachments, uploadWorkDocAttachment, deleteWorkDocAttachment, signWorkDocAttachment,
+  getWorkDocAttachmentCounts,
   type DbWorkDocAttachment,
 } from '../../lib/database'
 import { sanitizePastedHtml, plainTextToHtml } from '../../lib/richText'
@@ -745,6 +746,7 @@ export function DocsTab({
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
   const [creatingDoc, setCreatingDoc] = useState(false)
+  const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({})
 
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
@@ -774,6 +776,18 @@ export function DocsTab({
     // change would be wasteful and isn't needed for this screen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // The paperclip count is fetched for the list, and again whenever the list
+  // comes back into view — a file attached inside a document has to show up on
+  // its row without a page reload.
+  useEffect(() => {
+    if (selectedId !== null) return
+    let cancelled = false
+    void getWorkDocAttachmentCounts()
+      .then(counts => { if (!cancelled) setAttachmentCounts(counts) })
+      .catch(() => { /* the rows just show no paperclip */ })
+    return () => { cancelled = true }
+  }, [selectedId])
 
   const currentFolder = currentFolderId ? folders.find(f => f.id === currentFolderId) ?? null : null
   const parentFolder = currentFolder?.parentId ? folders.find(f => f.id === currentFolder.parentId) ?? null : null
@@ -1046,6 +1060,14 @@ export function DocsTab({
                     {tr('עודכן', 'Updated')} {new Date(doc.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} · {tr('על ידי', 'by')} {doc.createdBy}
                   </p>
                 </div>
+                {(attachmentCounts[doc.id] ?? 0) > 0 && (
+                  <span
+                    title={tr(`${attachmentCounts[doc.id]} קבצים מצורפים`, `${attachmentCounts[doc.id]} attachment(s)`)}
+                    className="flex items-center gap-1 rounded bg-gray-100 px-1.5 py-0.5 text-[9px] font-semibold text-gray-500 shrink-0"
+                  >
+                    <Paperclip size={9} /> {attachmentCounts[doc.id]}
+                  </span>
+                )}
                 <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 flex items-center gap-1 ${canEdit ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'}`}>
                   {canEdit ? <><Edit3 size={9} /> {tr('עריכה', 'Edit')}</> : accessLabel(doc.myLevel, tr)}
                 </span>

@@ -1466,6 +1466,19 @@ export async function uploadWorkDocAttachment(docId: string, file: File): Promis
   return data as DbWorkDocAttachment
 }
 
+/**
+ * How many attachments each document has, for the paperclip on the list rows.
+ * PostgREST has no group-by, and the rows are few, so the doc ids come back and
+ * are tallied here. RLS means only documents the caller can open are counted.
+ */
+export async function getWorkDocAttachmentCounts(): Promise<Record<string, number>> {
+  const { data, error } = await supabase.from('work_doc_attachments').select('doc_id')
+  if (error) throw error
+  const counts: Record<string, number> = {}
+  for (const row of data as { doc_id: string }[]) counts[row.doc_id] = (counts[row.doc_id] ?? 0) + 1
+  return counts
+}
+
 /** Short-lived link for previewing or downloading one attachment. */
 export async function signWorkDocAttachment(storagePath: string, expiresInSeconds = 3600): Promise<string> {
   const { data, error } = await supabase.storage
