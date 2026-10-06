@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { Fragment, useState, useRef, useEffect, useCallback } from 'react'
 import {
   FileText, Plus, ArrowLeft, Save, Lock, Edit3, Loader2, AlertCircle, Check,
   Bold, Italic, Underline, List, ListOrdered, Table, Heading1, Heading2, Heading3,
-  Folder, FolderPlus, ChevronLeft, ChevronRight, Pencil, Trash2, FolderInput,
+  Folder, FolderPlus, ChevronLeft, ChevronRight, ChevronDown, Pencil, Trash2, FolderInput,
   Paperclip, Download, X, File as FileIcon,
   FileSpreadsheet, FileArchive, FileAudio, FileVideo, FileCode, Presentation,
 } from 'lucide-react'
@@ -14,7 +14,7 @@ import {
   getWorkDocFolders, createWorkDocFolder, renameWorkDocFolder, deleteWorkDocFolder,
   getResourceAccess, setResourceAccess,
   getWorkDocAttachments, uploadWorkDocAttachment, deleteWorkDocAttachment, signWorkDocAttachment,
-  getWorkDocAttachmentCounts, setWorkDocIcon, setWorkDocFolderIcon,
+  getWorkDocAttachmentCounts, setWorkDocIcon, setWorkDocFolderIcon, moveWorkDocFolder,
   type DbWorkDocAttachment,
 } from '../../lib/database'
 import { sanitizePastedHtml, plainTextToHtml } from '../../lib/richText'
@@ -852,6 +852,7 @@ export function DocsTab({
   const [creatingDoc, setCreatingDoc] = useState(false)
   const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({})
   const [iconPickerFor, setIconPickerFor] = useState<string | null>(null)
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [iconError, setIconError] = useState<string | null>(null)
 
   const [newFolderOpen, setNewFolderOpen] = useState(false)
@@ -897,6 +898,19 @@ export function DocsTab({
       setDocs(prev => prev.map(d => d.id === id ? updated : d))
     } catch (err) {
       setIconError(errorText(err, tr('שמירת האייקון נכשלה', 'Could not save the icon')))
+    }
+  }
+
+  async function moveFolder(id: string, parentId: string | null) {
+    setIconError(null)
+    try {
+      const updated = await moveWorkDocFolder(id, parentId, profileNames)
+      setFolders(prev => prev.map(f => f.id === id ? updated : f))
+      // Following it is the least surprising thing to do: the folder is no
+      // longer in the list the person is looking at.
+      if (parentId !== null) setCurrentFolderId(parentId)
+    } catch (err) {
+      setIconError(errorText(err, tr('העברת התיקייה נכשלה', 'Could not move the folder')))
     }
   }
 
@@ -1024,6 +1038,70 @@ export function DocsTab({
     }
   }
 
+  function toggleFolder(id: string) {
+    setExpandedFolders(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // The contents of an expanded folder, indented under its row: subfolders
+  // first (expandable in turn), then its documents. A plain function rather
+  // than a component so it keeps the list's own handlers, and recursive
+  // because the tree is at most two levels deep anyway.
+  function renderFolderChildren(parentId: string) {
+    const childFolders = folders.filter(f => f.parentId === parentId)
+    const childDocs = docs.filter(d => (d.folderId ?? null) === parentId)
+
+    return (
+      <div className="ms-6 flex flex-col gap-1 border-s border-gray-100 ps-3">
+        {childFolders.length === 0 && childDocs.length === 0 && (
+          <p className="py-1 text-[11px] text-gray-400">{tr('התיקייה ריקה', 'This folder is empty')}</p>
+        )}
+
+        {childFolders.map(child => (
+          <Fragment key={child.id}>
+            <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-gray-50">
+              <button
+                onClick={() => toggleFolder(child.id)}
+                title={expandedFolders.has(child.id) ? tr('סגור', 'Collapse') : tr('פתח', 'Expand')}
+                className="shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              >
+                {expandedFolders.has(child.id)
+                  ? <ChevronDown size={13} />
+                  : <><ChevronLeft size={13} className="rtl:hidden" /><ChevronRight size={13} className="ltr:hidden" /></>}
+              </button>
+              <span className="text-sm leading-none">{child.icon ? child.icon : <Folder size={13} className="text-amber-500" />}</span>
+              <button onClick={() => setCurrentFolderId(child.id)} className="min-w-0 flex-1 truncate text-start text-[12px] font-semibold text-gray-700">
+                {child.name}
+              </button>
+            </div>
+            {expandedFolders.has(child.id) && renderFolderChildren(child.id)}
+          </Fragment>
+        ))}
+
+        {childDocs.map(childDoc => (
+          <button
+            key={childDoc.id}
+            onClick={() => setSelectedId(childDoc.id)}
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-start transition-colors hover:bg-gray-50"
+          >
+            <span className="w-[13px] shrink-0" />
+            <span className="text-sm leading-none">{childDoc.icon ? childDoc.icon : <FileText size={13} className="text-primary" />}</span>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-gray-600">{childDoc.title || tr('ללא כותרת', 'Untitled')}</span>
+            {(attachmentCounts[childDoc.id] ?? 0) > 0 && (
+              <span className="flex shrink-0 items-center gap-0.5 text-[10px] font-semibold text-gray-400">
+                <Paperclip size={9} /> {attachmentCounts[childDoc.id]}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
   const selected = selectedId ? docs.find(d => d.id === selectedId) ?? null : null
 
   if (selected) {
@@ -1149,8 +1227,23 @@ export function DocsTab({
           {subfoldersHere.map(folder => {
             const isRenaming = renamingFolderId === folder.id
             const canManageFolder = canCreate && folder.myLevel === 'full'
+            const isExpanded = expandedFolders.has(folder.id)
+            // Depth is capped at two levels, so a folder that holds subfolders
+            // can only sit at the root; otherwise any root folder but itself.
+            const moveTargets = folders.filter(f => f.parentId === null && f.id !== folder.id && f.myLevel === 'full')
+            const canNest = !folders.some(f => f.parentId === folder.id)
             return (
-              <div key={folder.id} className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-4 py-2 hover:border-gray-200 hover:shadow-sm transition-all">
+              <Fragment key={folder.id}>
+              <div className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2 hover:border-gray-200 hover:shadow-sm transition-all">
+                <button
+                  onClick={() => toggleFolder(folder.id)}
+                  title={isExpanded ? tr('סגור', 'Collapse') : tr('הצג את התוכן', 'Show what is inside')}
+                  className="shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                >
+                  {isExpanded
+                    ? <ChevronDown size={14} />
+                    : <><ChevronLeft size={14} className="rtl:hidden" /><ChevronRight size={14} className="ltr:hidden" /></>}
+                </button>
                 <div className="relative shrink-0">
                   <button
                     onClick={() => canManageFolder && setIconPickerFor(prev => prev === folder.id ? null : folder.id)}
@@ -1183,6 +1276,19 @@ export function DocsTab({
                 )}
                 {!isRenaming && canManageFolder && (
                   <div className="flex items-center gap-1 shrink-0">
+                    {(moveTargets.length > 0 || folder.parentId !== null) && (
+                      <select
+                        value={folder.parentId ?? ''}
+                        onChange={e => void moveFolder(folder.id, e.target.value || null)}
+                        title={tr('העבר לתיקייה', 'Move into a folder')}
+                        className="rounded-lg border border-gray-200 bg-white px-1.5 py-1 text-[11px] text-gray-500 focus:border-primary focus:outline-none"
+                      >
+                        <option value="">{tr('שורש דוקומנטציה', 'Documentation root')}</option>
+                        {canNest && moveTargets.map(target => (
+                          <option key={target.id} value={target.id}>{target.name}</option>
+                        ))}
+                      </select>
+                    )}
                     <button onClick={() => { setRenamingFolderId(folder.id); setRenameValue(folder.name) }} title={tr('שנה שם', 'Rename')} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600">
                       <Pencil size={13} />
                     </button>
@@ -1192,6 +1298,8 @@ export function DocsTab({
                   </div>
                 )}
               </div>
+              {isExpanded && renderFolderChildren(folder.id)}
+              </Fragment>
             )
           })}
 
