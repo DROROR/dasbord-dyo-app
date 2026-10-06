@@ -1326,7 +1326,8 @@ export async function getWorkDocs(profileNames: Record<string, string>): Promise
   const { data, error } = await supabase
     .from('work_docs')
     .select(WORK_DOC_COLUMNS)
-    .order('updated_at', { ascending: false })
+    // Oldest first: the list reads in the order things were added.
+    .order('created_at', { ascending: true })
   if (error) throw error
   return (data as unknown as DbWorkDoc[]).map(d => dbToWorkDoc(d, profileNames))
 }
@@ -1548,7 +1549,8 @@ export async function getWorkDocFolders(profileNames: Record<string, string>): P
   const { data, error } = await supabase
     .from('work_doc_folders')
     .select(WORK_DOC_FOLDER_COLUMNS)
-    .order('name', { ascending: true })
+    // Same as documents: the folder added first stays at the top.
+    .order('created_at', { ascending: true })
   if (error) throw error
   return (data as unknown as DbWorkDocFolder[]).map(f => dbToWorkDocFolder(f, profileNames))
 }

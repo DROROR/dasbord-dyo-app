@@ -764,6 +764,20 @@ function DocEditor({
 // The emoji that replaces the default icon on a row. A small set to click plus a
 // field to paste any other one, because no list of favourites covers everybody.
 
+// One of these light tints sits behind a chosen emoji. It is picked from the
+// item's id, so it is stable rather than reshuffling on every render, and
+// written as /10 over the row's own background so it holds up in dark mode.
+const EMOJI_TINTS = [
+  'bg-rose-500/10', 'bg-amber-500/10', 'bg-emerald-500/10', 'bg-sky-500/10', 'bg-violet-500/10',
+  'bg-orange-500/10', 'bg-teal-500/10', 'bg-pink-500/10', 'bg-indigo-500/10', 'bg-lime-500/10',
+]
+
+function tintFor(id: string): string {
+  let hash = 0
+  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) >>> 0
+  return EMOJI_TINTS[hash % EMOJI_TINTS.length]
+}
+
 const EMOJI_CHOICES = [
   '📁', '📂', '🗂️', '📄', '📝', '📋', '📊', '📈',
   '💰', '🧾', '⚙️', '🔧', '🛠️', '🚀', '🎯', '✅',
@@ -1022,7 +1036,7 @@ export function DocsTab({
     setCreatingDoc(true)
     try {
       const created = await createWorkDoc(tr('מסמך ללא כותרת', 'Untitled Document'), '', profileNames, currentFolderId)
-      setDocs(prev => [created, ...prev])
+      setDocs(prev => [...prev, created])
       setSelectedId(created.id)
     } catch (err) {
       setLoadError(errorText(err, tr('יצירת המסמך נכשלה', 'Document creation failed')))
@@ -1229,7 +1243,7 @@ export function DocsTab({
                     onClick={() => canManageFolder && setIconPickerFor(prev => prev === folder.id ? null : folder.id)}
                     disabled={!canManageFolder}
                     title={canManageFolder ? tr('בחרו אייקון', 'Choose an icon') : undefined}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-base leading-none transition-colors enabled:hover:ring-2 enabled:hover:ring-amber-200 disabled:cursor-default"
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg text-base leading-none transition-colors enabled:hover:ring-2 enabled:hover:ring-gray-200 disabled:cursor-default ${folder.icon ? tintFor(folder.id) : 'bg-amber-100'}`}
                   >
                     {folder.icon ? folder.icon : <Folder size={15} className="text-amber-500" />}
                   </button>
@@ -1290,7 +1304,7 @@ export function DocsTab({
                     onClick={() => canEdit && setIconPickerFor(prev => prev === doc.id ? null : doc.id)}
                     disabled={!canEdit}
                     title={canEdit ? tr('בחרו אייקון', 'Choose an icon') : undefined}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-base leading-none transition-colors enabled:hover:ring-2 enabled:hover:ring-primary/20 disabled:cursor-default"
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg text-base leading-none transition-colors enabled:hover:ring-2 enabled:hover:ring-gray-200 disabled:cursor-default ${doc.icon ? tintFor(doc.id) : 'bg-primary/10'}`}
                   >
                     {doc.icon ? doc.icon : <FileText size={15} className="text-primary" />}
                   </button>
