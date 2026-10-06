@@ -1335,10 +1335,27 @@ export async function getWorkDocs(profileNames: Record<string, string>): Promise
 export async function createWorkDoc(
   title: string, content: string, profileNames: Record<string, string>, folderId?: string | null,
 ): Promise<WorkDoc & { myLevel: DocAccessLevel }> {
+  // The id is generated here rather than by the database so the new row can be
+  // read back in a SECOND statement. Insert-and-return in one statement is
+  // impossible for anyone but the Owner: the "work_docs: view" policy calls
+  // has_doc_access(), which is STABLE and queries work_docs itself, so it
+  // cannot see the row the same statement is inserting and PostgreSQL refuses
+  // the RETURNING with "new row violates row-level security policy". The Owner
+  // escapes it only because has_doc_access() short-circuits on is_owner before
+  // touching the table. Splitting the two changes no RLS rule and weakens
+  // nothing: by the second statement the row is committed and
+  // set_work_doc_creator_access has already put {creator: 'full'} in its
+  // access map, so the ordinary view policy passes on its own.
+  const id = crypto.randomUUID()
+  const { error: insertError } = await supabase
+    .from('work_docs')
+    .insert({ id, title, content, folder_id: folderId ?? null })
+  if (insertError) throw insertError
+
   const { data, error } = await supabase
     .from('work_docs')
-    .insert({ title, content, folder_id: folderId ?? null })
     .select(WORK_DOC_COLUMNS)
+    .eq('id', id)
     .single()
   if (error) throw error
   return dbToWorkDoc(data as unknown as DbWorkDoc, profileNames)
@@ -1412,10 +1429,20 @@ export async function getWorkDocFolders(profileNames: Record<string, string>): P
 // access is set server-side by set_work_doc_folder_creator_access (copies
 // the parent folder's access map, then forces the creator to 'full').
 export async function createWorkDocFolder(name: string, parentId: string | null, profileNames: Record<string, string>): Promise<WorkDocFolder> {
+  // Same split as createWorkDoc above, for the same reason: "work_doc_folders:
+  // view" calls has_folder_access(), whose recursive ancestor chain is empty
+  // for a row that is still being inserted, so a combined insert-and-return is
+  // refused for every non-Owner.
+  const id = crypto.randomUUID()
+  const { error: insertError } = await supabase
+    .from('work_doc_folders')
+    .insert({ id, name, parent_id: parentId })
+  if (insertError) throw insertError
+
   const { data, error } = await supabase
     .from('work_doc_folders')
-    .insert({ name, parent_id: parentId })
     .select(WORK_DOC_FOLDER_COLUMNS)
+    .eq('id', id)
     .single()
   if (error) throw error
   return dbToWorkDocFolder(data as unknown as DbWorkDocFolder, profileNames)
