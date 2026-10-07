@@ -40,36 +40,6 @@ export async function syncGoogleSheetLeads(): Promise<GoogleSheetSyncResult> {
   return runSheetSync('/api/leads/google-sheet/sync', 'Google Sheets sync failed')
 }
 
-export interface SheetSyncPart {
-  sheet: 'leads' | 'coldCall'
-  result?: GoogleSheetSyncResult
-  error?: string
-}
-
-/**
- * Both connected spreadsheets in one go: the lead-form sheet (all of its form
- * tabs, into New lead) and the cold-call research sheet (into the cold call
- * status). Run one after the other rather than together — they share one
- * service-account token and one sync service — and each one's failure is
- * reported on its own, so a broken sheet never hides what the other imported.
- */
-export async function syncAllSheets(includeColdCall: boolean): Promise<SheetSyncPart[]> {
-  const parts: SheetSyncPart[] = []
-  try {
-    parts.push({ sheet: 'leads', result: await syncGoogleSheetLeads() })
-  } catch (error) {
-    parts.push({ sheet: 'leads', error: error instanceof Error ? error.message : 'Google Sheets sync failed' })
-  }
-  if (includeColdCall) {
-    try {
-      parts.push({ sheet: 'coldCall', result: await syncColdCallLeads() })
-    } catch (error) {
-      parts.push({ sheet: 'coldCall', error: error instanceof Error ? error.message : 'Cold-call sheet sync failed' })
-    }
-  }
-  return parts
-}
-
 /** The cold-call research sheet — lands in the `cold call` pipeline status. */
 export async function syncColdCallLeads(): Promise<GoogleSheetSyncResult> {
   return runSheetSync('/api/leads/google-sheet/cold-call/sync', 'Cold-call sheet sync failed')
