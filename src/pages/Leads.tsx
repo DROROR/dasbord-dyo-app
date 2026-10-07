@@ -1,10 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { takeLeadFocus, LEAD_FOCUS_EVENT } from '../lib/focusTarget'
-import {
-  Users, UserPlus, Calendar, Clock, AlertTriangle,
-  X, Check, CheckCheck, Phone, PhoneOff, Mail, Archive,
-  Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search, ArrowUp, ArrowDown, Pencil, PhoneCall,
-} from 'lucide-react'
+import { Users, UserPlus, Calendar, Clock, AlertTriangle, X, Check, CheckCheck, Phone, PhoneOff, Mail, Archive, Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search, ArrowUp, ArrowDown, Pencil, PhoneCall, Sparkles } from 'lucide-react'
 import { getLeadPipelineStatuses, createLeadPipelineStatus, deleteLeadPipelineStatus, createManualLead, updateLead as dbUpdateLead, deleteLead as dbDeleteLead } from '../lib/database'
 import type { DbLead, DbLeadHistory, DbLeadPipelineStatus, LeadStatusColor } from '../lib/database'
 import { useCan } from '../hooks/useCan'
@@ -247,7 +243,18 @@ function StatCard({ icon, label, value, alert = false, compact = false }: {
 
 // ─── Lead card ────────────────────────────────────────────────────────────────
 
-function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
+/**
+ * A lead nobody has touched yet: nothing in its history (no note, no call, no
+ * contact attempt), no scheduled call and no follow-up date. Any of those is an
+ * action, so the NEW mark clears itself the moment someone works the lead —
+ * and moving it out of the entry column clears it too, since the column itself
+ * is what decides whether the mark is shown at all.
+ */
+function isUntouchedLead(lead: Lead): boolean {
+  return lead.history.length === 0 && !lead.dueAt && !lead.followUpDate
+}
+
+function LeadCard({ lead, onClick, isNew = false }: { lead: Lead; onClick: () => void; isNew?: boolean }) {
   const { t, lang } = useLang()
   const alert = isStale(lead) || isLeadDueOverdue(lead)
   const category = lead.formAnswer || t(LEAD_TYPE_LABEL[lead.leadType].he, LEAD_TYPE_LABEL[lead.leadType].en)
@@ -256,7 +263,15 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
   const short = (iso?: string) => iso ? new Date(iso).toLocaleString(lang === 'he' ? 'he-IL' : 'en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
   return (
     <button onClick={onClick} className="grid min-h-14 w-full min-w-[1280px] grid-cols-[minmax(150px,1.5fr)_120px_minmax(130px,1fr)_110px_110px_110px_90px_minmax(120px,1fr)_90px_110px] items-center gap-3 border-b border-gray-100 bg-surface px-3 py-2 text-start transition-colors last:border-b-0 hover:bg-gray-50">
-      <span className="flex min-w-0 items-center gap-2"><strong className="truncate text-sm text-gray-800">{lead.name}</strong>{alert && <AlertTriangle size={13} className="shrink-0 text-red-500" />}</span>
+      <span className="flex min-w-0 items-center gap-2">
+        <strong className="truncate text-sm text-gray-800">{lead.name}</strong>
+        {isNew && (
+          <span title={t('ליד חדש — עוד לא נעשתה בו פעולה', 'New lead — nothing has been done with it yet')} className="flex shrink-0 items-center gap-1 rounded-md bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-600">
+            <Sparkles size={9} />{t('חדש', 'New')}
+          </span>
+        )}
+        {alert && <AlertTriangle size={13} className="shrink-0 text-red-500" />}
+      </span>
       <span dir="ltr" className="truncate text-xs text-gray-500">{lead.phone}</span>
       <span className={`w-fit max-w-full truncate rounded-md px-2 py-1 text-xs font-semibold ${leadCategoryColor(category)}`}>{category}</span>
       <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('נכנס', 'Entry')}</small>{short(lead.entryDate)}</span>
@@ -283,6 +298,13 @@ function KanbanColumn({ col, leads, onLeadClick, onDelete, onEdit, onMoveUp, onM
 }) {
   const { t } = useLang()
   const [open, setOpen] = useState(false)
+  // The two columns leads land in: the form's "New lead" and the cold-call
+  // import. Elsewhere the lead has already been moved, which is itself an
+  // action, so no mark.
+  const entryColumn = col.legacy_status === 'new'
+    || (col.label_en || '').trim().toLowerCase() === 'cold call'
+    || (col.label_he || '').trim().toLowerCase() === 'cold call'
+  const untouched = leads.filter(isUntouchedLead).length
   return (
     <div className="flex w-full flex-col overflow-hidden rounded-xl border border-gray-100 bg-surface">
       <div className="flex items-center gap-2 px-3 py-2.5">
@@ -290,6 +312,11 @@ function KanbanColumn({ col, leads, onLeadClick, onDelete, onEdit, onMoveUp, onM
           <ChevronDown size={15} className={`shrink-0 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
           <h3 className={`truncate rounded-md px-2 py-1 text-xs font-semibold ${LEAD_STATUS_COLORS[col.color].badge}`}>{t(col.label_he, col.label_en)}</h3>
           <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">{leads.length}</span>
+          {entryColumn && untouched > 0 && (
+            <span title={t('לידים חדשים שלא טופלו', 'New leads nobody has worked yet')} className="flex shrink-0 items-center gap-1 rounded-md bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-600">
+              <Sparkles size={9} />{untouched} {t('חדש', 'New')}
+            </span>
+          )}
         </button>
         {onMoveUp && <button onClick={onMoveUp} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-primary" title={t('העבר למעלה', 'Move up')}><ArrowUp size={14} /></button>}
         {onMoveDown && <button onClick={onMoveDown} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-primary" title={t('העבר למטה', 'Move down')}><ArrowDown size={14} /></button>}
@@ -303,7 +330,7 @@ function KanbanColumn({ col, leads, onLeadClick, onDelete, onEdit, onMoveUp, onM
       {open && <div className="overflow-x-auto bg-gray-50/30 p-2">
         {leads.length === 0
           ? <p className="py-5 text-center text-xs text-gray-400">{t('אין לידים', 'No leads')}</p>
-          : leads.map(l => <LeadCard key={l.id} lead={l} onClick={() => onLeadClick(l)} />)
+          : leads.map(l => <LeadCard key={l.id} lead={l} onClick={() => onLeadClick(l)} isNew={entryColumn && isUntouchedLead(l)} />)
         }
       </div>}
     </div>
