@@ -24,16 +24,45 @@ export interface SearchHit {
 const PER_KIND = 5
 
 /**
- * PostgREST's or() takes a comma-separated filter list, so a comma, bracket or
- * percent sign in the term would be read as syntax. They are dropped rather
- * than escaped — none of them is worth searching for here.
+ * PostgREST's or() takes a comma-separated filter list, so a comma, bracket,
+ * percent or star in the term would be read as syntax (`%` and `*` are its
+ * wildcards). They are dropped rather than escaped — none is worth searching
+ * for here.
  */
 function safeTerm(term: string): string {
   return term.trim().replace(/[,()%*\\"']/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
-function orFilter(columns: string[], term: string): string {
-  return columns.map(column => `${column}.ilike.%${term}%`).join(',')
+/**
+ * The `or=(…)` body for one term.
+ *
+ * Every word has to match somewhere — any of the columns, in any order — rather
+ * than the term being one literal phrase. That is what makes "יעל ארנון ורד"
+ * find the sheet's own "יעל ארנון  ורד" (two spaces), "ורד יעל" find it too,
+ * "fixes lead tab" match a task title with words in between, and "יעל gmail"
+ * match a name in one column and an address in another. It is an and() of
+ * per-word or()s, nested inside the single or() the client sends.
+ *
+ * A mostly-numeric term gets phone spellings as extra branches of their own —
+ * an alternative way to write the whole term, not another word to match: a
+ * lead's number is stored exactly as Meta sends it (+972…) while people search
+ * for the local 05… form, and clients hold both shapes.
+ */
+function searchFilter(columns: string[], term: string): string {
+  const words = term.split(/\s+/).filter(Boolean)
+  const perWord = words.map(word => `or(${columns.map(column => `${column}.ilike.%${word}%`).join(',')})`)
+  const branches = [`and(${perWord.join(',')})`]
+
+  const digits = term.replace(/\D/g, '')
+  if (digits.length >= 6) {
+    const spellings = new Set([digits])
+    if (digits.startsWith('0')) spellings.add(`972${digits.slice(1)}`)
+    if (digits.startsWith('972')) spellings.add(`0${digits.slice(3)}`)
+    for (const spelling of spellings) {
+      for (const column of columns) branches.push(`${column}.ilike.%${spelling}%`)
+    }
+  }
+  return branches.join(',')
 }
 
 export async function searchEverything(
@@ -50,7 +79,7 @@ export async function searchEverything(
       const { data, error } = await supabase
         .from('leads')
         .select('id, name, client_name, phone, email, campaign_name')
-        .or(orFilter(['name', 'client_name', 'phone', 'email', 'campaign_name'], term))
+        .or(searchFilter(['name', 'client_name', 'phone', 'email', 'campaign_name'], term))
         .limit(PER_KIND)
       if (error) throw error
       return (data ?? []).map(row => ({
@@ -68,7 +97,7 @@ export async function searchEverything(
       const { data, error } = await supabase
         .from('tasks')
         .select('id, title, description, board, status, client_name')
-        .or(orFilter(['title', 'description', 'client_name'], term))
+        .or(searchFilter(['title', 'description', 'client_name'], term))
         .limit(PER_KIND)
       if (error) throw error
       return (data ?? []).map(row => ({
@@ -86,7 +115,7 @@ export async function searchEverything(
       const { data, error } = await supabase
         .from('work_docs')
         .select('id, title, content')
-        .or(orFilter(['title', 'content'], term))
+        .or(searchFilter(['title', 'content'], term))
         .limit(PER_KIND)
       if (error) throw error
       return (data ?? []).map(row => ({
@@ -104,7 +133,7 @@ export async function searchEverything(
       const { data, error } = await supabase
         .from('clients')
         .select('id, name, business_name, email, phone')
-        .or(orFilter(['name', 'business_name', 'email', 'phone'], term))
+        .or(searchFilter(['name', 'business_name', 'email', 'phone'], term))
         .limit(PER_KIND)
       if (error) throw error
       return (data ?? []).map(row => ({
@@ -122,7 +151,7 @@ export async function searchEverything(
       const { data, error } = await supabase
         .from('meditations')
         .select('id, title, description, category')
-        .or(orFilter(['title', 'description', 'category'], term))
+        .or(searchFilter(['title', 'description', 'category'], term))
         .limit(PER_KIND)
       if (error) throw error
       return (data ?? []).map(row => ({
@@ -147,7 +176,9 @@ export async function searchEverything(
 /** Plain-text window around the match, so a document hit shows why it matched. */
 function snippet(html: string, term: string): string {
   const text = html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
-  const at = text.toLowerCase().indexOf(term.toLowerCase())
+  const haystack = text.toLowerCase()
+  // Whichever word landed — the whole term may be spread across the document.
+  const at = term.toLowerCase().split(/\s+/).map(word => haystack.indexOf(word)).find(found => found !== -1) ?? -1
   if (at === -1) return text.slice(0, 90)
   const from = Math.max(0, at - 30)
   return `${from > 0 ? '…' : ''}${text.slice(from, from + 100)}${text.length > from + 100 ? '…' : ''}`
