@@ -23,7 +23,7 @@ import {
 } from '../lib/database'
 import type { TicketDoneAnswers } from '../components/work/TaskDetailModal'
 import { TIMER_ENTRY_SAVED_EVENT, type TimerEntrySavedDetail } from '../contexts/TimerContext'
-import { takeTaskFocus, TASK_FOCUS_EVENT } from '../lib/focusTarget'
+import { takeTaskFocus, TASK_FOCUS_EVENT, takeDocFocus, DOC_FOCUS_EVENT } from '../lib/focusTarget'
 import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES, priorityDefsForBoard } from '../data/workConstants'
 import { VerticalBoard }    from '../components/work/VerticalBoard'
 import { MyBoard }          from '../components/work/MyBoard'
@@ -847,6 +847,24 @@ export function Work() {
     return () => window.removeEventListener(TASK_FOCUS_EVENT, onTaskFocusRequested)
   }, [])
 
+  // Same pair for a document the header search found: the Documentation tab
+  // opens with that document selected. DocsTab loads its own list, so the id is
+  // handed down and resolved there.
+  const [focusDocId, setFocusDocId] = useState<string | null>(() => takeDocFocus())
+
+  useEffect(() => {
+    if (focusDocId && canViewDocs) setTab('docs')
+  }, [focusDocId, canViewDocs])
+
+  useEffect(() => {
+    function onDocFocusRequested(event: Event) {
+      takeDocFocus()
+      setFocusDocId((event as CustomEvent<string>).detail)
+    }
+    window.addEventListener(DOC_FOCUS_EVENT, onDocFocusRequested)
+    return () => window.removeEventListener(DOC_FOCUS_EVENT, onDocFocusRequested)
+  }, [])
+
   // Clients and team members come straight from the database, so adding or
   // removing either is picked up here with no code change.
   useEffect(() => {
@@ -1226,6 +1244,8 @@ export function Work() {
               profiles={profiles}
               canManagePermissions={canManagePermissions}
               canCreate={canCreateDocs}
+              openDocId={focusDocId}
+              onDocOpened={() => setFocusDocId(null)}
             />
           ) : (
             // Defense in depth: the tab bar already hides this tab when

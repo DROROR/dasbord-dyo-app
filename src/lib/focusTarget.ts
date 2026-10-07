@@ -34,3 +34,36 @@ export function takeClientFocus(): string | null {
   if (id) sessionStorage.removeItem(CLIENT_KEY)
   return id
 }
+
+// Leads and documents, same contract as tasks above: the global search in the
+// header writes the id, then navigates. Each has an event too, for the case
+// where the destination page is already the one on screen.
+const LEAD_KEY = 'focus_lead_id'
+const DOC_KEY  = 'focus_doc_id'
+
+export const LEAD_FOCUS_EVENT = 'leads:leadFocusRequested'
+export const DOC_FOCUS_EVENT  = 'work:docFocusRequested'
+
+export function requestLeadFocus(leadId: string) {
+  sessionStorage.setItem(LEAD_KEY, leadId)
+  window.dispatchEvent(new CustomEvent<string>(LEAD_FOCUS_EVENT, { detail: leadId }))
+}
+
+export function requestDocFocus(docId: string) {
+  sessionStorage.setItem(DOC_KEY, docId)
+  window.dispatchEvent(new CustomEvent<string>(DOC_FOCUS_EVENT, { detail: docId }))
+}
+
+/** Returns the requested id once, then forgets it. */
+export function takeLeadFocus(): string | null {
+  const id = sessionStorage.getItem(LEAD_KEY)
+  if (id) sessionStorage.removeItem(LEAD_KEY)
+  return id
+}
+
+/** Returns the requested id once, then forgets it. */
+export function takeDocFocus(): string | null {
+  const id = sessionStorage.getItem(DOC_KEY)
+  if (id) sessionStorage.removeItem(DOC_KEY)
+  return id
+}

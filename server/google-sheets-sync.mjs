@@ -12,6 +12,23 @@ const CREDENTIALS_FILE = process.env.GOOGLE_SERVICE_ACCOUNT_FILE
 const CREDENTIALS_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
 const SYNC_INTERVAL_MS = Number(process.env.GOOGLE_SHEET_SYNC_INTERVAL_MS || 300_000)
 const REQUIRED_HEADERS = ['id', 'created_time', 'מה_מתאר_אותך_הכי_טוב_כרגע', 'email', 'full_name', 'phone_number']
+// Meta publishes each new version of the lead form to its own tab in the same
+// spreadsheet ("מה מאפיין אותך טופס פילוח קהל (v4)"), and the newer ones carry
+// Hebrew column names for the same fields. So the sync reads EVERY tab whose
+// header row holds the required fields under any of their known names, instead
+// of the single configured tab — a v5 tab then needs no change here. The names
+// below are what the forms have used so far; the canonical key on the left is
+// what the mapper asks for.
+const HEADER_ALIASES = {
+  id: ['id'],
+  created_time: ['created_time'],
+  'מה_מתאר_אותך_הכי_טוב_כרגע': ['מה_מתאר_אותך_הכי_טוב_כרגע'],
+  email: ['email', 'דוא"ל', 'דוא״ל', 'דואל', 'אימייל'],
+  full_name: ['full_name', 'שם_מלא', 'שם מלא', 'שם'],
+  phone_number: ['phone_number', 'מספר_טלפון', 'מספר טלפון', 'טלפון'],
+  campaign_name: ['campaign_name'],
+  platform: ['platform'],
+}
 let syncPromise = null
 let lastSync = null
 
@@ -105,19 +122,46 @@ function sourceFor(platform) {
   return null
 }
 
-async function syncSheet() {
-  const token = await googleAccessToken()
-  const range = encodeURIComponent(`${SHEET_TAB}!A:Q`)
-  const sheetResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(SHEET_ID)}/values/${range}?majorDimension=ROWS`, {
+/**
+ * Column positions keyed by canonical name, or null when this tab is not a lead
+ * tab at all (a summary sheet, an empty one, a half-built form).
+ */
+function resolveHeaders(headerRow) {
+  const headers = headerRow.map(value => String(value).trim())
+  const index = {}
+  for (const [canonical, names] of Object.entries(HEADER_ALIASES)) {
+    const position = headers.findIndex(header => names.includes(header))
+    if (position !== -1) index[canonical] = position
+  }
+  return REQUIRED_HEADERS.every(header => index[header] !== undefined) ? index : null
+}
+
+/** Every tab title in the lead spreadsheet; the configured one if that fails. */
+async function sheetTabTitles(token) {
+  try {
+    const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(SHEET_ID)}?fields=sheets.properties.title`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000),
+    })
+    if (!response.ok) throw new Error(`metadata read failed (${response.status})`)
+    const titles = ((await response.json()).sheets || []).map(sheet => sheet.properties?.title).filter(Boolean)
+    return titles.length ? titles : [SHEET_TAB]
+  } catch (error) {
+    console.warn('Could not list the lead sheet tabs, falling back to the configured one:', error.message)
+    return [SHEET_TAB]
+  }
+}
+
+async function tabRows(token, title) {
+  const range = encodeURIComponent(`${title}!A:Q`)
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(SHEET_ID)}/values/${range}?majorDimension=ROWS`, {
     headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000),
   })
-  if (!sheetResponse.ok) throw new Error(`Google Sheets read failed (${sheetResponse.status})`)
-  const rows = (await sheetResponse.json()).values || []
-  if (!rows.length) return { created: 0, existing: 0, skipped: 0, total: 0 }
-  const headers = rows[0].map(value => String(value).trim())
-  const missing = REQUIRED_HEADERS.filter(header => !headers.includes(header))
-  if (missing.length) throw new Error(`Missing sheet headers: ${missing.join(', ')}`)
-  const index = Object.fromEntries(headers.map((header, position) => [header, position]))
+  if (!response.ok) throw new Error(`Google Sheets read failed (${response.status})`)
+  return (await response.json()).values || []
+}
+
+async function syncSheet() {
+  const token = await googleAccessToken()
 
   const statusResponse = await fetch(`${SUPABASE_URL}/rest/v1/lead_pipeline_statuses?legacy_status=eq.new&select=id&limit=1`, { headers: adminHeaders() })
   if (!statusResponse.ok) throw new Error('Could not load the New Lead pipeline status')
@@ -125,12 +169,28 @@ async function syncSheet() {
   if (!newStatusId) throw new Error('New Lead pipeline status is missing')
 
   let skipped = 0
-  const leads = rows.slice(1).flatMap((row, offset) => {
-    const get = header => String(row[index[header]] ?? '').trim()
+  const tabsRead = []
+  const leadRows = []
+  for (const title of await sheetTabTitles(token)) {
+    const rows = await tabRows(token, title)
+    if (rows.length < 2) continue
+    const index = resolveHeaders(rows[0])
+    if (!index) continue
+    tabsRead.push(title)
+    for (const row of rows.slice(1)) leadRows.push({ row, index, title })
+  }
+  // Every tab failing the header check means the sheet itself changed shape —
+  // the same error the single-tab version raised, rather than a silent zero.
+  if (!tabsRead.length) throw new Error(`Missing sheet headers: ${REQUIRED_HEADERS.join(', ')}`)
+
+  const leads = leadRows.flatMap(({ row, index, title }, offset) => {
+    const get = header => (index[header] === undefined ? '' : String(row[index[header]] ?? '').trim())
     const name = get('full_name')
     const phone = get('phone_number')
     if (!name || !phone) { skipped += 1; return [] }
-    const externalId = get('id') || createHash('sha256').update(`${get('created_time')}|${get('email')}|${phone}|${offset + 2}`).digest('hex')
+    // The id column is Meta's own lead id, unique across tabs, so a lead that
+    // appears in a newer tab is still recognised as the same row.
+    const externalId = get('id') || createHash('sha256').update(`${title}|${get('created_time')}|${get('email')}|${phone}|${offset + 2}`).digest('hex')
     return [{
       sheet_row_key: `google:${SHEET_ID}:${externalId}`,
       name,
@@ -182,7 +242,7 @@ async function syncSheet() {
     })))
     if (updates.some(response => !response.ok)) throw new Error('Could not update imported lead details')
   }
-  return { created, existing: existingCount, excluded: excludedCount, skipped, total: leads.length }
+  return { created, existing: existingCount, excluded: excludedCount, skipped, total: leads.length, tabs: tabsRead }
 }
 
 // ── Cold-call row mapping ─────────────────────────────────────────────────────

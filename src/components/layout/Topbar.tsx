@@ -1,7 +1,9 @@
 import { useRef, useState, useEffect } from 'react'
-import { Bell, Search, PanelRight, X, Check, AlertTriangle, MessageSquare, Code, Palette, RotateCcw, Clock, Send, Globe, ExternalLink, UserPlus, ListChecks, Moon, Sun } from 'lucide-react'
+import { Bell, Search, PanelRight, X, Check, AlertTriangle, MessageSquare, Code, Palette, RotateCcw, Clock, Send, Globe, ExternalLink, UserPlus, ListChecks, Moon, Sun, Users, ListTodo, FileText, Video, Loader2 } from 'lucide-react'
 import { useNotifications } from '../../contexts/NotificationContext'
-import { requestTaskFocus, requestClientFocus } from '../../lib/focusTarget'
+import { requestTaskFocus, requestClientFocus, requestLeadFocus, requestDocFocus } from '../../lib/focusTarget'
+import { useAuth } from '../../hooks/useAuth'
+import { searchEverything, type SearchHit, type SearchKind } from '../../lib/globalSearch'
 import { useLang } from '../../contexts/LanguageContext'
 import type { NotificationType, AppNotification } from '../../types/work'
 import { useTheme } from '../../contexts/theme'
@@ -102,6 +104,20 @@ function WaApprovalPanel({ n, onDone }: { n: AppNotification; onDone: () => void
   )
 }
 
+const SEARCH_ICON: Record<SearchKind, React.ElementType> = {
+  lead: Users, task: ListTodo, doc: FileText, client: Users, meditation: Video,
+}
+
+const SEARCH_GROUP: Record<SearchKind, { he: string; en: string }> = {
+  lead:       { he: 'לידים',        en: 'Leads' },
+  task:       { he: 'משימות',       en: 'Tasks' },
+  doc:        { he: 'מסמכים',       en: 'Documents' },
+  client:     { he: 'לקוחות',       en: 'Clients' },
+  meditation: { he: 'מדיטציות',     en: 'Meditations' },
+}
+
+const SEARCH_ORDER: SearchKind[] = ['lead', 'task', 'doc', 'client', 'meditation']
+
 interface Props {
   activePage: string
   onToggleSidebar: () => void
@@ -117,6 +133,52 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
   const [panelOpen, setPanelOpen]   = useState(false)
   const [expandedWa, setExpandedWa] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+
+  const { canViewPage } = useAuth()
+  const [query, setQuery] = useState('')
+  const [hits, setHits] = useState<SearchHit[]>([])
+  const [searching, setSearching] = useState(false)
+  const [resultsOpen, setResultsOpen] = useState(false)
+  const searchRef = useRef<HTMLDivElement>(null)
+
+  // Debounced: typing a name should not fire a query per keystroke.
+  useEffect(() => {
+    const term = query.trim()
+    if (term.length < 2) {
+      setHits([])
+      setSearching(false)
+      return
+    }
+    setSearching(true)
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void searchEverything(term, canViewPage)
+        .then(found => { if (!cancelled) { setHits(found); setResultsOpen(true) } })
+        .catch(() => { if (!cancelled) setHits([]) })
+        .finally(() => { if (!cancelled) setSearching(false) })
+    }, 250)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [query, canViewPage])
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setResultsOpen(false)
+    }
+    if (resultsOpen) document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [resultsOpen])
+
+  function openHit(hit: SearchHit) {
+    setResultsOpen(false)
+    setQuery('')
+    // The page may already be the one on screen, which is why each of these
+    // dispatches an event as well as leaving the id in sessionStorage.
+    if (hit.kind === 'task') requestTaskFocus(hit.id)
+    if (hit.kind === 'client') requestClientFocus(hit.id)
+    if (hit.kind === 'lead') requestLeadFocus(hit.id)
+    if (hit.kind === 'doc') requestDocFocus(hit.id)
+    onNavigate(hit.page)
+  }
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -187,14 +249,56 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
           {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
         </button>
 
-        {/* Search */}
-        <div className="relative hidden sm:block">
-          <Search size={15} className="absolute top-1/2 -translate-y-1/2 end-3 text-gray-400 pointer-events-none" />
+        {/* Search — across leads, tasks, documents, clients and meditations */}
+        <div className="relative hidden sm:block" ref={searchRef}>
+          {searching
+            ? <Loader2 size={15} className="absolute top-1/2 -translate-y-1/2 end-3 animate-spin text-gray-400" />
+            : <Search size={15} className="absolute top-1/2 -translate-y-1/2 end-3 text-gray-400 pointer-events-none" />}
           <input
             type="text"
-            placeholder={t('חיפוש...', 'Search...')}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onFocus={() => { if (hits.length) setResultsOpen(true) }}
+            onKeyDown={e => {
+              if (e.key === 'Escape') { setResultsOpen(false); setQuery('') }
+              if (e.key === 'Enter' && hits.length) openHit(hits[0])
+            }}
+            placeholder={t('חיפוש בכל המערכת...', 'Search everything...')}
             className="w-48 lg:w-64 bg-gray-50 border border-gray-200 rounded-lg text-sm pe-9 ps-3 py-2 text-right placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
           />
+
+          {resultsOpen && query.trim().length >= 2 && (
+            <div className="absolute end-0 top-full z-50 mt-1 max-h-[70vh] w-80 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-xl lg:w-96">
+              {hits.length === 0 && !searching && (
+                <p className="px-3 py-4 text-center text-xs text-gray-400">{t('לא נמצאו תוצאות', 'Nothing found')}</p>
+              )}
+              {SEARCH_ORDER.map(kind => {
+                const group = hits.filter(hit => hit.kind === kind)
+                if (!group.length) return null
+                const Icon = SEARCH_ICON[kind]
+                return (
+                  <div key={kind} className="border-b border-gray-50 last:border-b-0">
+                    <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                      {t(SEARCH_GROUP[kind].he, SEARCH_GROUP[kind].en)}
+                    </p>
+                    {group.map(hit => (
+                      <button
+                        key={`${hit.kind}-${hit.id}`}
+                        onClick={() => openHit(hit)}
+                        className="flex w-full items-start gap-2.5 px-3 py-2 text-start transition-colors hover:bg-gray-50"
+                      >
+                        <Icon size={14} className="mt-0.5 shrink-0 text-primary" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-semibold text-gray-700">{hit.title}</span>
+                          {hit.subtitle && <span className="block truncate text-[10px] text-gray-400">{hit.subtitle}</span>}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Language toggle */}

@@ -845,11 +845,14 @@ function IconPicker({ current, onPick, onClose }: {
 const OPEN_FOLDER_KEY = 'work-docs:open-folder'
 
 export function DocsTab({
-  profiles, canManagePermissions, canCreate,
+  profiles, canManagePermissions, canCreate, openDocId, onDocOpened,
 }: {
   profiles: { id: string; name: string }[]
   canManagePermissions: boolean
   canCreate: boolean
+  /** A document the header search asked for, opened once the list has loaded. */
+  openDocId?: string | null
+  onDocOpened?: () => void
 }) {
   const { t: tr } = useWorkLang()
   const [docs, setDocs]         = useState<DocRow[]>([])
@@ -944,6 +947,20 @@ export function DocsTab({
       else localStorage.removeItem(OPEN_FOLDER_KEY)
     } catch { /* private mode: the folder just is not remembered */ }
   }, [currentFolderId])
+
+  // Open what the search found, and move the view into its folder so going back
+  // lands somewhere that makes sense.
+  useEffect(() => {
+    if (!openDocId || !docs.length) return
+    const target = docs.find(d => d.id === openDocId)
+    if (!target) return
+    setCurrentFolderId(target.folderId ?? null)
+    setSelectedId(openDocId)
+    onDocOpened?.()
+    // onDocOpened is a stable setter in practice; listing it would re-run this
+    // the moment it clears the id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openDocId, docs])
 
   const currentFolder = currentFolderId ? folders.find(f => f.id === currentFolderId) ?? null : null
   // The trail from the root down to the folder being viewed, for the breadcrumb.

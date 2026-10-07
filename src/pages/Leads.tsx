@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { takeLeadFocus, LEAD_FOCUS_EVENT } from '../lib/focusTarget'
 import {
   Users, UserPlus, Calendar, Clock, AlertTriangle,
   X, Check, CheckCheck, Phone, PhoneOff, Mail, Archive,
@@ -716,6 +717,8 @@ export function Leads() {
   const [fetchError,   setFetchError]   = useState<string | null>(null)
   const [view, setView] = useState<'kanban' | 'calendar' | 'archive'>('kanban')
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
+  // Kept current for the focus listener, which is registered once at mount.
+  const leadsRef = useRef<Lead[]>([])
   const [statuses, setStatuses] = useState<DbLeadPipelineStatus[]>([])
   const [addingStatus, setAddingStatus] = useState(false)
   const [addingLead, setAddingLead] = useState(false)
@@ -762,7 +765,31 @@ export function Leads() {
     }
   }
 
+  useEffect(() => { leadsRef.current = leads }, [leads])
+
   useEffect(() => { void load() }, [])
+
+  // The header search navigates here with a lead id. Two paths, same as the
+  // task deep link in Work: sessionStorage for the case where this page is
+  // mounting now, and the event for when it is already the page on screen.
+  useEffect(() => {
+    if (!leads.length) return
+    const requested = takeLeadFocus()
+    if (!requested) return
+    const lead = leads.find(item => item.id === requested)
+    if (lead) setSelectedLead(lead)
+  }, [leads])
+
+  useEffect(() => {
+    function onLeadFocusRequested(event: Event) {
+      const requested = (event as CustomEvent<string>).detail
+      takeLeadFocus()
+      const lead = leadsRef.current.find(item => item.id === requested)
+      if (lead) setSelectedLead(lead)
+    }
+    window.addEventListener(LEAD_FOCUS_EVENT, onLeadFocusRequested)
+    return () => window.removeEventListener(LEAD_FOCUS_EVENT, onLeadFocusRequested)
+  }, [])
   useEffect(() => {
     // Not gated on canDeleteStatuses: the sync buttons are (where they are
     // rendered), but every member sees the counters that need keyPrefix.
