@@ -12,7 +12,7 @@ import type { Task, TaskPlatform, TaskSubtask, TaskSubtaskStatus, TimeEntry, Pri
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
 import {
   addSubtaskComment, addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask, deleteTaskComment,
-  deleteTask, deleteTaskSubtask, deployTask, getTaskBoardMoves, getTaskComments, updateTaskSubtask,
+  deleteTask, deleteTaskSubtask, deployTask, resetDeployTask, getTaskBoardMoves, getTaskComments, updateTaskSubtask,
   updateTaskTimeEntry, handoffTaskAssignment,
   type TaskBoardMove,
 } from '../../lib/database'
@@ -194,6 +194,7 @@ export function TaskDetailModal({
   const [deploying,      setDeploying]      = useState(false)
   const [deployError,    setDeployError]    = useState<string | null>(null)
   const [deployedToAdmin, setDeployedToAdmin] = useState(task.deployedToAdmin ?? false)
+  const [resettingDeploy, setResettingDeploy] = useState(false)
   const [msgTranslations, setMsgTranslations] = useState<Record<string, string>>({})
   const [translatingMsg,  setTranslatingMsg]  = useState(false)
   const [showMsgTr,       setShowMsgTr]       = useState(false)
@@ -803,6 +804,24 @@ export function TaskDetailModal({
     }
   }
 
+  async function handleResetDeploy() {
+    if (resettingDeploy) return
+    setResettingDeploy(true)
+    try {
+      const updated = await resetDeployTask(task.id)
+      onUpdate(updated)
+      setDeployedToAdmin(false)
+      setDeployMessage(DEFAULT_DEPLOY_MSG)
+      setMsgTranslations({})
+      setShowMsgTr(false)
+      setDeployError(null)
+    } catch (err) {
+      setDeployError(err instanceof Error ? err.message : 'Failed to reset — please try again.')
+    } finally {
+      setResettingDeploy(false)
+    }
+  }
+
   // Only the current main assignee may reach this — see
   // handoff_task_assignment() in
   // 20260816090000_time_entry_edit_and_assignee_handoff.sql, which
@@ -1175,9 +1194,19 @@ export function TaskDetailModal({
         {task.board === 'support' && (
           <div className={`px-6 py-3 shrink-0 border-b ${deployedToAdmin ? 'bg-green-50 border-green-100' : 'bg-violet-50 border-violet-100'}`}>
             {deployedToAdmin ? (
-              <div className="flex items-center gap-2 text-green-700 text-sm font-medium">
-                <Check size={15} className="shrink-0" />
-                Admin updated — message sent to their homepage.
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-green-700 text-sm font-medium">
+                  <Check size={15} className="shrink-0" />
+                  Admin updated — message sent to their homepage.
+                </div>
+                <button
+                  onClick={() => void handleResetDeploy()}
+                  disabled={resettingDeploy}
+                  className="shrink-0 text-xs text-green-600 underline hover:text-green-800 disabled:opacity-50 transition-colors"
+                  title="If the message was not received, use this to reset and resend"
+                >
+                  {resettingDeploy ? 'Resetting…' : 'Retry sending'}
+                </button>
               </div>
             ) : (
               <div className="flex flex-col gap-2">

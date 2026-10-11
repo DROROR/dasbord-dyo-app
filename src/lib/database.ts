@@ -927,6 +927,18 @@ export async function deployTask(taskId: string, updateMessage: string): Promise
   return dbToTask(data as DbTask)
 }
 
+export async function resetDeployTask(taskId: string): Promise<Task> {
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('tasks')
+    .update({ deployed_to_admin: false, update_message: null, updated_at: now })
+    .eq('id', taskId)
+    .select('*, task_subtasks(*)')
+    .single()
+  if (error) throw error
+  return dbToTask(data as DbTask)
+}
+
 export async function createTaskSubtask(input: {
   taskId: string
   title: string
