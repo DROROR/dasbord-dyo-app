@@ -1184,17 +1184,17 @@ export function TaskDetailModal({
                   value={deployMessage}
                   onChange={e => setDeployMessage(e.target.value)}
                   rows={3}
-                  disabled={task.status !== 'done'}
+                  disabled={readonly && task.assigneeId !== currentUserId}
                   placeholder="Write update message…"
                   className="w-full text-sm border border-violet-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-violet-400 bg-white placeholder:text-gray-400 disabled:bg-gray-50 disabled:text-gray-400"
                 />
                 {task.status !== 'done' && (
-                  <p className="text-[11px] text-violet-500">Mark the task as Done first before sending the update.</p>
+                  <p className="text-[11px] text-violet-500">Write your update message above, then mark the task as Done to send it.</p>
                 )}
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() => void translateMessage()}
-                    disabled={translatingMsg || !deployMessage.trim() || task.status !== 'done'}
+                    disabled={translatingMsg || !deployMessage.trim() || (readonly && task.assigneeId !== currentUserId)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
                   >
                     {translatingMsg ? <Loader2 size={11} className="animate-spin" /> : <span>🌐</span>}
@@ -1216,7 +1216,7 @@ export function TaskDetailModal({
                           onChange={e => setMsgTranslations(prev => ({ ...prev, [l.code]: e.target.value }))}
                           dir={l.dir}
                           rows={2}
-                          disabled={task.status !== 'done'}
+                          disabled={readonly && task.assigneeId !== currentUserId}
                           className="w-full text-sm border border-violet-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-violet-400 bg-white disabled:bg-gray-50"
                         />
                       </div>
