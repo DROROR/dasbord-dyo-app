@@ -788,8 +788,11 @@ export function TaskDetailModal({
         }),
       })
       if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as { error?: string }
-        throw new Error(body.error ?? `Server error ${res.status}`)
+        const body = await res.json().catch(() => ({})) as { error?: string | { message?: string } }
+        const errMsg = typeof body.error === 'string'
+          ? body.error
+          : (body.error as { message?: string } | undefined)?.message ?? `Server error ${res.status}`
+        throw new Error(errMsg)
       }
       setDeployedToAdmin(true)
     } catch (err) {

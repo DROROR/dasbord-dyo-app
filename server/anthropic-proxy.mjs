@@ -41,7 +41,7 @@ const server = http.createServer(async (request, response) => {
   const isClaudeRequest = request.method === 'POST' && (request.url === '/v1/messages' || request.url === '/v1/translation-messages')
   const isDeployNotification = request.method === 'POST' && request.url === '/notify-ticket-deployed'
   if (!isClaudeRequest && !isDeployNotification) {
-    return sendJson(response, 404, { error: { message: 'Not found' } })
+    return sendJson(response, 404, { error: 'Not found' })
   }
 
   try {
@@ -49,7 +49,7 @@ const server = http.createServer(async (request, response) => {
     JSON.parse(rawBody.toString('utf8'))
 
     if (isDeployNotification) {
-      if (!NOTIFY_TICKET_DEPLOYED_URL || !DEPLOY_SECRET) return sendJson(response, 503, { error: { message: 'Deployment notification is not configured' } })
+      if (!NOTIFY_TICKET_DEPLOYED_URL || !DEPLOY_SECRET) return sendJson(response, 503, { error: 'Deployment notification is not configured' })
       const upstream = await fetch(NOTIFY_TICKET_DEPLOYED_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-webhook-secret': DEPLOY_SECRET },
@@ -88,10 +88,10 @@ const server = http.createServer(async (request, response) => {
     response.end(body)
   } catch (error) {
     if (error instanceof Error && error.message === 'REQUEST_TOO_LARGE') {
-      return sendJson(response, 413, { error: { message: 'Request body too large' } })
+      return sendJson(response, 413, { error: 'Request body too large' })
     }
     console.error('Anthropic proxy request failed:', error instanceof Error ? error.message : 'unknown error')
-    return sendJson(response, 502, { error: { message: 'AI service unavailable' } })
+    return sendJson(response, 502, { error: 'AI service unavailable' })
   }
 })
 
