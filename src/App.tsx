@@ -13,6 +13,7 @@ import { Permissions } from './pages/Permissions'
 import { Work } from './pages/Work'
 import { PlatformContent } from './pages/PlatformContent'
 import { Meditations } from './pages/Meditations'
+import { EmailFormat } from './pages/EmailFormat'
 import { Login } from './pages/Login'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AccessDenied } from './components/AccessDenied'
@@ -39,6 +40,7 @@ const buildPages = (navigate: (page: string) => void): Record<string, () => Reac
   work:             () => <Work />,
   platform_content: () => <PlatformContent />,
   meditations:      () => <Meditations />,
+  email_format:     () => <EmailFormat />,
   settings:         () => <Settings />,
 })
 

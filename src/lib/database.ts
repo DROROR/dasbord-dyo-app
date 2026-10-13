@@ -2143,3 +2143,47 @@ export async function deleteMeditation(id: string): Promise<void> {
   const { error } = await supabase.from('meditations').delete().eq('id', id)
   if (error) throw error
 }
+
+// ── Email Template ───────────────────────────────────────────────────────────
+
+export interface DbEmailTemplate {
+  id: number
+  subject: string
+  header: string
+  body_above: string
+  body_below: string
+  footer: string
+  updated_at: string
+  updated_by: string | null
+}
+
+export type EmailTemplateInput = Omit<DbEmailTemplate, 'id' | 'updated_at' | 'updated_by'>
+
+export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateInput = {
+  subject:    'Welcome to DYO — Your Login Details',
+  header:     'Welcome aboard!',
+  body_above: 'Here are your login details to access the platform:',
+  body_below: 'If you have any questions, feel free to reach out to us.',
+  footer:     'The DYO Team',
+}
+
+export async function getEmailTemplate(): Promise<DbEmailTemplate> {
+  const { data, error } = await supabase
+    .from('email_template')
+    .select('*')
+    .eq('id', 1)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) return { id: 1, updated_at: '', updated_by: null, ...EMAIL_TEMPLATE_DEFAULTS }
+  return data as DbEmailTemplate
+}
+
+export async function saveEmailTemplate(input: EmailTemplateInput): Promise<DbEmailTemplate> {
+  const { data, error } = await supabase
+    .from('email_template')
+    .upsert({ id: 1, ...input })
+    .select()
+    .single()
+  if (error) throw error
+  return data as DbEmailTemplate
+}

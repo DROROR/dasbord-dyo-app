@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react'
 import {
   LayoutDashboard, Users, CreditCard, MessageCircle, Target, Bot,
-  GraduationCap, Briefcase, Shield, Settings, FileText, Package, Video, Ticket,
+  GraduationCap, Briefcase, Shield, Settings, FileText, Package, Video, Ticket, Mail,
 } from 'lucide-react'
 
 // ============================================================
@@ -37,7 +37,7 @@ import {
 export type PermissionModule =
   | 'dashboard' | 'clients' | 'billing' | 'whatsapp' | 'leads'
   | 'agents' | 'bot_training' | 'work' | 'work_docs' | 'pricing' | 'permissions'
-  | 'platform_content' | 'meditations' | 'support_tickets'
+  | 'platform_content' | 'meditations' | 'support_tickets' | 'email_format'
 
 export const LEVELS = ['none', 'view', 'edit', 'send', 'full'] as const
 export type PermissionLevel = typeof LEVELS[number]
@@ -99,6 +99,7 @@ export const PAGES: PageEntry[] = [
   // ticket history independently of general Clients access. staffDefault:
   // 'none' means new staff members don't see it until the admin grants it.
   { id: 'support_tickets', module: 'support_tickets', labelHe: 'כרטיסי תמיכה', labelEn: 'Support Tickets', icon: Ticket, levels: ['none', 'view', 'full'], nav: 'none', staffDefault: 'none' },
+  { id: 'email_format', module: 'email_format', labelHe: 'פורמט אימייל', labelEn: 'Email Format', icon: Mail, levels: ['none', 'view', 'full'], nav: 'main', staffDefault: 'none' },
 ]
 
 // Dev-time guard: every module key must be unique across the registry
