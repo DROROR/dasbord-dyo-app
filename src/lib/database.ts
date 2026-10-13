@@ -2181,7 +2181,8 @@ export async function getEmailTemplate(): Promise<DbEmailTemplate> {
 export async function saveEmailTemplate(input: EmailTemplateInput): Promise<DbEmailTemplate> {
   const { data, error } = await supabase
     .from('email_template')
-    .upsert({ id: 1, ...input })
+    .update(input)
+    .eq('id', 1)
     .select()
     .single()
   if (error) throw error
