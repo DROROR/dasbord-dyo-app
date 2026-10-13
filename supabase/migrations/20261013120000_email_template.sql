@@ -44,9 +44,21 @@ create policy "email_template: view"
   on public.email_template for select
   using (caller_is_active());
 
--- Only admins (has_permission checks role + is_active) may update.
+-- Admins (role = 'admin') or users explicitly granted email_format:full may update.
 drop policy if exists "email_template: edit" on public.email_template;
 create policy "email_template: edit"
   on public.email_template for update
-  using (has_permission('email_format', 'full'))
-  with check (has_permission('email_format', 'full'));
+  using (
+    has_permission('email_format', 'full')
+    OR (
+      caller_is_active()
+      AND (select role from public.profiles where id = auth.uid()) = 'admin'
+    )
+  )
+  with check (
+    has_permission('email_format', 'full')
+    OR (
+      caller_is_active()
+      AND (select role from public.profiles where id = auth.uid()) = 'admin'
+    )
+  );
