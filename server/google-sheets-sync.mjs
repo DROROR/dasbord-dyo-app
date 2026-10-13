@@ -115,6 +115,30 @@ function parseCreatedTime(value) {
   return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString()
 }
 
+// ── Identity, for the dedupe below ──────────────────────────────────────────
+// A row key is Meta's own lead id, which is NOT stable per person: when the
+// form is replaced by a new version, the same person is written to the new
+// tab under a NEW id. Dedupe on the key alone therefore let a lead that had
+// been permanently deleted come back as a brand-new lead (Limor Mizrachi,
+// deleted 16 Sep, returned 13 Oct), and would let one person occupy two rows.
+// Phone and email are what actually identify a person across both tabs.
+
+// The last nine digits: the sheet carries Meta's "p:+9725…" while a lead typed
+// into the board carries "052-…", and that tail is the same number either way.
+function phoneIdentity(value) {
+  const digits = String(value || '').replace(/\D/g, '')
+  return digits.length >= 9 ? digits.slice(-9) : null
+}
+
+function emailIdentity(value) {
+  const email = String(value || '').trim().toLowerCase()
+  return email.includes('@') ? email : null
+}
+
+function identitiesOf(row) {
+  return [phoneIdentity(row.phone), emailIdentity(row.email)].filter(Boolean)
+}
+
 function sourceFor(platform) {
   const value = String(platform || '').toLowerCase()
   if (value.includes('instagram')) return 'instagram'
@@ -206,17 +230,50 @@ async function syncSheet() {
     }]
   })
 
-  const existingResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads?sheet_row_key=not.is.null&select=id,sheet_row_key,name,client_name,campaign_name,source`, { headers: adminHeaders() })
+  // Every lead on the board, not only the imported ones: a person typed in by
+  // hand must not be imported again either. The explicit limit is there
+  // because PostgREST would otherwise stop at its default 1000.
+  const existingResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads?select=id,sheet_row_key,name,client_name,campaign_name,source,phone,email&limit=5000`, { headers: adminHeaders() })
   if (!existingResponse.ok) throw new Error('Could not check existing imported leads')
   const existingRows = await existingResponse.json()
-  const existing = new Set(existingRows.map(row => row.sheet_row_key))
-  const exclusionsResponse = await fetch(`${SUPABASE_URL}/rest/v1/lead_sync_exclusions?select=sheet_row_key`, { headers: adminHeaders() })
+  const existing = new Set(existingRows.map(row => row.sheet_row_key).filter(Boolean))
+  const exclusionsResponse = await fetch(`${SUPABASE_URL}/rest/v1/lead_sync_exclusions?select=sheet_row_key&limit=5000`, { headers: adminHeaders() })
   if (!exclusionsResponse.ok) throw new Error('Could not load permanently deleted leads')
   const excluded = new Set((await exclusionsResponse.json()).map(row => row.sheet_row_key))
-  const newLeads = leads.filter(lead => !existing.has(lead.sheet_row_key) && !excluded.has(lead.sheet_row_key))
+
+  // Who was deleted on purpose, by person rather than by row id. The sheet
+  // still holds the row each exclusion was made against, so their phone and
+  // email are read straight back out of it — no backfill needed, and every
+  // exclusion ever recorded is covered.
+  const excludedIdentities = new Set()
+  for (const lead of leads) {
+    if (!excluded.has(lead.sheet_row_key)) continue
+    for (const identity of identitiesOf(lead)) excludedIdentities.add(identity)
+  }
+
+  // Who is already on the board.
+  const liveIdentities = new Set()
+  for (const row of existingRows) {
+    for (const identity of identitiesOf(row)) liveIdentities.add(identity)
+  }
+
+  const newLeads = []
+  let existingCount = 0
+  let excludedCount = 0
+  let duplicates = 0
+  for (const lead of leads) {
+    if (existing.has(lead.sheet_row_key)) { existingCount += 1; continue }
+    if (excluded.has(lead.sheet_row_key)) { excludedCount += 1; continue }
+    const identities = identitiesOf(lead)
+    // Deleted on purpose, and back under a new form id: stay deleted.
+    if (identities.some(identity => excludedIdentities.has(identity))) { excludedCount += 1; continue }
+    // Already on the board — the same person in both tabs, or a second form
+    // submission. The lead that is there keeps its notes, calls and status.
+    if (identities.some(identity => liveIdentities.has(identity))) { duplicates += 1; continue }
+    for (const identity of identities) liveIdentities.add(identity)
+    newLeads.push(lead)
+  }
   const created = newLeads.length
-  const existingCount = leads.filter(lead => existing.has(lead.sheet_row_key)).length
-  const excludedCount = leads.filter(lead => excluded.has(lead.sheet_row_key)).length
   if (newLeads.length) {
     const insertResponse = await fetch(`${SUPABASE_URL}/rest/v1/leads`, {
       method: 'POST', headers: { ...adminHeaders(), Prefer: 'return=minimal' }, body: JSON.stringify(newLeads),
@@ -242,7 +299,7 @@ async function syncSheet() {
     })))
     if (updates.some(response => !response.ok)) throw new Error('Could not update imported lead details')
   }
-  return { created, existing: existingCount, excluded: excludedCount, skipped, total: leads.length, tabs: tabsRead }
+  return { created, existing: existingCount, excluded: excludedCount, duplicates, skipped, total: leads.length, tabs: tabsRead }
 }
 
 // ── Cold-call row mapping ─────────────────────────────────────────────────────
