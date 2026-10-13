@@ -172,6 +172,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // actually be deactivated server-side anyway; this is belt-and-suspenders).
     if (profile.is_owner) return true
     if (!profile.is_active) return false
+    // Admin role (מנהל) implies full access to all modules — consistent with
+    // the UI label and the boss's expectation that admins can see everything.
+    if (profile.role === 'admin') return true
     const held = rankOf(profile.permissions?.[module])
     const required = rankOf(minLevel)
     if (held === null || required === null) return false
