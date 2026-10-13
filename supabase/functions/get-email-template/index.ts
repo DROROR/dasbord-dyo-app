@@ -1,7 +1,8 @@
-// Public GET endpoint — no user auth required.
+// API-key protected GET endpoint.
 // Called by the AI agent after createVendorUser to fetch the admin-configured
-// email template. Returns the singleton row from email_template, falling back
-// to hardcoded defaults if the table is somehow empty.
+// email template. Requires x-api-key header matching EMAIL_TEMPLATE_API_KEY
+// env var. Returns the singleton row from email_template, falling back to
+// hardcoded defaults if the table is somehow empty.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.107.0'
 import { corsHeaders } from '../_shared/cors.ts'
 
@@ -25,6 +26,16 @@ Deno.serve(async (req: Request) => {
     })
 
   if (req.method !== 'GET') return json({ error: 'Method not allowed' }, 405)
+
+  // API key check — reject anything without the correct x-api-key header.
+  const apiKey = Deno.env.get('EMAIL_TEMPLATE_API_KEY')
+  if (!apiKey) {
+    console.error('EMAIL_TEMPLATE_API_KEY env var is not set')
+    return json({ error: 'Server misconfiguration' }, 500)
+  }
+  if (req.headers.get('x-api-key') !== apiKey) {
+    return json({ error: 'Unauthorized' }, 401)
+  }
 
   const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
   const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
