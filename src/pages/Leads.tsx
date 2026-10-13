@@ -783,7 +783,11 @@ export function Leads() {
       const [rows, pipelineStatuses, history] = await Promise.all([getAllLeads(), getLeadPipelineStatuses(), getLeadHistory()])
       const byLead = new Map<string, DbLeadHistory[]>()
       history.forEach(entry => byLead.set(entry.lead_id, [...(byLead.get(entry.lead_id) ?? []), entry]))
-      setLeads(rows.map(row => ({ ...dbLeadToLead(row), history: byLead.get(row.id) ?? [] })))
+      const fresh = rows.map(row => ({ ...dbLeadToLead(row), history: byLead.get(row.id) ?? [] }))
+      setLeads(fresh)
+      // An open dialog has to follow the refreshed row, or it keeps showing the
+      // state from when the page loaded.
+      setSelectedLead(prev => prev ? fresh.find(lead => lead.id === prev.id) ?? prev : null)
       setStatuses(pipelineStatuses)
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : t('שגיאה בטעינת לידים', 'Failed to load leads'))
@@ -795,6 +799,28 @@ export function Leads() {
   useEffect(() => { leadsRef.current = leads }, [leads])
 
   useEffect(() => { void load() }, [])
+
+  // The board is worked by more than one person at a time, and this page used
+  // to load once and never look again: a lead someone else had already called
+  // still showed as untouched, and a note written after the page loaded was
+  // invisible until a manual reload. Coming back to the tab refetches, at most
+  // once every 30 seconds so switching windows is not a storm of requests.
+  useEffect(() => {
+    let lastRefresh = Date.now()
+    const refreshIfStale = () => {
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - lastRefresh < 30_000) return
+      lastRefresh = Date.now()
+      void load(false)
+    }
+    window.addEventListener('focus', refreshIfStale)
+    document.addEventListener('visibilitychange', refreshIfStale)
+    return () => {
+      window.removeEventListener('focus', refreshIfStale)
+      document.removeEventListener('visibilitychange', refreshIfStale)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // The header search navigates here with a lead id. Two paths, same as the
   // task deep link in Work: sessionStorage for the case where this page is
