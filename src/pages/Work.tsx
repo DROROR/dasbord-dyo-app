@@ -24,7 +24,7 @@ import {
 import type { TicketDoneAnswers } from '../components/work/TaskDetailModal'
 import { TIMER_ENTRY_SAVED_EVENT, type TimerEntrySavedDetail } from '../contexts/TimerContext'
 import { takeTaskFocus, TASK_FOCUS_EVENT, takeDocFocus, DOC_FOCUS_EVENT } from '../lib/focusTarget'
-import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES, priorityDefsForBoard } from '../data/workConstants'
+import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES, priorityDefsForBoard, statusesForBoard } from '../data/workConstants'
 import { VerticalBoard }    from '../components/work/VerticalBoard'
 import { MyBoard }          from '../components/work/MyBoard'
 import { DocsTab }          from '../components/work/DocsTab'
@@ -956,11 +956,17 @@ export function Work() {
   async function createTask(partial: Omit<Task, 'id' | 'createdAt' | 'statusHistory' | 'comments'>) {
     if (!canEdit) return
     const now = new Date().toISOString()
+    // Whoever built this task may have assumed the standard statuses; land it
+    // in the destination board's first column when its own status is not one
+    // that board defines, rather than in a column that does not exist.
+    const defined = statusesForBoard(boards.find(item => item.id === partial.board))
+    const status = defined.some(item => item.id === partial.status) ? partial.status : firstStatusOf(partial.board)
     try {
       const created = await dbCreateTask({
         ...partial,
+        status,
         createdAt:     now,
-        statusHistory: [{ status: partial.status, timestamp: now, changedBy: currentUser }],
+        statusHistory: [{ status, timestamp: now, changedBy: currentUser }],
         comments:      [],
         attachments:   partial.attachments ?? [],
       })
@@ -973,6 +979,17 @@ export function Work() {
     } catch (err) {
       console.error('Failed to create task:', err)
     }
+  }
+
+  /**
+   * The first column of a board, by its own order. Statuses are per-board
+   * (boards.statuses), and not every board has 'not_started': App Deployment
+   * Request starts at "To Ask". Creating with a hardcoded id put the task in a
+   * status that board does not define, so it belonged to no column at all.
+   */
+  function firstStatusOf(boardId: string): string {
+    const defined = statusesForBoard(boards.find(item => item.id === boardId))
+    return [...defined].sort((a, b) => a.order - b.order)[0]?.id ?? 'not_started'
   }
 
   async function addTaskWithStatus(statusId: string) {
@@ -1125,7 +1142,7 @@ export function Work() {
               <>
                 <div className="mx-1 h-5 w-px shrink-0 bg-gray-200" aria-hidden="true" />
                 <button
-                  onClick={() => addTaskWithStatus('not_started')}
+                  onClick={() => addTaskWithStatus(firstStatusOf(activeBoard))}
                   disabled={!canCreateInBoard(activeBoard)}
                   title={canCreateInBoard(activeBoard) ? undefined : 'אין לך גישה מלאה ללוח הזה — פנה למנהל כדי לקבל הרשאת Full לפני יצירת משימות כאן'}
                   className="flex h-8 shrink-0 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-bold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
