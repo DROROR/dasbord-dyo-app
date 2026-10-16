@@ -773,6 +773,8 @@ interface DbTask {
   app_id: string | null
   deployed_to_admin: boolean | null
   update_message: string | null
+  title_en: string | null
+  description_en: string | null
 }
 
 interface DbTaskSubtask {
@@ -843,6 +845,8 @@ function dbToTask(db: DbTask): Task {
     appId:           db.app_id ?? undefined,
     deployedToAdmin: db.deployed_to_admin ?? false,
     updateMessage:   db.update_message ?? undefined,
+    titleEn:         db.title_en ?? undefined,
+    descriptionEn:   db.description_en ?? undefined,
   }
 }
 
@@ -883,6 +887,8 @@ function taskToRow(t: Partial<Task>): Record<string, unknown> {
   if (t.appId            !== undefined) r.app_id            = t.appId || null
   if (t.deployedToAdmin  !== undefined) r.deployed_to_admin = t.deployedToAdmin
   if (t.updateMessage    !== undefined) r.update_message    = t.updateMessage || null
+  if (t.titleEn          !== undefined) r.title_en          = t.titleEn || null
+  if (t.descriptionEn    !== undefined) r.description_en    = t.descriptionEn || null
   return r
 }
 

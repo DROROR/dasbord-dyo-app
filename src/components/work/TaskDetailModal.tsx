@@ -194,7 +194,12 @@ export function TaskDetailModal({
   const [deploying,      setDeploying]      = useState(false)
   const [deployError,    setDeployError]    = useState<string | null>(null)
   const [deployedToAdmin, setDeployedToAdmin] = useState(task.deployedToAdmin ?? false)
+  const [showUpdateAdmin, setShowUpdateAdmin] = useState(false)
   const [resettingDeploy, setResettingDeploy] = useState(false)
+  const [titleEn,          setTitleEn]         = useState(task.titleEn ?? '')
+  const [descEn,           setDescEn]           = useState(task.descriptionEn ?? '')
+  const [translatingTask,  setTranslatingTask]  = useState(false)
+  const [taskTranslateErr, setTaskTranslateErr] = useState<string | null>(null)
   const [msgTranslations, setMsgTranslations] = useState<Record<string, string>>({})
   const [translatingMsg,  setTranslatingMsg]  = useState(false)
   const [showMsgTr,       setShowMsgTr]       = useState(false)
@@ -773,6 +778,39 @@ export function TaskDetailModal({
     }
   }
 
+  async function translateTask() {
+    if (translatingTask) return
+    setTranslatingTask(true)
+    setTaskTranslateErr(null)
+    try {
+      const res = await fetch('/api/claude/v1/translation-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 2048,
+          system: 'Translate the given Hebrew task title and description to English. Return ONLY valid JSON: {"title":"...","description":"..."}.',
+          messages: [{ role: 'user', content: JSON.stringify({ title, description: desc }) }],
+        }),
+      })
+      if (!res.ok) { setTaskTranslateErr('Translation request failed — please try again.'); return }
+      const data = await res.json() as { content: Array<{ text: string }> }
+      const text = data.content?.[0]?.text ?? ''
+      const match = text.match(/\{[\s\S]*\}/)
+      if (!match) { setTaskTranslateErr('Could not parse translation response.'); return }
+      const tr = JSON.parse(match[0]) as { title?: string; description?: string }
+      const newTitleEn = tr.title ?? ''
+      const newDescEn  = tr.description ?? ''
+      setTitleEn(newTitleEn)
+      setDescEn(newDescEn)
+      save({ titleEn: newTitleEn, descriptionEn: newDescEn })
+    } catch {
+      setTaskTranslateErr('Translation failed — please try again.')
+    } finally {
+      setTranslatingTask(false)
+    }
+  }
+
   async function handleDeploy() {
     if (deploying || deployedToAdmin) return
     // appId: from task column, or legacy description fallback
@@ -910,6 +948,11 @@ export function TaskDetailModal({
               />
             ) : (
               <button onClick={() => !readonly && setEditTitle(true)} disabled={readonly} className="task-title-input flex h-9 w-full items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-left text-base font-bold leading-snug text-gray-950 transition-colors hover:border-primary hover:text-primary disabled:cursor-default disabled:hover:border-gray-300 disabled:hover:text-gray-900" title={readonly ? undefined : 'Click to edit'}><span className="truncate">{title}</span></button>
+            )}
+            {titleEn && (
+              <p className="mt-1 text-xs text-gray-400 truncate" title={titleEn}>
+                <span className="font-semibold text-gray-400">EN:</span> {titleEn}
+              </p>
             )}
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
@@ -1207,7 +1250,7 @@ export function TaskDetailModal({
 
         {/* Update Admin — any task linked to a client app */}
         {(task.board === 'support' || !!task.appId) && (
-          <div className={`px-6 py-3 shrink-0 border-b ${deployedToAdmin ? 'bg-green-50 border-green-100' : 'bg-violet-50 border-violet-100'}`}>
+          <div className={`px-6 py-3 shrink-0 border-b ${deployedToAdmin ? 'bg-green-50 border-green-100' : showUpdateAdmin ? 'bg-violet-50 border-violet-100' : 'bg-white border-gray-100'}`}>
             {deployedToAdmin ? (
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-green-700 text-sm font-medium">
@@ -1223,9 +1266,19 @@ export function TaskDetailModal({
                   {resettingDeploy ? 'Resetting…' : 'Retry sending'}
                 </button>
               </div>
+            ) : !showUpdateAdmin ? (
+              <button
+                onClick={() => setShowUpdateAdmin(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-violet-700 bg-violet-50 border border-violet-200 rounded-lg hover:bg-violet-100 transition-colors"
+              >
+                Reply to Client
+              </button>
             ) : (
               <div className="flex flex-col gap-2">
-                <p className="text-xs font-bold text-violet-800 uppercase tracking-wide">Update Admin</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-violet-800 uppercase tracking-wide">Update Admin</p>
+                  <button onClick={() => setShowUpdateAdmin(false)} className="text-xs text-violet-400 hover:text-violet-600">Cancel</button>
+                </div>
                 <p className="text-xs text-violet-700">When the fix is live, write the update message and click send — the admin will see it on their homepage.</p>
                 <textarea
                   value={deployMessage}
@@ -1293,11 +1346,33 @@ export function TaskDetailModal({
             <section>
               <div className="mb-2 flex min-w-0 items-center gap-3">
                 <p className="text-xs font-bold text-gray-900 uppercase tracking-wide">Description</p>
+                {/[֐-׿]/.test(title + desc) && (
+                  <button
+                    onClick={() => void translateTask()}
+                    disabled={translatingTask}
+                    className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                  >
+                    {translatingTask ? <Loader2 size={10} className="animate-spin" /> : '🇬🇧'}
+                    {translatingTask ? 'Translating…' : titleEn || descEn ? 'Re-translate' : 'Translate to English'}
+                  </button>
+                )}
               </div>
+              {taskTranslateErr && <p className="mb-2 text-xs text-red-500">{taskTranslateErr}</p>}
               <textarea value={desc} onChange={e => setDesc(e.target.value)} onBlur={saveDesc} rows={6}
                 placeholder="Add a description..." disabled={readonly}
                 className="w-full text-sm text-gray-700 border border-gray-200 rounded-xl px-4 py-3 resize-none focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-400 leading-relaxed disabled:bg-gray-50 disabled:text-gray-500"
               />
+              {descEn && (
+                <div className="mt-3">
+                  <p className="mb-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wide">English Translation</p>
+                  <textarea
+                    value={descEn}
+                    readOnly
+                    rows={6}
+                    className="w-full text-sm text-gray-600 border border-gray-200 rounded-xl px-4 py-3 resize-none bg-gray-50 leading-relaxed"
+                  />
+                </div>
+              )}
             </section>
 
             {/* Subtasks — the parent task remains the item shown on My Board. */}

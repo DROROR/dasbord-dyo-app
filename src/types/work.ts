@@ -151,6 +151,10 @@ export interface Task {
   deployedToAdmin?: boolean
   /** Release note written by the developer when marking as deployed. */
   updateMessage?: string
+  /** Machine-translated English version of the title (set when original is Hebrew). */
+  titleEn?: string
+  /** Machine-translated English version of the description (set when original is Hebrew). */
+  descriptionEn?: string
 }
 
 export type DocAccessLevel = 'none' | 'view' | 'full'
