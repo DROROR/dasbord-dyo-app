@@ -915,6 +915,27 @@ export async function updateTask(id: string, updates: Partial<Task>): Promise<Ta
   return dbToTask(data as DbTask)
 }
 
+export interface ClientApp {
+  id: string
+  appId: string
+  appName: string
+  appNameEn: string
+}
+
+export async function fetchClientApps(): Promise<ClientApp[]> {
+  const { data, error } = await supabase
+    .from('client_apps')
+    .select('id, app_id, app_name, app_name_en')
+    .order('app_name_en', { ascending: true })
+  if (error) throw error
+  return (data as Array<{ id: string; app_id: string; app_name: string; app_name_en: string }>).map(r => ({
+    id: r.id,
+    appId: r.app_id,
+    appName: r.app_name,
+    appNameEn: r.app_name_en,
+  }))
+}
+
 export async function deployTask(taskId: string, updateMessage: string): Promise<Task> {
   const now = new Date().toISOString()
   const { data, error } = await supabase

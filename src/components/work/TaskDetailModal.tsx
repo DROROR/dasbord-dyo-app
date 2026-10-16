@@ -13,8 +13,8 @@ import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/wo
 import {
   addSubtaskComment, addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask, deleteTaskComment,
   deleteTask, deleteTaskSubtask, deployTask, resetDeployTask, getTaskBoardMoves, getTaskComments, updateTaskSubtask,
-  updateTaskTimeEntry, handoffTaskAssignment,
-  type TaskBoardMove,
+  updateTaskTimeEntry, handoffTaskAssignment, updateTask, fetchClientApps,
+  type TaskBoardMove, type ClientApp,
 } from '../../lib/database'
 import { MoveTaskModal } from './MoveTaskModal'
 import { TaskPlatformPicker } from './TaskPlatforms'
@@ -198,6 +198,13 @@ export function TaskDetailModal({
   const [msgTranslations, setMsgTranslations] = useState<Record<string, string>>({})
   const [translatingMsg,  setTranslatingMsg]  = useState(false)
   const [showMsgTr,       setShowMsgTr]       = useState(false)
+
+  const [clientApps,  setClientApps]  = useState<ClientApp[]>([])
+  const [linkedAppId, setLinkedAppId] = useState(task.appId ?? '')
+
+  useEffect(() => {
+    fetchClientApps().then(setClientApps).catch(() => { /* non-critical */ })
+  }, [])
 
   const [attachUrl,  setAttachUrl]  = useState('')
   const [attachName, setAttachName] = useState('')
@@ -768,22 +775,30 @@ export function TaskDetailModal({
 
   async function handleDeploy() {
     if (deploying || deployedToAdmin) return
-    const link = resolveTicketLink()
-    if (!link) {
-      setDeployError('This task has no linked support ticket — cannot update admin.')
+    // appId: from task column, or legacy description fallback
+    const appId = task.appId ?? resolveTicketLink()?.appId
+    if (!appId) {
+      setDeployError(tr('יש לקשר אפליקציה לפני השליחה', 'Link a client app above before sending.'))
       return
     }
     setDeploying(true)
     setDeployError(null)
     try {
+      // Ensure ticket_id exists — generate a synthetic one for non-support tasks
+      let ticketId = task.ticketId ?? resolveTicketLink()?.ticketId
+      if (!ticketId) {
+        ticketId = crypto.randomUUID()
+        const withTicket = await updateTask(task.id, { ticketId })
+        onUpdate(withTicket)
+      }
       const updated = await deployTask(task.id, deployMessage)
       onUpdate(updated)
       const res = await fetch('/api/claude/notify-ticket-deployed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          app_id: link.appId,
-          ticket_id: link.ticketId,
+          app_id: appId,
+          ticket_id: ticketId,
           update_message: deployMessage,
           ...(Object.keys(msgTranslations).length > 0 && { message_translations: msgTranslations }),
         }),
@@ -1190,8 +1205,8 @@ export function TaskDetailModal({
           </div>
         )}
 
-        {/* Update Admin — support board tasks only, once done and not yet deployed */}
-        {task.board === 'support' && (
+        {/* Update Admin — any task linked to a client app */}
+        {(task.board === 'support' || !!task.appId) && (
           <div className={`px-6 py-3 shrink-0 border-b ${deployedToAdmin ? 'bg-green-50 border-green-100' : 'bg-violet-50 border-violet-100'}`}>
             {deployedToAdmin ? (
               <div className="flex items-center justify-between gap-3">
@@ -1629,6 +1644,26 @@ export function TaskDetailModal({
               <select value={clientId} disabled={readonly} onChange={e => { setClientId(e.target.value); save({ clientId: e.target.value || undefined, clientName: clients.find(c => c.id === e.target.value)?.name }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50">
                 <option value="">No client linked</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+
+            {/* Link Client App — ties any task to a Firebase app so "Update Admin" can notify the client */}
+            <div>
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">
+                {tr('קישור אפליקציה', 'Link Client App')}
+              </p>
+              <select
+                value={linkedAppId}
+                disabled={readonly || !!task.ticketId}
+                onChange={e => { setLinkedAppId(e.target.value); save({ appId: e.target.value || undefined }) }}
+                className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50"
+              >
+                <option value="">{tr('לא מקושר', 'Not linked')}</option>
+                {clientApps.map(a => (
+                  <option key={a.id} value={a.appId}>
+                    {tr(a.appName, a.appNameEn)}
+                  </option>
+                ))}
               </select>
             </div>
 
