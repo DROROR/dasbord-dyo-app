@@ -243,6 +243,7 @@ export type NotificationType =
   | 'task_assigned'
   | 'subtask_assigned'
   | 'task_status_changed'
+  | 'ticket_reply'
 
 export interface AppNotification {
   id: string

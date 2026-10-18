@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import {
   X, Check, Copy, Clock, ChevronDown,
   Send, Paperclip, Link2, Play, Square, AlertCircle,
-  Lock, Pencil, Loader2, Trash2, ArrowRightLeft, Plus, ListChecks, UserMinus,
+  Lock, Pencil, Loader2, Trash2, ArrowRightLeft, Plus, ListChecks, UserMinus, MessageSquare,
 } from 'lucide-react'
 import { Avatar } from '../Avatar'
 import { useNotifications } from '../../contexts/NotificationContext'
@@ -65,6 +65,13 @@ function commentParts(text: string) {
     if (part.startsWith('@')) return <span key={index} className="font-semibold text-primary">{part}</span>
     return <span key={index}>{part}</span>
   })
+}
+
+interface TicketMessageItem {
+  id: string
+  sender: string
+  text: string
+  timestamp: number
 }
 
 /** What the developer answered when closing a support ticket. */
@@ -203,6 +210,30 @@ export function TaskDetailModal({
   const [msgTranslations, setMsgTranslations] = useState<Record<string, string>>({})
   const [translatingMsg,  setTranslatingMsg]  = useState(false)
   const [showMsgTr,       setShowMsgTr]       = useState(false)
+  const [selectedLangs,   setSelectedLangs]   = useState<Set<string>>(() => new Set(['he']))
+
+  const [showMsgAdmin,         setShowMsgAdmin]         = useState(false)
+  const [adminMessage,         setAdminMessage]         = useState('')
+  const [sendingAdminMsg,      setSendingAdminMsg]      = useState(false)
+  const [adminMsgSent,         setAdminMsgSent]         = useState(false)
+  const [adminMsgError,        setAdminMsgError]        = useState<string | null>(null)
+  const [selectedAdminLangs,   setSelectedAdminLangs]   = useState<Set<string>>(() => new Set(['he']))
+  const [adminMsgTranslations, setAdminMsgTranslations] = useState<Record<string, string>>({})
+  const [translatingAdminMsg,  setTranslatingAdminMsg]  = useState(false)
+  const [showAdminMsgTr,       setShowAdminMsgTr]       = useState(false)
+
+  const [showChat,        setShowChat]        = useState(true)
+  const [ticketMessages,  setTicketMessages]  = useState<TicketMessageItem[]>([])
+  const [chatLoading,     setChatLoading]     = useState(false)
+  const [msgTranslationMap,    setMsgTranslationMap]    = useState<Record<string, string>>({})
+  const [translatingMsgId,     setTranslatingMsgId]     = useState<string | null>(null)
+
+  const [chatReply,            setChatReply]            = useState('')
+  const [sendingChatReply,     setSendingChatReply]     = useState(false)
+  const [chatReplyLangs,       setChatReplyLangs]       = useState<Set<string>>(() => new Set(['he']))
+  const [chatReplyTranslations, setChatReplyTranslations] = useState<Record<string, string>>({})
+  const [translatingChatReply, setTranslatingChatReply] = useState(false)
+  const [showChatReplyTr,      setShowChatReplyTr]      = useState(false)
 
   const [clientApps,  setClientApps]  = useState<ClientApp[]>([])
   const [linkedAppId, setLinkedAppId] = useState(task.appId ?? '')
@@ -210,6 +241,33 @@ export function TaskDetailModal({
   useEffect(() => {
     fetchClientApps().then(setClientApps).catch(() => { /* non-critical */ })
   }, [])
+
+  useEffect(() => {
+    const desc = task.description ?? ''
+    const ticketId = task.ticketId ?? desc.match(/Ticket ID:\s*(\S+)/)?.[1]
+    const appId    = task.appId    ?? desc.match(/App ID:\s*(\S+)/)?.[1]
+    if (!ticketId || !appId) return
+    let cancelled = false
+    async function load(initial: boolean) {
+      if (cancelled) return
+      if (initial) setChatLoading(true)
+      try {
+        const res = await fetch('/api/claude/get-ticket-messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticket_id: ticketId, app_id: appId }),
+        })
+        if (!res.ok || cancelled) return
+        const data = await res.json() as { messages?: TicketMessageItem[] }
+        if (!cancelled) setTicketMessages(data.messages ?? [])
+      } catch { /* silent */ } finally {
+        if (initial && !cancelled) setChatLoading(false)
+      }
+    }
+    void load(true)
+    const interval = setInterval(() => void load(false), 10_000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [task.ticketId, task.appId, task.description])
 
   const [attachUrl,  setAttachUrl]  = useState('')
   const [attachName, setAttachName] = useState('')
@@ -750,18 +808,19 @@ export function TaskDetailModal({
   }
 
   async function translateMessage() {
-    if (!deployMessage.trim() || translatingMsg) return
+    if (!deployMessage.trim() || translatingMsg || selectedLangs.size === 0) return
     setTranslatingMsg(true)
     try {
+      const langLabels: Record<string, string> = { he: 'Hebrew (he)', ar: 'Arabic (ar)', es: 'Spanish (es)' }
+      const targets = [...selectedLangs].map(l => `${langLabels[l]} as "${l}"`).join(', ')
+      const keys = [...selectedLangs].map(l => `"${l}":"..."`).join(',')
       const res = await fetch('/api/claude/v1/translation-messages', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 1024,
-          system: 'Translate the text to Hebrew (he), Arabic (ar), and Spanish (es). Return ONLY valid JSON: {"he":"...","ar":"...","es":"..."}.',
+          system: `Translate the text to ${targets}. Return ONLY valid JSON: {${keys}}.`,
           messages: [{ role: 'user', content: deployMessage }],
         }),
       })
@@ -770,11 +829,183 @@ export function TaskDetailModal({
       const text = data.content?.[0]?.text ?? ''
       const match = text.match(/\{[\s\S]*\}/)
       if (!match) return
-      const tr = JSON.parse(match[0]) as { he?: string; ar?: string; es?: string }
-      setMsgTranslations({ he: tr.he ?? '', ar: tr.ar ?? '', es: tr.es ?? '' })
+      const tr = JSON.parse(match[0]) as Record<string, string>
+      setMsgTranslations(prev => ({ ...prev, ...tr }))
       setShowMsgTr(true)
     } finally {
       setTranslatingMsg(false)
+    }
+  }
+
+  async function translateAdminMessage() {
+    if (!adminMessage.trim() || translatingAdminMsg || selectedAdminLangs.size === 0) return
+    setTranslatingAdminMsg(true)
+    try {
+      const langLabels: Record<string, string> = { he: 'Hebrew (he)', ar: 'Arabic (ar)', es: 'Spanish (es)' }
+      const targets = [...selectedAdminLangs].map(l => `${langLabels[l]} as "${l}"`).join(', ')
+      const keys = [...selectedAdminLangs].map(l => `"${l}":"..."`).join(',')
+      const res = await fetch('/api/claude/v1/translation-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1024,
+          system: `Translate the text to ${targets}. Return ONLY valid JSON: {${keys}}.`,
+          messages: [{ role: 'user', content: adminMessage }],
+        }),
+      })
+      if (!res.ok) return
+      const data = await res.json() as { content: Array<{ text: string }> }
+      const text = data.content?.[0]?.text ?? ''
+      const match = text.match(/\{[\s\S]*\}/)
+      if (!match) return
+      const tr = JSON.parse(match[0]) as Record<string, string>
+      setAdminMsgTranslations(prev => ({ ...prev, ...tr }))
+      setShowAdminMsgTr(true)
+    } finally {
+      setTranslatingAdminMsg(false)
+    }
+  }
+
+  async function refreshTicketMessages() {
+    const resolved = resolveTicketLink()
+    const ticketId = resolved?.ticketId
+    const appId    = resolved?.appId
+    if (!ticketId || !appId) return
+    try {
+      const res = await fetch('/api/claude/get-ticket-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticket_id: ticketId, app_id: appId }),
+      })
+      if (!res.ok) return
+      const data = await res.json() as { messages?: TicketMessageItem[] }
+      setTicketMessages(data.messages ?? [])
+    } catch { /* silent */ }
+  }
+
+  async function translateMsgToEnglish(msgId: string, text: string) {
+    if (translatingMsgId || msgTranslationMap[msgId]) return
+    setTranslatingMsgId(msgId)
+    try {
+      const res = await fetch('/api/claude/v1/translation-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 512,
+          system: 'Translate the text to English. Return ONLY the translated text, no explanation.',
+          messages: [{ role: 'user', content: text }],
+        }),
+      })
+      if (!res.ok) return
+      const data = await res.json() as { content: Array<{ text: string }> }
+      const translated = data.content?.[0]?.text?.trim() ?? ''
+      if (translated) setMsgTranslationMap(prev => ({ ...prev, [msgId]: translated }))
+    } finally {
+      setTranslatingMsgId(null)
+    }
+  }
+
+  async function translateChatReply() {
+    if (!chatReply.trim() || translatingChatReply || chatReplyLangs.size === 0) return
+    setTranslatingChatReply(true)
+    try {
+      const langLabels: Record<string, string> = { he: 'Hebrew (he)', ar: 'Arabic (ar)', es: 'Spanish (es)' }
+      const targets = [...chatReplyLangs].map(l => `${langLabels[l]} as "${l}"`).join(', ')
+      const keys = [...chatReplyLangs].map(l => `"${l}":"..."`).join(',')
+      const res = await fetch('/api/claude/v1/translation-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1024,
+          system: `Translate the text to ${targets}. Return ONLY valid JSON: {${keys}}.`,
+          messages: [{ role: 'user', content: chatReply }],
+        }),
+      })
+      if (!res.ok) return
+      const data = await res.json() as { content: Array<{ text: string }> }
+      const raw = data.content?.[0]?.text ?? ''
+      const match = raw.match(/\{[\s\S]*\}/)
+      if (!match) return
+      const parsed = JSON.parse(match[0]) as Record<string, string>
+      setChatReplyTranslations(prev => ({ ...prev, ...parsed }))
+      setShowChatReplyTr(true)
+    } finally {
+      setTranslatingChatReply(false)
+    }
+  }
+
+  async function handleChatReply() {
+    const text = chatReply.trim()
+    if (!text || sendingChatReply) return
+    const resolved = resolveTicketLink()
+    if (!resolved) return
+    setSendingChatReply(true)
+    try {
+      const res = await fetch('/api/claude/send-ticket-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          app_id: resolved.appId,
+          ticket_id: resolved.ticketId,
+          text,
+          sender: 'dyo',
+          ...(Object.keys(chatReplyTranslations).length > 0 && { text_translations: chatReplyTranslations }),
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(typeof body.error === 'string' ? body.error : `Server error ${res.status}`)
+      }
+      setChatReply('')
+      setChatReplyTranslations({})
+      setShowChatReplyTr(false)
+      void refreshTicketMessages()
+    } catch (err) {
+      console.error('Chat reply failed:', err)
+    } finally {
+      setSendingChatReply(false)
+    }
+  }
+
+  async function handleSendAdminMessage() {
+    if (!adminMessage.trim() || sendingAdminMsg) return
+    const appId = task.appId ?? resolveTicketLink()?.appId
+    const ticketId = task.ticketId ?? resolveTicketLink()?.ticketId
+    if (!appId || !ticketId) {
+      setAdminMsgError('Link a client app above before sending a message.')
+      return
+    }
+    setSendingAdminMsg(true)
+    setAdminMsgError(null)
+    try {
+      const res = await fetch('/api/claude/send-ticket-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          app_id: appId,
+          ticket_id: ticketId,
+          text: adminMessage.trim(),
+          sender: 'dyo',
+          ...(Object.keys(adminMsgTranslations).length > 0 && { text_translations: adminMsgTranslations }),
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(typeof body.error === 'string' ? body.error : `Server error ${res.status}`)
+      }
+      setAdminMsgSent(true)
+      setAdminMessage('')
+      setAdminMsgTranslations({})
+      setShowAdminMsgTr(false)
+      setTimeout(() => setAdminMsgSent(false), 4000)
+      void refreshTicketMessages()
+    } catch (err) {
+      setAdminMsgError(err instanceof Error ? err.message : 'Failed to send — please try again.')
+    } finally {
+      setSendingAdminMsg(false)
     }
   }
 
@@ -1291,20 +1522,34 @@ export function TaskDetailModal({
                 {task.status !== 'done' && (
                   <p className="text-[11px] text-violet-500">Write your update message above, then mark the task as Done to send it.</p>
                 )}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    onClick={() => void translateMessage()}
-                    disabled={translatingMsg || !deployMessage.trim() || (readonly && task.assigneeId !== currentUserId)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
-                  >
-                    {translatingMsg ? <Loader2 size={11} className="animate-spin" /> : <span>🌐</span>}
-                    {translatingMsg ? 'Translating…' : 'Translate to all languages'}
-                  </button>
-                  {Object.values(msgTranslations).some(v => v) && (
-                    <button onClick={() => setShowMsgTr(v => !v)} className="text-xs text-violet-400 hover:text-violet-600">
-                      {showMsgTr ? 'Hide translations' : 'Show translations'}
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] font-semibold text-violet-600">Translate to:</span>
+                    {([{ code: 'he', flag: '🇮🇱', label: 'Hebrew' }, { code: 'ar', flag: '🇸🇦', label: 'Arabic' }, { code: 'es', flag: '🇪🇸', label: 'Spanish' }] as const).map(l => (
+                      <button
+                        key={l.code}
+                        onClick={() => setSelectedLangs(prev => { const next = new Set(prev); next.has(l.code) ? next.delete(l.code) : next.add(l.code); return next })}
+                        className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-full border transition-colors ${selectedLangs.has(l.code) ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-200 text-indigo-600 hover:bg-indigo-50'}`}
+                      >
+                        <span>{l.flag}</span> {l.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => void translateMessage()}
+                      disabled={translatingMsg || !deployMessage.trim() || selectedLangs.size === 0 || (readonly && task.assigneeId !== currentUserId)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+                    >
+                      {translatingMsg ? <Loader2 size={11} className="animate-spin" /> : <span>🌐</span>}
+                      {translatingMsg ? 'Translating…' : 'Translate'}
                     </button>
-                  )}
+                    {Object.values(msgTranslations).some(v => v) && (
+                      <button onClick={() => setShowMsgTr(v => !v)} className="text-xs text-violet-400 hover:text-violet-600">
+                        {showMsgTr ? 'Hide translations' : 'Show translations'}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {showMsgTr && Object.values(msgTranslations).some(v => v) && (
                   <div className="space-y-2">
@@ -1332,6 +1577,81 @@ export function TaskDetailModal({
                   {deploying && <Loader2 size={11} className="animate-spin" />}
                   {deploying ? 'Sending…' : 'Update Admin'}
                 </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Message Admin — send a question/message to the client without needing the task to be done */}
+        {(task.board === 'support' || !!task.appId) && (
+          <div className={`px-6 py-3 shrink-0 border-b ${showMsgAdmin ? 'bg-sky-50 border-sky-100' : 'bg-white border-gray-100'}`}>
+            {!showMsgAdmin ? (
+              <button
+                onClick={() => setShowMsgAdmin(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors"
+              >
+                <Send size={11} /> Message Admin
+              </button>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-sky-800 uppercase tracking-wide">Message Admin</p>
+                  <button onClick={() => { setShowMsgAdmin(false); setAdminMsgError(null) }} className="text-xs text-sky-400 hover:text-sky-600">Cancel</button>
+                </div>
+                <p className="text-xs text-sky-700">Send a message to the admin asking for more details. They will see it on their support ticket screen and can reply.</p>
+                {adminMsgSent ? (
+                  <div className="flex items-center gap-2 text-green-700 text-sm font-medium py-1">
+                    <Check size={14} className="shrink-0" /> Message sent — the admin will see it on their device.
+                  </div>
+                ) : (
+                  <>
+                    <textarea
+                      value={adminMessage}
+                      onChange={e => { setAdminMessage(e.target.value); setShowAdminMsgTr(false); setAdminMsgTranslations({}) }}
+                      rows={3}
+                      placeholder="Write your message to the admin…"
+                      className="w-full text-sm border border-sky-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-sky-400 bg-white placeholder:text-gray-400"
+                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      {[{ code: 'he', flag: '🇮🇱', label: 'Hebrew' }, { code: 'ar', flag: '🇸🇦', label: 'Arabic' }, { code: 'es', flag: '🇪🇸', label: 'Spanish' }].map(l => (
+                        <button
+                          key={l.code}
+                          type="button"
+                          onClick={() => setSelectedAdminLangs(prev => { const s = new Set(prev); s.has(l.code) ? s.delete(l.code) : s.add(l.code); return s })}
+                          className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-full border transition-colors ${selectedAdminLangs.has(l.code) ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-sky-200 text-sky-600 hover:bg-sky-50'}`}
+                        >
+                          {l.flag} {l.label}
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => void translateAdminMessage()}
+                        disabled={translatingAdminMsg || !adminMessage.trim() || selectedAdminLangs.size === 0}
+                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-full border border-sky-300 text-sky-700 bg-white hover:bg-sky-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {translatingAdminMsg && <Loader2 size={10} className="animate-spin" />}
+                        {translatingAdminMsg ? 'Translating…' : 'Translate'}
+                      </button>
+                    </div>
+                    {showAdminMsgTr && Object.keys(adminMsgTranslations).length > 0 && (
+                      <div className="flex flex-col gap-1.5 bg-white border border-sky-100 rounded-lg p-2.5">
+                        {Object.entries(adminMsgTranslations).map(([lang, txt]) => (
+                          <div key={lang} className="text-xs text-gray-700">
+                            <span className="font-semibold text-sky-700 uppercase mr-1.5">{lang}</span>{txt}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {adminMsgError && <p className="text-xs text-red-600">{adminMsgError}</p>}
+                    <button
+                      onClick={() => void handleSendAdminMessage()}
+                      disabled={sendingAdminMsg || !adminMessage.trim()}
+                      className="self-start flex items-center gap-1.5 px-4 py-1.5 bg-sky-600 text-white text-xs font-bold rounded-lg hover:bg-sky-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {sendingAdminMsg && <Loader2 size={11} className="animate-spin" />}
+                      {sendingAdminMsg ? 'Sending…' : 'Send Message'}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -2033,6 +2353,129 @@ export function TaskDetailModal({
             </div>
           )}
         </div>
+        {/* Support Chat — full conversation thread at the bottom */}
+        {!!resolveTicketLink() && (
+          <div className="border-t border-gray-100 shrink-0">
+            <button
+              onClick={() => setShowChat(c => !c)}
+              className="flex items-center gap-2 w-full px-6 py-3 text-xs font-semibold text-gray-600 hover:text-primary hover:bg-gray-50 transition-colors"
+            >
+              <MessageSquare size={13} className="text-primary shrink-0" />
+              <span>Support Chat</span>
+              {ticketMessages.length > 0 && <span className="font-normal text-gray-400">({ticketMessages.length})</span>}
+              {chatLoading && <Loader2 size={11} className="animate-spin text-gray-400" />}
+              <ChevronDown size={13} className={`ml-auto text-gray-400 transition-transform duration-200 ${showChat ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showChat && (
+              <div className="border-t border-gray-100">
+                <div className="flex flex-col gap-3 px-6 py-4 max-h-72 overflow-y-auto bg-gray-50">
+                  {chatLoading && ticketMessages.length === 0 ? (
+                    <div className="flex items-center justify-center gap-2 py-6 text-xs text-gray-400">
+                      <Loader2 size={13} className="animate-spin" /> Loading messages…
+                    </div>
+                  ) : ticketMessages.length === 0 ? (
+                    <p className="text-center text-xs text-gray-400 py-6">No messages yet. Send one below to start the conversation.</p>
+                  ) : (
+                    ticketMessages.map(msg => {
+                      const isDyo = msg.sender === 'dyo'
+                      const translation = msgTranslationMap[msg.id]
+                      const isTranslating = translatingMsgId === msg.id
+                      return (
+                        <div key={msg.id} className={`flex flex-col ${isDyo ? 'items-end' : 'items-start'}`}>
+                          <span className={`text-[10px] font-semibold mb-1 ${isDyo ? 'text-primary' : 'text-gray-500'}`}>
+                            {isDyo ? 'You (DYO)' : 'Admin'}
+                          </span>
+                          <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${isDyo ? 'bg-primary text-white rounded-br-none' : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'}`}>
+                            <p className="break-words whitespace-pre-wrap">{msg.text}</p>
+                            {translation && (
+                              <div className="mt-2 pt-2 border-t border-gray-100">
+                                <p className="text-[10px] font-semibold text-gray-400 mb-0.5">🇬🇧 English</p>
+                                <p className="text-xs text-gray-600 break-words whitespace-pre-wrap">{translation}</p>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between mt-1.5 gap-2">
+                              <p className={`text-[10px] ${isDyo ? 'text-white/60' : 'text-gray-400'}`}>
+                                {new Date(msg.timestamp).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                              {!isDyo && !translation && (
+                                <button
+                                  onClick={() => void translateMsgToEnglish(msg.id, msg.text)}
+                                  disabled={isTranslating}
+                                  className="text-[10px] text-gray-400 hover:text-primary transition-colors disabled:opacity-50 flex items-center gap-0.5 shrink-0"
+                                >
+                                  {isTranslating ? <Loader2 size={9} className="animate-spin" /> : '🌐'}
+                                  {isTranslating ? 'Translating…' : 'Translate'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+
+                <div className="px-6 py-3 bg-white border-t border-gray-100 flex flex-col gap-2">
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      value={chatReply}
+                      onChange={e => { setChatReply(e.target.value); setShowChatReplyTr(false); setChatReplyTranslations({}) }}
+                      onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void handleChatReply() }}
+                      rows={2}
+                      placeholder="Reply to admin… (⌘+Enter to send)"
+                      className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition placeholder:text-gray-400 text-gray-800"
+                    />
+                    <button
+                      onClick={() => void handleChatReply()}
+                      disabled={sendingChatReply || !chatReply.trim()}
+                      className="shrink-0 flex items-center justify-center w-9 h-9 bg-primary text-white rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="Send reply"
+                    >
+                      {sendingChatReply ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {([{ code: 'he', flag: '🇮🇱', label: 'Hebrew' }, { code: 'ar', flag: '🇸🇦', label: 'Arabic' }, { code: 'es', flag: '🇪🇸', label: 'Spanish' }] as const).map(l => (
+                      <button
+                        key={l.code}
+                        type="button"
+                        onClick={() => setChatReplyLangs(prev => { const s = new Set(prev); s.has(l.code) ? s.delete(l.code) : s.add(l.code); return s })}
+                        className={`flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold rounded-full border transition-colors ${chatReplyLangs.has(l.code) ? 'bg-primary border-primary text-white' : 'bg-white border-gray-200 text-gray-500 hover:border-primary/40 hover:text-primary'}`}
+                      >
+                        {l.flag} {l.label}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => void translateChatReply()}
+                      disabled={translatingChatReply || !chatReply.trim() || chatReplyLangs.size === 0}
+                      className="flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-semibold rounded-full border border-gray-200 text-gray-600 bg-white hover:border-primary/40 hover:text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {translatingChatReply ? <Loader2 size={10} className="animate-spin" /> : '🌐'}
+                      {translatingChatReply ? 'Translating…' : 'Translate'}
+                    </button>
+                    {showChatReplyTr && Object.keys(chatReplyTranslations).length > 0 && (
+                      <button onClick={() => setShowChatReplyTr(v => !v)} className="text-[11px] text-gray-400 hover:text-gray-600">
+                        Hide
+                      </button>
+                    )}
+                  </div>
+
+                  {showChatReplyTr && Object.keys(chatReplyTranslations).length > 0 && (
+                    <div className="flex flex-col gap-1 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+                      {Object.entries(chatReplyTranslations).map(([lang, txt]) => (
+                        <div key={lang} className="text-xs text-gray-700">
+                          <span className="font-semibold text-primary uppercase mr-1.5">{lang}</span>{txt}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

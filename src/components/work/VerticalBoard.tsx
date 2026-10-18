@@ -61,7 +61,7 @@ function TaskCard({
 }) {
   const overdue         = isOverdue(task.dueDate)
   const isSupport       = task.board === 'support'
-  const unclaimed       = isSupport && task.claimed === false
+  const unclaimed       = isSupport && task.claimed === false && task.status !== 'done' && task.status !== 'archived'
 
   return (
     // A div, not a button: the priority/assignee quick-edit controls

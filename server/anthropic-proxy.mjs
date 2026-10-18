@@ -6,6 +6,8 @@ const MAX_BODY_BYTES = 1_000_000
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const TRANSLATION_API_KEY = process.env.ANTHROPIC_TRANSLATION_API_KEY
 const NOTIFY_TICKET_DEPLOYED_URL = process.env.NOTIFY_TICKET_DEPLOYED_URL
+const SEND_TICKET_MESSAGE_URL = process.env.SEND_TICKET_MESSAGE_URL
+const GET_TICKET_MESSAGES_URL = process.env.GET_TICKET_MESSAGES_URL
 const DEPLOY_SECRET = process.env.DEPLOY_SECRET
 
 if (!API_KEY) {
@@ -40,7 +42,9 @@ const server = http.createServer(async (request, response) => {
 
   const isClaudeRequest = request.method === 'POST' && (request.url === '/v1/messages' || request.url === '/v1/translation-messages')
   const isDeployNotification = request.method === 'POST' && request.url === '/notify-ticket-deployed'
-  if (!isClaudeRequest && !isDeployNotification) {
+  const isSendTicketMessage = request.method === 'POST' && request.url === '/send-ticket-message'
+  const isGetTicketMessages = request.method === 'POST' && request.url === '/get-ticket-messages'
+  if (!isClaudeRequest && !isDeployNotification && !isSendTicketMessage && !isGetTicketMessages) {
     return sendJson(response, 404, { error: 'Not found' })
   }
 
@@ -51,6 +55,40 @@ const server = http.createServer(async (request, response) => {
     if (isDeployNotification) {
       if (!NOTIFY_TICKET_DEPLOYED_URL || !DEPLOY_SECRET) return sendJson(response, 503, { error: 'Deployment notification is not configured' })
       const upstream = await fetch(NOTIFY_TICKET_DEPLOYED_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-webhook-secret': DEPLOY_SECRET },
+        body: rawBody,
+        signal: AbortSignal.timeout(30_000),
+      })
+      const body = Buffer.from(await upstream.arrayBuffer())
+      response.writeHead(upstream.status, {
+        'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+      })
+      return response.end(body)
+    }
+
+    if (isSendTicketMessage) {
+      if (!SEND_TICKET_MESSAGE_URL || !DEPLOY_SECRET) return sendJson(response, 503, { error: 'Ticket messaging is not configured' })
+      const upstream = await fetch(SEND_TICKET_MESSAGE_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-webhook-secret': DEPLOY_SECRET },
+        body: rawBody,
+        signal: AbortSignal.timeout(30_000),
+      })
+      const body = Buffer.from(await upstream.arrayBuffer())
+      response.writeHead(upstream.status, {
+        'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+      })
+      return response.end(body)
+    }
+
+    if (isGetTicketMessages) {
+      if (!GET_TICKET_MESSAGES_URL || !DEPLOY_SECRET) return sendJson(response, 503, { error: 'Ticket messaging is not configured' })
+      const upstream = await fetch(GET_TICKET_MESSAGES_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-webhook-secret': DEPLOY_SECRET },
         body: rawBody,
