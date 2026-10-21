@@ -239,10 +239,9 @@ export function VerticalBoard({
   search: string
   onSearchChange: (value: string) => void
   /**
-   * Which of the Support Tickets board's two tabs is selected. Applied ONLY
-   * while that board is the one being shown: in "All Boards" mode the view
-   * stays exactly what it always was, every ticket included, because there
-   * the tabs are not on screen to explain a missing card.
+   * Which of the Support Tickets board's two chips is selected. Undefined
+   * whenever that board is not the selected tab, which is what keeps every
+   * other board — and this filter — exactly as it was.
    */
   ticketKind?: TicketKind
 }) {
@@ -328,7 +327,15 @@ export function VerticalBoard({
     return tasks.filter(t => {
       if (!showArchived && t.status === 'archived') return false
       if (boardFilter && t.board !== boardFilter) return false
-      if (ticketKind && boardFilter === 'support' && ticketKindOf(t) !== ticketKind) return false
+      // Keyed off the task's own board, NOT boardFilter: that state starts
+      // empty ("All Boards") and is only synced from activeBoardId when the
+      // board tab actually changes, so on a fresh load — or right after a
+      // deploy — it was still '' while the Support board was on screen, and
+      // the chips did nothing until the user switched boards and came back.
+      // The caller only passes ticketKind while the Support board is the
+      // selected tab, which is also the only time the chips are on screen to
+      // explain the narrowed list.
+      if (ticketKind && t.board === 'support' && ticketKindOf(t) !== ticketKind) return false
       if (q && !t.title.toLowerCase().includes(q) && !t.description.toLowerCase().includes(q)) return false
       if (assignee && t.assignee !== assignee) return false
       if (priority && t.priority !== priority) return false
