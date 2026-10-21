@@ -250,7 +250,12 @@ export function VerticalBoard({
   const [assignee,     setAssignee]     = useState('')
   const [priority,     setPriority]     = useState('')
   const [client,       setClient]       = useState('')
-  const [boardFilter,  setBoardFilter]  = useState('')
+  // Starts on the board the outer tabs have selected, not on '' ("All
+  // Boards"): the sync below only fires when activeBoardId CHANGES, so an
+  // empty initial value meant a fresh load showed every board's tasks under
+  // whichever board tab was highlighted, until the user switched boards and
+  // came back. Picking "All Boards" from the dropdown still works as before.
+  const [boardFilter,  setBoardFilter]  = useState(activeBoardId)
   const [showArchived, setShowArchived] = useState(true)
 
   // Keeps this dropdown in sync when the board is changed from OUTSIDE
