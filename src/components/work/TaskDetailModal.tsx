@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import {
   X, Check, Copy, Clock, ChevronDown,
   Send, Paperclip, Link2, Play, Square, AlertCircle,
@@ -795,6 +795,36 @@ export function TaskDetailModal({
     }
   }
 
+  // The ticket wizard's fields, in the order the admin asks for them, keeping
+  // only the ones this ticket carries. `category` is left out on purpose: it
+  // decides which tab the ticket sits in, which the board already shows.
+  // Unknown keys are kept too — if the admin starts sending a tenth field it
+  // appears here with its own name rather than being silently dropped.
+  const ticketDetailRows = useMemo(() => {
+    const details = task.ticketDetails
+    if (!details) return []
+    const labels: Array<[string, string]> = [
+      ['system_area',   tr('תחום', 'System area')],
+      ['admin_tab',     tr('טאב באדמין', 'Admin tab')],
+      ['app_scope',     tr('היקף', 'Scope')],
+      ['app_screen',    tr('מסך באפליקציה', 'App screen')],
+      ['web_component', tr('קומפוננטה באתר', 'Web component')],
+      ['lesson_id',     tr('מזהה שיעור', 'Lesson ID')],
+      ['user_phone',    tr('טלפון המשתמש', 'User phone')],
+      ['device_info',   tr('מכשיר', 'Device')],
+      ['page_url',      'URL'],
+    ]
+    const known = new Set(labels.map(([key]) => key))
+    const extras: Array<[string, string]> = Object.keys(details)
+      .filter(key => key !== 'category' && !known.has(key))
+      .map(key => [key, key.replace(/_/g, ' ')])
+    return [...labels, ...extras]
+      .map(([key, label]) => ({ key, label, value: (details[key] ?? '').trim() }))
+      .filter(row => row.value !== '')
+      // 'daily_focus' reads as "daily focus"; free-text values are untouched.
+      .map(row => ({ ...row, value: /^[a-z0-9_]+$/.test(row.value) ? row.value.replace(/_/g, ' ') : row.value }))
+  }, [task.ticketDetails, tr])
+
   // Older tasks stored ticket_id / app_id only as plain text in the description
   // (before migration 20260906120000 promoted them to proper columns). Parse
   // them as a fallback so "Update Admin" still works for those tasks.
@@ -1476,6 +1506,28 @@ export function TaskDetailModal({
                 <AlertCircle size={11} /> {claimError}
               </p>
             )}
+          </div>
+        )}
+
+        {/* Ticket details — what the admin's ticket wizard collected. Only the
+            fields that ticket actually carries are rendered, because the admin
+            asks for each one conditionally (no admin tab on an app ticket, no
+            lesson id outside the lesson player). */}
+        {ticketDetailRows.length > 0 && (
+          <div className="px-6 py-3 shrink-0 border-b border-gray-100 bg-white">
+            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-2">{tr('פרטי הכרטיס', 'Ticket details')}</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+              {ticketDetailRows.map(row => (
+                <div key={row.key} className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="text-xs text-gray-500 shrink-0">{row.label}:</span>
+                  {/^https?:\/\//i.test(row.value) ? (
+                    <a href={row.value} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-primary underline truncate" title={row.value}>{row.value}</a>
+                  ) : (
+                    <span className="text-xs font-medium text-gray-900 truncate" title={row.value}>{row.value}</span>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

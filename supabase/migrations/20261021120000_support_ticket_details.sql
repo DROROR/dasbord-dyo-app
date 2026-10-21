@@ -1,0 +1,51 @@
+-- The structured details a support ticket now carries from the admin's new
+-- ticket wizard, plus the ticket's own category.
+--
+-- Until now create-support-ticket folded everything it received into the task's
+-- description as text lines ("Category: technical", "App ID: …"), and the UI
+-- read them back out with a regex. That is fine for showing a value, but it
+-- cannot be filtered on: the two tabs the client asked for (Support Tickets vs
+-- Development Requests) split on `category`, which no column holds.
+--
+-- One nullable jsonb column rather than ten text columns: these nine fields are
+-- conditional on each other by design (adminTab only exists when systemArea is
+-- admin, lessonId only on the lesson player, userPhone only for a specific
+-- user), the admin may add more of them, and nothing here is ever queried on
+-- its own — a task is fetched whole and the block is rendered as a list.
+--
+-- Shape written by create-support-ticket (every key optional):
+--   {
+--     "category":      "technical" | "general",
+--     "system_area":   "admin" | "app" | "web",
+--     "admin_tab":     "users" | "lessons" | "reports" | "subscriptions" | "forms" | "settings" | "other",
+--     "app_scope":     "general" | "user",
+--     "app_screen":    "lesson" | "daily_focus" | "forms" | "feed" | "profile" | "other",
+--     "web_component": "login" | "player" | "checkout" | "catalog" | "other",
+--     "lesson_id":     "<free text>",
+--     "user_phone":    "<free text>",
+--     "device_info":   "<free text>",
+--     "page_url":      "<free text>"
+--   }
+--
+-- No check constraint on those values on purpose: the admin owns the
+-- vocabulary, a new option there must not start failing ticket creation here,
+-- and nothing in the dashboard branches on an exact value — the block is
+-- displayed, and only `category` is compared, against 'general'.
+--
+-- Deliberately additive and nothing else: no existing column, policy or grant
+-- is touched. The description keeps its text lines exactly as before, because
+-- the 47 tickets already in the board carry their App ID / Ticket ID only
+-- there and TaskDetailModal's resolveTicketLink() still reads them from it.
+--
+-- Grants: public.tasks is granted at TABLE level (relacl holds
+-- anon/authenticated/service_role; no column has its own attacl), so a new
+-- column is covered by the existing grants and needs none of its own. This is
+-- unlike public.work_docs, where UPDATE is granted column by column and every
+-- new column needs an explicit grant (see 20261006150000_work_doc_icons.sql).
+-- The four RLS policies on tasks (view/insert/update/delete) are row-level and
+-- are unaffected.
+
+alter table public.tasks add column if not exists ticket_details jsonb;
+
+comment on column public.tasks.ticket_details is
+  'Support ticket fields from the admin ticket wizard: category plus the conditional system_area/admin_tab/app_scope/app_screen/web_component/lesson_id/user_phone/device_info/page_url. Written by the create-support-ticket edge function; null on every task that did not come from a ticket.';

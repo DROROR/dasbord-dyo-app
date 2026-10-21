@@ -165,3 +165,35 @@ export const INITIAL_BOARDS: Board[] = [
     createdAt: '2026-09-08T00:00:00Z',
   },
 ]
+
+// ─── Support tickets: which tab a ticket belongs in ──────────────────────────
+// The admin sends a `category` with every ticket: 'technical' for a customer
+// support issue, 'general' for an improvement / development request. The two
+// tabs on the Support Tickets board split on it.
+//
+// Where the value is read from, in order:
+//   1. tasks.ticket_details->>'category' — set by create-support-ticket from
+//      the ticket wizard. The only writer; the dashboard never overwrites it.
+//   2. the "Category: …" line the edge function has always written into the
+//      description. Every ticket created before the column existed has it
+//      only there, so the fallback is what keeps those tickets in a tab
+//      instead of nowhere.
+//
+// Anything that is not 'general' counts as a support ticket — including
+// 'payment', which the admin also sends today, and a ticket with no category
+// at all (a hand-created task on the support board). That direction is
+// deliberate: a ticket may never fall out of both tabs and disappear.
+
+export type TicketKind = 'support' | 'development'
+
+/** The ticket's category: from the column, else the legacy description line. */
+export function ticketCategoryOf(task: Task): string | undefined {
+  const fromColumn = task.ticketDetails?.category?.trim()
+  if (fromColumn) return fromColumn.toLowerCase()
+  return task.description?.match(/^Category:[ \t]*(\S+)/m)?.[1]?.toLowerCase()
+}
+
+/** Which of the board's two tabs this task shows under. */
+export function ticketKindOf(task: Task): TicketKind {
+  return ticketCategoryOf(task) === 'general' ? 'development' : 'support'
+}

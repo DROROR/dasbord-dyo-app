@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { X, Calendar, Clock, ChevronDown, Plus, ArrowRightLeft } from 'lucide-react'
 import type { Task, Board, BoardStatus, AssigneeOption, PriorityDef } from '../../types/work'
-import { DEFAULT_BOARD_STATUSES, priorityDefsForBoard } from '../../data/workConstants'
+import { DEFAULT_BOARD_STATUSES, priorityDefsForBoard, ticketKindOf, type TicketKind } from '../../data/workConstants'
 import { PriorityQuickEdit, AssigneeQuickEdit } from './TaskQuickEdit'
 import { ClientBadge } from './ClientBadge'
 import { MoveTaskModal } from './MoveTaskModal'
@@ -214,7 +214,7 @@ function StatusSection({
 export function VerticalBoard({
   tasks, boards, activeBoardId, onOpenTask, onAddTask, assignees, readonly,
   canEditTask, eligibleAssigneesFor, onTaskSaved, onBoardFilterChange,
-  canMoveTask, profiles, search, onSearchChange,
+  canMoveTask, profiles, search, onSearchChange, ticketKind,
 }: {
   /** Every task the caller wants considered — the internal Board filter (below) narrows this further; this is deliberately NOT pre-filtered to one board so "All Boards" has real data to show. */
   tasks: Task[]
@@ -238,6 +238,13 @@ export function VerticalBoard({
   profiles: { id: string; name: string; isOwner: boolean }[]
   search: string
   onSearchChange: (value: string) => void
+  /**
+   * Which of the Support Tickets board's two tabs is selected. Applied ONLY
+   * while that board is the one being shown: in "All Boards" mode the view
+   * stays exactly what it always was, every ticket included, because there
+   * the tabs are not on screen to explain a missing card.
+   */
+  ticketKind?: TicketKind
 }) {
   const { t: tr } = useWorkLang()
   const [movingTask, setMovingTask] = useState<Task | null>(null)
@@ -321,6 +328,7 @@ export function VerticalBoard({
     return tasks.filter(t => {
       if (!showArchived && t.status === 'archived') return false
       if (boardFilter && t.board !== boardFilter) return false
+      if (ticketKind && boardFilter === 'support' && ticketKindOf(t) !== ticketKind) return false
       if (q && !t.title.toLowerCase().includes(q) && !t.description.toLowerCase().includes(q)) return false
       if (assignee && t.assignee !== assignee) return false
       if (priority && t.priority !== priority) return false
@@ -330,7 +338,7 @@ export function VerticalBoard({
       }
       return true
     })
-  }, [tasks, search, assignee, priority, client, boardFilter, showArchived])
+  }, [tasks, search, assignee, priority, client, boardFilter, showArchived, ticketKind])
 
   const visibleStatuses = statuses
     .filter(s => showArchived ? true : s.id !== 'archived')

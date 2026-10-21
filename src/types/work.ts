@@ -105,6 +105,34 @@ export interface BoardStatus {
 
 export type TaskPlatform = 'admin' | 'website' | 'mobile_app' | 'super_admin'
 
+/**
+ * What the admin's ticket wizard collected, stored as sent (snake_case keys,
+ * matching the payload and the `tasks.ticket_details` column) so there is one
+ * spelling of each field across the admin app, the edge function and here.
+ */
+export interface TicketDetails {
+  /** 'technical' → Support Tickets tab, 'general' → Development Requests tab. */
+  category?: string
+  /** admin | app | web — which part of the product the issue is in. */
+  system_area?: string
+  /** On an admin ticket: users, lessons, reports, subscriptions, forms, settings, other. */
+  admin_tab?: string
+  /** On an app ticket: general, or user for one specific person. */
+  app_scope?: string
+  /** On an app ticket: lesson, daily_focus, forms, feed, profile, other. */
+  app_screen?: string
+  /** On a web ticket: login, player, checkout, catalog, other. */
+  web_component?: string
+  /** Only for the lesson player. */
+  lesson_id?: string
+  /** Only when the ticket is about one specific user. */
+  user_phone?: string
+  device_info?: string
+  page_url?: string
+  /** Anything the admin starts sending later still arrives and is displayed. */
+  [key: string]: string | undefined
+}
+
 export interface Task {
   id: string
   title: string
@@ -147,6 +175,15 @@ export interface Task {
   ticketId?: string
   /** Firebase app ID — populated for support board tasks created via the edge function. */
   appId?: string
+  /**
+   * The ticket wizard's own fields, exactly as the admin app sent them —
+   * written only by the create-support-ticket edge function, never from here.
+   * Every key is optional: the admin asks for a field only when the chosen
+   * system area calls for it (no `adminTab` on an app ticket, no `lessonId`
+   * outside the lesson player), and it owns the vocabulary, so this stays a
+   * loose string map rather than a union that a new option there would break.
+   */
+  ticketDetails?: TicketDetails
   /** True once the developer marks the fix as deployed to the admin's app. */
   deployedToAdmin?: boolean
   /** Release note written by the developer when marking as deployed. */

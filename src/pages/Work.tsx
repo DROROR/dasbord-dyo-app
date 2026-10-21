@@ -24,7 +24,7 @@ import {
 import type { TicketDoneAnswers } from '../components/work/TaskDetailModal'
 import { TIMER_ENTRY_SAVED_EVENT, type TimerEntrySavedDetail } from '../contexts/TimerContext'
 import { takeTaskFocus, TASK_FOCUS_EVENT, takeDocFocus, DOC_FOCUS_EVENT } from '../lib/focusTarget'
-import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES, priorityDefsForBoard, statusesForBoard } from '../data/workConstants'
+import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES, priorityDefsForBoard, statusesForBoard, ticketKindOf, type TicketKind } from '../data/workConstants'
 import { VerticalBoard }    from '../components/work/VerticalBoard'
 import { MyBoard }          from '../components/work/MyBoard'
 import { DocsTab }          from '../components/work/DocsTab'
@@ -604,6 +604,10 @@ export function Work() {
     catch { return INITIAL_BOARDS[0].id }
   })
   const [tasks,        setTasks]        = useState<Task[]>([])
+  // Which of the Support Tickets board's two tabs is open. Board-local state:
+  // it only ever applies while that board is the one on screen, and resetting
+  // it to 'support' on every mount matches how the board itself opens.
+  const [ticketKind,   setTicketKind]   = useState<TicketKind>('support')
   const [taskSearch,   setTaskSearch]   = useState('')
   const [ganttStats,   setGanttStats]   = useState({ scheduled: 0, withoutDates: 0 })
   const [tasksLoading, setTasksLoading] = useState(true)
@@ -1221,6 +1225,35 @@ export function Work() {
               {canManageWork ? <button onClick={() => setShowAddBoard(true)} className="flex h-7 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 transition-colors hover:border-primary hover:text-primary"><Plus size={13} /> Add Board</button> : <span />}
             </div>
 
+            {/* Support board only: customer support issues and development
+                requests are managed separately, so each category gets its own
+                tab over the same columns. The board, its statuses, the shared
+                support queue and every ticket alert are untouched — this is a
+                view over the board, not a second board. */}
+            {activeBoard === 'support' && (
+              <div className="flex shrink-0 items-center justify-center gap-1.5">
+                {([
+                  { id: 'support'     as TicketKind, label: tr('כרטיסי תמיכה', 'Support Tickets') },
+                  { id: 'development' as TicketKind, label: tr('בקשות פיתוח', 'Development Requests') },
+                ]).map(kind => {
+                  const active = ticketKind === kind.id
+                  const count = tasks.filter(task =>
+                    task.board === 'support' && task.status !== 'done' && task.status !== 'archived' && ticketKindOf(task) === kind.id,
+                  ).length
+                  return (
+                    <button
+                      key={kind.id}
+                      onClick={() => setTicketKind(kind.id)}
+                      className={`flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-xs font-semibold transition-colors ${active ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
+                    >
+                      {kind.label}
+                      <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none ${active ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700'}`}>{count}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
             <VerticalBoard
               tasks={tasks}
               boards={visibleBoards}
@@ -1237,6 +1270,7 @@ export function Work() {
               profiles={profiles}
               search={taskSearch}
               onSearchChange={setTaskSearch}
+              ticketKind={activeBoard === 'support' ? ticketKind : undefined}
             />
           </div>
         )}

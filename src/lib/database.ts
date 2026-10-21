@@ -771,6 +771,7 @@ interface DbTask {
   task_subtasks?: DbTaskSubtask[]
   ticket_id: string | null
   app_id: string | null
+  ticket_details: Record<string, string> | null
   deployed_to_admin: boolean | null
   update_message: string | null
   title_en: string | null
@@ -843,6 +844,10 @@ function dbToTask(db: DbTask): Task {
     claimedById:     db.claimed_by_id ?? undefined,
     ticketId:        db.ticket_id ?? undefined,
     appId:           db.app_id ?? undefined,
+    // Read-only on this side: the create-support-ticket edge function is the
+    // only writer, so there is deliberately no taskToRow() entry for it and
+    // no save from the dashboard can overwrite what the admin sent.
+    ticketDetails:   db.ticket_details ?? undefined,
     deployedToAdmin: db.deployed_to_admin ?? false,
     updateMessage:   db.update_message ?? undefined,
     titleEn:         db.title_en ?? undefined,

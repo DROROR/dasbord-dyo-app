@@ -61,6 +61,19 @@ Deno.serve(async (req: Request) => {
       category,
       user_id,
       attachment_url,
+      // The ticket wizard's own fields. Each is sent only when the chosen
+      // system area calls for it, so every one of them is optional and a
+      // ticket from the old admin build (which sends none of them) still
+      // creates exactly the task it always did.
+      system_area,
+      admin_tab,
+      app_scope,
+      app_screen,
+      web_component,
+      lesson_id,
+      user_phone,
+      device_info,
+      page_url,
     } = body as Record<string, string | undefined>
 
     if (!subject || typeof subject !== 'string' || subject.trim() === '') {
@@ -103,6 +116,29 @@ Deno.serve(async (req: Request) => {
     const now      = new Date().toISOString()
     const priority = URGENCY_TO_PRIORITY[urgency ?? ''] ?? 'medium'
 
+    // 4b. The structured copy of the ticket, for the two board tabs (which
+    // split on `category`) and the details block in the task modal. Only the
+    // keys that arrived with a value are stored, so an empty object means a
+    // ticket from an admin build that does not send them yet and the column
+    // stays null rather than holding nine empty strings.
+    // The description lines built above are kept exactly as they were: the
+    // tickets already on the board carry their App ID / Ticket ID only there,
+    // and the dashboard still reads them back out of that text.
+    const ticketDetails: Record<string, string> = {}
+    const putDetail = (key: string, value: string | undefined) => {
+      if (typeof value === 'string' && value.trim() !== '') ticketDetails[key] = value.trim()
+    }
+    putDetail('category',      category)
+    putDetail('system_area',   system_area)
+    putDetail('admin_tab',     admin_tab)
+    putDetail('app_scope',     app_scope)
+    putDetail('app_screen',    app_screen)
+    putDetail('web_component', web_component)
+    putDetail('lesson_id',     lesson_id)
+    putDetail('user_phone',    user_phone)
+    putDetail('device_info',   device_info)
+    putDetail('page_url',      page_url)
+
     // 5. Insert the task using the service-role client (bypasses RLS).
     const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
@@ -122,6 +158,7 @@ Deno.serve(async (req: Request) => {
         comments:       [],
         ticket_id:      ticket_id ?? null,
         app_id:         app_id    ?? null,
+        ticket_details: Object.keys(ticketDetails).length > 0 ? ticketDetails : null,
         created_by:     'System',
         created_at:     now,
         updated_at:     now,
