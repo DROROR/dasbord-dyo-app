@@ -1249,11 +1249,12 @@ export function Work() {
               const open = countOf(ticketKind)
               const activeKind = kinds.find(kind => kind.id === ticketKind)
               return (
-                <div className="shrink-0">
-                  {/* A real tab strip, not two loose buttons: full width, the
-                      active one underlined into the content below, so it reads
-                      as "these columns are this tab's tickets". */}
-                  <div className="flex items-stretch border-b border-gray-200">
+                <div className="flex shrink-0 flex-col gap-1">
+                  {/* Chips at the start of the row, not centred — they belong
+                      to the board below, so they line up with its left edge
+                      (start, so an RTL layout mirrors it) rather than floating
+                      in the middle like a second set of board tabs. */}
+                  <div className="flex items-center justify-start gap-1.5">
                     {kinds.map(kind => {
                       const active = ticketKind === kind.id
                       return (
@@ -1261,18 +1262,18 @@ export function Work() {
                           key={kind.id}
                           onClick={() => setTicketKind(kind.id)}
                           title={kind.hint}
-                          className={`-mb-px flex flex-1 items-center justify-center gap-2 border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${active ? 'border-primary bg-primary/5 text-primary' : 'border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-700'}`}
+                          className={`flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-xs font-semibold transition-colors ${active ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
                         >
                           {kind.label}
-                          <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-bold leading-none ${active ? 'bg-primary text-white' : 'bg-gray-200 text-gray-600'}`}>{countOf(kind.id)}</span>
+                          <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none ${active ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700'}`}>{countOf(kind.id)}</span>
                         </button>
                       )
                     })}
                   </div>
-                  {/* Says what the open tab is, and — when it has nothing —
-                      why every column below reads "No tasks", which otherwise
-                      looks like the tab simply did not do anything. */}
-                  <p className="px-1 pt-1.5 text-[11px] text-gray-500">
+                  {/* Says what the selected chip holds, and — when it holds
+                      nothing — why every column below reads "No tasks", which
+                      otherwise looks like the chip did not do anything. */}
+                  <p className="px-0.5 text-[11px] text-gray-500">
                     {activeKind?.hint}
                     {open === 0 && <span className="text-gray-400"> · {tr('אין כרטיסים פתוחים בטאב הזה', 'no open tickets in this tab')}</span>}
                   </p>
