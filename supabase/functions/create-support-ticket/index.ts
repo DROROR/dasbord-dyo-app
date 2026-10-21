@@ -12,10 +12,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-webhook-secret',
 }
 
+// The admin's urgency, mapped onto a priority the support board actually
+// defines. Its priorities are critical | high | medium | low, so 'urgent' was
+// writing an id no board knows: the card then resolved no priority definition
+// and showed a grey "No priority" instead of the urgency the person had just
+// chosen, and the priority filter could not find those tickets either.
+// 'critical' is the board's own top priority (and the one flagged
+// showInSupportQueue), which is what "urgent" means here.
 const URGENCY_TO_PRIORITY: Record<string, string> = {
   normal: 'medium',
   high:   'high',
-  urgent: 'urgent',
+  urgent: 'critical',
 }
 
 Deno.serve(async (req: Request) => {
