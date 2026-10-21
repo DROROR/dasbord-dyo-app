@@ -1230,29 +1230,55 @@ export function Work() {
                 tab over the same columns. The board, its statuses, the shared
                 support queue and every ticket alert are untouched — this is a
                 view over the board, not a second board. */}
-            {activeBoard === 'support' && (
-              <div className="flex shrink-0 items-center justify-center gap-1.5">
-                {([
-                  { id: 'support'     as TicketKind, label: tr('כרטיסי תמיכה', 'Support Tickets') },
-                  { id: 'development' as TicketKind, label: tr('בקשות פיתוח', 'Development Requests') },
-                ]).map(kind => {
-                  const active = ticketKind === kind.id
-                  const count = tasks.filter(task =>
-                    task.board === 'support' && task.status !== 'done' && task.status !== 'archived' && ticketKindOf(task) === kind.id,
-                  ).length
-                  return (
-                    <button
-                      key={kind.id}
-                      onClick={() => setTicketKind(kind.id)}
-                      className={`flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-xs font-semibold transition-colors ${active ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
-                    >
-                      {kind.label}
-                      <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none ${active ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700'}`}>{count}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
+            {activeBoard === 'support' && (() => {
+              const kinds = [
+                {
+                  id: 'support' as TicketKind,
+                  label: tr('כרטיסי תמיכה', 'Support Tickets'),
+                  hint: tr('תקלות ובקשות תמיכה שהגיעו מהלקוחות', 'Customer support issues reported from the app'),
+                },
+                {
+                  id: 'development' as TicketKind,
+                  label: tr('בקשות פיתוח', 'Development Requests'),
+                  hint: tr('שיפורים ובקשות פיתוח, כולל UI/UX', 'Improvements and development requests, including UI/UX'),
+                },
+              ]
+              const countOf = (kind: TicketKind) => tasks.filter(task =>
+                task.board === 'support' && task.status !== 'done' && task.status !== 'archived' && ticketKindOf(task) === kind,
+              ).length
+              const open = countOf(ticketKind)
+              const activeKind = kinds.find(kind => kind.id === ticketKind)
+              return (
+                <div className="shrink-0">
+                  {/* A real tab strip, not two loose buttons: full width, the
+                      active one underlined into the content below, so it reads
+                      as "these columns are this tab's tickets". */}
+                  <div className="flex items-stretch border-b border-gray-200">
+                    {kinds.map(kind => {
+                      const active = ticketKind === kind.id
+                      return (
+                        <button
+                          key={kind.id}
+                          onClick={() => setTicketKind(kind.id)}
+                          title={kind.hint}
+                          className={`-mb-px flex flex-1 items-center justify-center gap-2 border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${active ? 'border-primary bg-primary/5 text-primary' : 'border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-700'}`}
+                        >
+                          {kind.label}
+                          <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-bold leading-none ${active ? 'bg-primary text-white' : 'bg-gray-200 text-gray-600'}`}>{countOf(kind.id)}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {/* Says what the open tab is, and — when it has nothing —
+                      why every column below reads "No tasks", which otherwise
+                      looks like the tab simply did not do anything. */}
+                  <p className="px-1 pt-1.5 text-[11px] text-gray-500">
+                    {activeKind?.hint}
+                    {open === 0 && <span className="text-gray-400"> · {tr('אין כרטיסים פתוחים בטאב הזה', 'no open tickets in this tab')}</span>}
+                  </p>
+                </div>
+              )
+            })()}
 
             <VerticalBoard
               tasks={tasks}
