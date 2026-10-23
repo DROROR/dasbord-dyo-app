@@ -50,7 +50,16 @@ export function MoveTaskModal({
     const b = eligibleBoards.find(x => x.id === id) ?? null
     setDestBoardId(id)
     setDestStatusId([...(b?.statuses ?? [])].sort((a, c) => a.order - c.order)[0]?.id ?? '')
-    setDestPriorityId('')
+    // Same rule as the assignee below: the destination board's own
+    // configuration decides, but when that board happens to define the
+    // very same priority the task already carries, it stays selected
+    // instead of defaulting to No Priority. Defaulting to empty was
+    // silently downgrading tickets — a High support ticket moved to App
+    // Deployment Request (which defines High too) landed with no
+    // priority at all, so it rendered a grey "No priority" and the
+    // priority filter could no longer find it.
+    const samePriority = b && task.priority && priorityDefsForBoard(b).some(p => p.id === task.priority)
+    setDestPriorityId(samePriority ? task.priority : '')
     // Per spec: if the current assignee is still active + eligible on the
     // destination board, it may stay selected; otherwise reset to
     // Unassigned rather than silently keeping an ineligible id.
