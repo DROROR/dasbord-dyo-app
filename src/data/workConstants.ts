@@ -193,7 +193,14 @@ export function ticketCategoryOf(task: Task): string | undefined {
   return task.description?.match(/^Category:[ \t]*(\S+)/m)?.[1]?.toLowerCase()
 }
 
-/** Which of the board's two tabs this task shows under. */
+/**
+ * Which of the board's two tabs this task shows under. A manual decision
+ * wins — that column is only ever set by somebody moving the ticket between
+ * the tabs, and it has to survive the admin later re-sending the ticket's
+ * category. With no decision on record it falls back to the category, which
+ * is how every ticket created so far is classified.
+ */
 export function ticketKindOf(task: Task): TicketKind {
+  if (task.ticketKind) return task.ticketKind
   return ticketCategoryOf(task) === 'general' ? 'development' : 'support'
 }

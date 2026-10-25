@@ -184,6 +184,14 @@ export interface Task {
    * loose string map rather than a union that a new option there would break.
    */
   ticketDetails?: TicketDetails
+  /**
+   * Which of the support board's two tabs this ticket shows under, when
+   * somebody decided it by hand. Left undefined the tab is derived from the
+   * admin's own category (see ticketKindOf) — which is every ticket that was
+   * never re-classified. This is the dashboard's own field; the
+   * create-support-ticket edge function never sends it.
+   */
+  ticketKind?: 'support' | 'development'
   /** True once the developer marks the fix as deployed to the admin's app. */
   deployedToAdmin?: boolean
   /** Release note written by the developer when marking as deployed. */

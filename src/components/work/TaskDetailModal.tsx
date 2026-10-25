@@ -9,7 +9,7 @@ import { useNotifications } from '../../contexts/NotificationContext'
 import { useTimer, TIMER_ENTRY_SAVED_EVENT, type TimerEntrySavedDetail } from '../../contexts/TimerContext'
 import { useWorkLang } from '../../contexts/WorkLanguageContext'
 import type { Task, TaskPlatform, TaskSubtask, TaskSubtaskStatus, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption, Board } from '../../types/work'
-import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL } from '../../data/workConstants'
+import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL, ticketKindOf, type TicketKind } from '../../data/workConstants'
 import {
   addSubtaskComment, addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask, deleteTaskComment,
   deleteTask, deleteTaskSubtask, deployTask, resetDeployTask, getTaskBoardMoves, getTaskComments, updateTaskSubtask,
@@ -1506,6 +1506,36 @@ export function TaskDetailModal({
                 <AlertCircle size={11} /> {claimError}
               </p>
             )}
+          </div>
+        )}
+
+        {/* Which of the support board's two tabs this ticket belongs under.
+            The tabs split on the admin's category, so before this existed the
+            only way to re-file a ticket was the Move dialog — which moves it
+            off the support board altogether and makes it look lost. Picking a
+            tab here writes ticketKind and nothing else: the ticket stays on
+            the support board, keeps its status, priority, assignee, comments
+            and hours, and simply shows under the other tab. */}
+        {task.board === 'support' && (
+          <div className="px-6 py-3 shrink-0 border-b border-gray-100 bg-white">
+            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-2">{tr('לשונית הכרטיס', 'Ticket tab')}</p>
+            <div className="flex items-center overflow-hidden rounded-lg border border-gray-200 w-fit">
+              {([
+                ['support',     tr('כרטיסי תמיכה', 'Support Ticket')],
+                ['development', tr('בקשות פיתוח', 'Development Request')],
+              ] as const).map(([kind, label]) => (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => { if (!readonly && ticketKindOf(task) !== kind) save({ ticketKind: kind as TicketKind }) }}
+                  disabled={readonly}
+                  className={'h-8 whitespace-nowrap border-e border-gray-200 px-3 text-xs font-semibold transition-colors last:border-e-0 disabled:cursor-not-allowed disabled:opacity-50 '
+                    + (ticketKindOf(task) === kind ? 'bg-primary text-white' : 'bg-white text-gray-500 hover:bg-gray-50')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

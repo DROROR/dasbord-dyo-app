@@ -772,6 +772,7 @@ interface DbTask {
   ticket_id: string | null
   app_id: string | null
   ticket_details: Record<string, string> | null
+  ticket_kind: string | null
   deployed_to_admin: boolean | null
   update_message: string | null
   title_en: string | null
@@ -848,6 +849,9 @@ function dbToTask(db: DbTask): Task {
     // only writer, so there is deliberately no taskToRow() entry for it and
     // no save from the dashboard can overwrite what the admin sent.
     ticketDetails:   db.ticket_details ?? undefined,
+    // Unlike ticket_details above, this one IS ours to write: it holds only
+    // the manual tab decision, never anything the admin sent.
+    ticketKind:      db.ticket_kind === 'support' || db.ticket_kind === 'development' ? db.ticket_kind : undefined,
     deployedToAdmin: db.deployed_to_admin ?? false,
     updateMessage:   db.update_message ?? undefined,
     titleEn:         db.title_en ?? undefined,
@@ -890,6 +894,7 @@ function taskToRow(t: Partial<Task>): Record<string, unknown> {
   if (t.claimedById      !== undefined) r.claimed_by_id     = t.claimedById || null
   if (t.ticketId         !== undefined) r.ticket_id         = t.ticketId || null
   if (t.appId            !== undefined) r.app_id            = t.appId || null
+  if (t.ticketKind       !== undefined) r.ticket_kind       = t.ticketKind || null
   if (t.deployedToAdmin  !== undefined) r.deployed_to_admin = t.deployedToAdmin
   if (t.updateMessage    !== undefined) r.update_message    = t.updateMessage || null
   if (t.titleEn          !== undefined) r.title_en          = t.titleEn || null
