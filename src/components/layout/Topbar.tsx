@@ -125,7 +125,7 @@ interface Props {
 }
 
 export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
-  const { notifications, unreadCount, markRead, markAllRead } = useNotifications()
+  const { notifications, unreadCount, markRead, markAllRead, browserPermission, enableBrowserNotifications } = useNotifications()
   const { t, lang, toggle } = useLang()
   const { theme, toggleTheme } = useTheme()
   const pt = PAGE_TITLES[activePage]
@@ -350,6 +350,20 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
                   </button>
                 </div>
               </div>
+
+              {/* Browser permission prompt — belongs with the notifications
+                  themselves, in the one place that is on every page. It used
+                  to sit in the Work tab bar, where it took room from the board
+                  tabs on the single page that has the least to spare. */}
+              {browserPermission === 'default' && (
+                <button
+                  onClick={() => void enableBrowserNotifications()}
+                  className="flex w-full items-center gap-2 border-b border-primary/10 bg-primary/5 px-4 py-2.5 text-start text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
+                >
+                  <Bell size={12} className="shrink-0" />
+                  {t('הפעל התראות בדפדפן', 'Enable browser notifications')}
+                </button>
+              )}
 
               {/* List */}
               <div className="overflow-y-auto" style={{ maxHeight: '440px' }}>

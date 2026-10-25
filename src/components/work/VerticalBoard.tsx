@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { X, Calendar, Clock, ChevronDown, Plus, ArrowRightLeft } from 'lucide-react'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { X, Calendar, Clock, ChevronDown, Plus, ArrowRightLeft, SlidersHorizontal } from 'lucide-react'
 import type { Task, Board, BoardStatus, AssigneeOption, PriorityDef } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, priorityDefsForBoard, ticketKindOf, type TicketKind } from '../../data/workConstants'
 import { PriorityQuickEdit, AssigneeQuickEdit } from './TaskQuickEdit'
@@ -75,7 +75,11 @@ function TaskCard({
       onClick={onClick}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
       style={{ padding: '12px 14px', minHeight: '80px' }}
-      className={`flex flex-col gap-2 w-full bg-white hover:bg-gray-50/80 border rounded-lg text-left transition-colors shadow-sm hover:shadow cursor-pointer ${isSupport ? 'border-violet-200 hover:border-violet-300' : 'border-gray-100 hover:border-gray-200'}`}
+      // A support ticket gets no outline of its own: the pale violet border
+      // read as a stray light ring around the card rather than as a label,
+      // and the SUPPORT TICKET badge in the title row already says what it
+      // is. Every card now carries the same border on every board.
+      className="flex flex-col gap-2 w-full bg-white hover:bg-gray-50/80 border border-gray-100 hover:border-gray-200 rounded-lg text-left transition-colors shadow-sm hover:shadow cursor-pointer"
     >
       {/* Row 1 — title + badges */}
       <div className="flex items-start gap-2 w-full min-w-0">
@@ -214,7 +218,7 @@ function StatusSection({
 export function VerticalBoard({
   tasks, boards, activeBoardId, onOpenTask, onAddTask, assignees, readonly,
   canEditTask, eligibleAssigneesFor, onTaskSaved, onBoardFilterChange,
-  canMoveTask, profiles, search, onSearchChange, ticketKind,
+  canMoveTask, profiles, search, onSearchChange, ticketKind, onTicketKindChange,
 }: {
   /** Every task the caller wants considered — the internal Board filter (below) narrows this further; this is deliberately NOT pre-filtered to one board so "All Boards" has real data to show. */
   tasks: Task[]
@@ -244,6 +248,8 @@ export function VerticalBoard({
    * other board — and this filter — exactly as it was.
    */
   ticketKind?: TicketKind
+  /** Selects the other chip. Passed only alongside ticketKind, so a board without chips never renders them. */
+  onTicketKindChange?: (kind: TicketKind) => void
 }) {
   const { t: tr } = useWorkLang()
   const [movingTask, setMovingTask] = useState<Task | null>(null)
@@ -257,6 +263,26 @@ export function VerticalBoard({
   // came back. Picking "All Boards" from the dropdown still works as before.
   const [boardFilter,  setBoardFilter]  = useState(activeBoardId)
   const [showArchived, setShowArchived] = useState(true)
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false)
+  const filterMenuRef = useRef<HTMLDivElement>(null)
+
+  // Closes on a click anywhere outside and on Escape. Bound only while the
+  // menu is open, so a board with the menu shut carries no global listeners.
+  useEffect(() => {
+    if (!filterMenuOpen) return
+    function onPointerDown(event: MouseEvent) {
+      if (filterMenuRef.current && !filterMenuRef.current.contains(event.target as Node)) setFilterMenuOpen(false)
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setFilterMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [filterMenuOpen])
 
   // Keeps this dropdown in sync when the board is changed from OUTSIDE
   // (clicking one of the existing board tabs) — adjusted during render
@@ -357,62 +383,164 @@ export function VerticalBoard({
     .sort((a, b) => a.order - b.order)
 
   const anyFilterActive = !!(search || assignee || priority || client || boardFilter || !showArchived)
+  // Only the ones the menu itself owns — the search box lives in the page's
+  // own tab bar, so counting it here would show a badge for something this
+  // menu cannot clear from view.
+  const activeFilterCount = [assignee, priority, client, boardFilter].filter(Boolean).length + (showArchived ? 0 : 1)
+
+  function clearFilters() {
+    onSearchChange(''); setAssignee(''); setPriority(''); setClient(''); setShowArchived(true); changeBoardFilter('')
+  }
+
+  // The Support board's two chips, rendered in this same row rather than in a
+  // strip of their own above it — one row for everything that narrows what the
+  // columns below show, chips at the start and the filter menu at the end.
+  const ticketKinds = [
+    {
+      id: 'support' as TicketKind,
+      label: tr('כרטיסי תמיכה', 'Support Tickets'),
+      hint: tr('תקלות ובקשות תמיכה שהגיעו מהלקוחות', 'Customer support issues reported from the app'),
+    },
+    {
+      id: 'development' as TicketKind,
+      label: tr('בקשות פיתוח', 'Development Requests'),
+      hint: tr('שיפורים ובקשות פיתוח, כולל UI/UX', 'Improvements and development requests, including UI/UX'),
+    },
+  ]
+  const ticketKindCount = (kind: TicketKind) => tasks.filter(t =>
+    t.board === 'support' && t.status !== 'done' && t.status !== 'archived' && ticketKindOf(t) === kind,
+  ).length
+  const activeTicketKind = ticketKind ? ticketKinds.find(k => k.id === ticketKind) : undefined
 
   return (
     <div className="flex flex-col gap-3 flex-1 min-h-0">
-      {/* Filter bar */}
-      <div className="flex items-center gap-2 flex-wrap shrink-0">
-        <select
-          value={boardFilter}
-          onChange={e => changeBoardFilter(e.target.value)}
-          title={tr('בורד', 'Board')}
-          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
-        >
-          <option value="">{tr('כל הבורדים', 'All Boards')}</option>
-          {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
-        <select
-          value={assignee}
-          onChange={e => setAssignee(e.target.value)}
-          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
-        >
-          <option value="">All assignees</option>
-          {assignees.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <select
-          value={priority}
-          onChange={e => setPriority(e.target.value)}
-          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
-        >
-          <option value="">All priorities</option>
-          {priorityFilterOptions.map(p => (
-            <option key={p.id} value={p.id}>{p.label}</option>
-          ))}
-        </select>
-        <select
-          value={client}
-          onChange={e => setClient(e.target.value)}
-          title={tr('לקוח', 'Client')}
-          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
-        >
-          <option value="">{tr('כל הלקוחות', 'All Clients')}</option>
-          <option value={NO_CLIENT}>{tr('ללא לקוח', 'No Client')}</option>
-          {/* Client names are stored data — never translated. */}
-          {clientOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
-        </select>
-        <button
-          onClick={() => setShowArchived(s => !s)}
-          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${showArchived ? 'bg-gray-200 text-gray-700 border-gray-300' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}
-        >
-          {showArchived ? 'Hide Archived' : 'Show Archived'}
-        </button>
-        {anyFilterActive && (
-          <button onClick={() => { onSearchChange(''); setAssignee(''); setPriority(''); setClient(''); setShowArchived(true); changeBoardFilter('') }} className="flex items-center gap-1 text-sm text-gray-500 hover:text-primary transition-colors">
-            <X size={12} /> Clear
+      {/* Filter bar — the controls themselves live in the menu this button
+          opens. As five permanently expanded dropdowns they took a full row
+          straight under the board tabs and still wrapped onto a second row on
+          a narrower window, for settings that are changed rarely and then
+          left alone. */}
+      <div className="flex items-center gap-2 shrink-0">
+        {ticketKind && onTicketKindChange && ticketKinds.map(kind => {
+          const active = ticketKind === kind.id
+          return (
+            <button
+              key={kind.id}
+              onClick={() => onTicketKindChange(kind.id)}
+              title={kind.hint}
+              className={`flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-xs font-semibold transition-colors ${active ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
+            >
+              {kind.label}
+              <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none ${active ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700'}`}>{ticketKindCount(kind.id)}</span>
+            </button>
+          )
+        })}
+        <div className="flex-1" />
+        <div className="relative shrink-0" ref={filterMenuRef}>
+          <button
+            onClick={() => setFilterMenuOpen(o => !o)}
+            className={`flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors ${filterMenuOpen || activeFilterCount > 0 ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
+          >
+            <SlidersHorizontal size={13} />
+            {tr('סינון', 'Filters')}
+            {activeFilterCount > 0 && (
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-white">{activeFilterCount}</span>
+            )}
+            <ChevronDown size={12} className={`transition-transform ${filterMenuOpen ? 'rotate-180' : ''}`} />
           </button>
+
+          {filterMenuOpen && (
+            <div className="absolute end-0 top-full z-40 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-4 shadow-xl">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('סינון משימות', 'Filter tasks')}</p>
+                <button onClick={() => setFilterMenuOpen(false)} className="p-1 text-gray-400 transition-colors hover:text-gray-600"><X size={13} /></button>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('בורד', 'Board')}</span>
+                  <select
+                    value={boardFilter}
+                    onChange={e => changeBoardFilter(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  >
+                    <option value="">{tr('כל הבורדים', 'All Boards')}</option>
+                    {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('אחראי', 'Assignee')}</span>
+                  <select
+                    value={assignee}
+                    onChange={e => setAssignee(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  >
+                    <option value="">All assignees</option>
+                    {assignees.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('עדיפות', 'Priority')}</span>
+                  <select
+                    value={priority}
+                    onChange={e => setPriority(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  >
+                    <option value="">All priorities</option>
+                    {priorityFilterOptions.map(p => (
+                      <option key={p.id} value={p.id}>{p.label}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('לקוח', 'Client')}</span>
+                  <select
+                    value={client}
+                    onChange={e => setClient(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  >
+                    <option value="">{tr('כל הלקוחות', 'All Clients')}</option>
+                    <option value={NO_CLIENT}>{tr('ללא לקוח', 'No Client')}</option>
+                    {/* Client names are stored data — never translated. */}
+                    {clientOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
+                  </select>
+                </label>
+
+                <button
+                  onClick={() => setShowArchived(s => !s)}
+                  className={`flex h-8 items-center justify-center rounded-lg border px-3 text-xs font-semibold transition-colors ${showArchived ? 'border-gray-300 bg-gray-200 text-gray-700' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'}`}
+                >
+                  {showArchived ? 'Hide Archived' : 'Show Archived'}
+                </button>
+
+                {anyFilterActive && (
+                  <button onClick={clearFilters} className="flex items-center justify-center gap-1 text-xs text-gray-500 transition-colors hover:text-primary">
+                    <X size={12} /> Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* The line under the row: what the selected chip holds — and, when it
+          holds nothing, why every column below reads "No tasks", which
+          otherwise looks like the chip did not do anything — plus the count of
+          what the filters above left showing. */}
+      <div className="-mt-2 flex shrink-0 items-center gap-2 px-0.5">
+        {activeTicketKind && (
+          <p className="min-w-0 text-[11px] text-gray-500">
+            {activeTicketKind.hint}
+            {ticketKindCount(activeTicketKind.id) === 0 && (
+              <span className="text-gray-400"> · {tr('אין כרטיסים פתוחים בטאב הזה', 'no open tickets in this tab')}</span>
+            )}
+          </p>
         )}
         <div className="flex-1" />
-        <span className="text-xs text-gray-500 shrink-0">{filtered.length} task{filtered.length !== 1 ? 's' : ''}</span>
+        <span className="shrink-0 text-xs text-gray-500">{filtered.length} task{filtered.length !== 1 ? 's' : ''}</span>
       </div>
 
       {/* Vertical sections */}

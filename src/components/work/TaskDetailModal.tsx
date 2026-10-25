@@ -1509,33 +1509,61 @@ export function TaskDetailModal({
           </div>
         )}
 
-        {/* Which of the support board's two tabs this ticket belongs under.
-            The tabs split on the admin's category, so before this existed the
-            only way to re-file a ticket was the Move dialog — which moves it
-            off the support board altogether and makes it look lost. Picking a
-            tab here writes ticketKind and nothing else: the ticket stays on
-            the support board, keeps its status, priority, assignee, comments
-            and hours, and simply shows under the other tab. */}
-        {task.board === 'support' && (
-          <div className="px-6 py-3 shrink-0 border-b border-gray-100 bg-white">
-            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-2">{tr('לשונית הכרטיס', 'Ticket tab')}</p>
-            <div className="flex items-center overflow-hidden rounded-lg border border-gray-200 w-fit">
-              {([
-                ['support',     tr('כרטיסי תמיכה', 'Support Ticket')],
-                ['development', tr('בקשות פיתוח', 'Development Request')],
-              ] as const).map(([kind, label]) => (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={() => { if (!readonly && ticketKindOf(task) !== kind) save({ ticketKind: kind as TicketKind }) }}
-                  disabled={readonly}
-                  className={'h-8 whitespace-nowrap border-e border-gray-200 px-3 text-xs font-semibold transition-colors last:border-e-0 disabled:cursor-not-allowed disabled:opacity-50 '
-                    + (ticketKindOf(task) === kind ? 'bg-primary text-white' : 'bg-white text-gray-500 hover:bg-gray-50')}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+        {/* Reply to Client, Message Admin and the ticket's tab in ONE row,
+            the tab at the end. All three used to own a full-width strip of
+            their own, three stacked bands of mostly empty space above the
+            task's actual content. Opening either composer still gives it the
+            whole width — that is where the writing happens — so only the
+            resting state is collapsed into this row. */}
+        {(task.board === 'support' || !!task.appId) && !showUpdateAdmin && !showMsgAdmin && (
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-gray-100 bg-white px-6 py-3">
+            {/* Which of the support board's two tabs this ticket belongs
+                under. The tabs split on the admin's category, so before this
+                existed the only way to re-file a ticket was the Move dialog —
+                which moves it off the support board altogether and makes it
+                look lost. Picking a tab here writes ticketKind and nothing
+                else: the ticket stays on the support board, keeps its status,
+                priority, assignee, comments and hours, and simply shows under
+                the other tab. */}
+            {task.board === 'support' && (
+              <>
+                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('לשונית הכרטיס', 'Ticket tab')}</span>
+                <div className="flex h-8 shrink-0 items-center overflow-hidden rounded-lg border border-gray-200">
+                  {([
+                    ['support',     tr('כרטיסי תמיכה', 'Support Ticket')],
+                    ['development', tr('בקשות פיתוח', 'Development Request')],
+                  ] as const).map(([kind, label]) => (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => { if (!readonly && ticketKindOf(task) !== kind) save({ ticketKind: kind as TicketKind }) }}
+                      disabled={readonly}
+                      className={'h-full whitespace-nowrap border-e border-gray-200 px-3 text-xs font-semibold transition-colors last:border-e-0 disabled:cursor-not-allowed disabled:opacity-50 '
+                        + (ticketKindOf(task) === kind ? 'bg-primary/10 text-primary' : 'bg-white text-gray-500 hover:bg-gray-50')}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Both composers' resting buttons sit at the END of this row. */}
+            <div className="flex-1" />
+            {!deployedToAdmin && (
+              <button
+                onClick={() => setShowUpdateAdmin(true)}
+                className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100"
+              >
+                <Send size={11} /> Reply to Client
+              </button>
+            )}
+            <button
+              onClick={() => setShowMsgAdmin(true)}
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-100"
+            >
+              <MessageSquare size={11} /> Message Admin
+            </button>
           </div>
         )}
 
@@ -1561,9 +1589,11 @@ export function TaskDetailModal({
           </div>
         )}
 
-        {/* Update Admin — any task linked to a client app */}
-        {(task.board === 'support' || !!task.appId) && (
-          <div className={`px-6 py-3 shrink-0 border-b ${deployedToAdmin ? 'bg-green-50 border-green-100' : showUpdateAdmin ? 'bg-violet-50 border-violet-100' : 'bg-white border-gray-100'}`}>
+        {/* Update Admin — any task linked to a client app. Rendered only once
+            it has something of its own to show: the composer, or the green
+            "already sent" summary. Its resting button lives in the row above. */}
+        {(task.board === 'support' || !!task.appId) && (deployedToAdmin || showUpdateAdmin) && (
+          <div className={`px-6 py-3 shrink-0 border-b ${deployedToAdmin ? 'bg-green-50 border-green-100' : 'bg-violet-50 border-violet-100'}`}>
             {deployedToAdmin ? (
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-green-700 text-sm font-medium">
@@ -1579,13 +1609,6 @@ export function TaskDetailModal({
                   {resettingDeploy ? 'Resetting…' : 'Retry sending'}
                 </button>
               </div>
-            ) : !showUpdateAdmin ? (
-              <button
-                onClick={() => setShowUpdateAdmin(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-violet-700 bg-violet-50 border border-violet-200 rounded-lg hover:bg-violet-100 transition-colors"
-              >
-                Reply to Client
-              </button>
             ) : (
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
@@ -1664,17 +1687,12 @@ export function TaskDetailModal({
           </div>
         )}
 
-        {/* Message Admin — send a question/message to the client without needing the task to be done */}
-        {(task.board === 'support' || !!task.appId) && (
-          <div className={`px-6 py-3 shrink-0 border-b ${showMsgAdmin ? 'bg-sky-50 border-sky-100' : 'bg-white border-gray-100'}`}>
-            {!showMsgAdmin ? (
-              <button
-                onClick={() => setShowMsgAdmin(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors"
-              >
-                <Send size={11} /> Message Admin
-              </button>
-            ) : (
+        {/* Message Admin — send a question/message to the client without
+            needing the task to be done. Like Update Admin above, only the open
+            composer lives here; its resting button is in the merged row. */}
+        {(task.board === 'support' || !!task.appId) && showMsgAdmin && (
+          <div className="px-6 py-3 shrink-0 border-b bg-sky-50 border-sky-100">
+            {(
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-bold text-sky-800 uppercase tracking-wide">Message Admin</p>

@@ -24,7 +24,7 @@ import {
 import type { TicketDoneAnswers } from '../components/work/TaskDetailModal'
 import { TIMER_ENTRY_SAVED_EVENT, type TimerEntrySavedDetail } from '../contexts/TimerContext'
 import { takeTaskFocus, TASK_FOCUS_EVENT, takeDocFocus, DOC_FOCUS_EVENT } from '../lib/focusTarget'
-import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES, priorityDefsForBoard, statusesForBoard, ticketKindOf, type TicketKind } from '../data/workConstants'
+import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES, priorityDefsForBoard, statusesForBoard, type TicketKind } from '../data/workConstants'
 import { VerticalBoard }    from '../components/work/VerticalBoard'
 import { MyBoard }          from '../components/work/MyBoard'
 import { DocsTab }          from '../components/work/DocsTab'
@@ -564,7 +564,7 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
 
 export function Work() {
   const { profile, hasPermission, canManagePermissions, isOwner }  = useAuth()
-  const { addNotification, browserPermission, enableBrowserNotifications } = useNotifications()
+  const { addNotification } = useNotifications()
   const { t: tr } = useWorkLang()
   const currentUser           = profile?.name ?? 'Dror'
   const canViewWork  = hasPermission('work', 'view')
@@ -1137,6 +1137,11 @@ export function Work() {
         })}
         {tab === 'tasks' && (
           <div className="ml-auto flex shrink-0 items-center gap-2 pl-4">
+            {/* Lives up here rather than in the board row below: down there it
+                held a whole grid column that the board tabs needed, which is
+                what pushed the first board out of reach once the Owner's full
+                set of boards no longer fit. */}
+            <span className="flex h-8 items-center whitespace-nowrap rounded-lg bg-gray-100 px-3 text-xs font-semibold text-gray-600">{tr("סה״כ משימות", "Total Tasks")}: <strong className="ml-1 text-gray-900">{totalActiveTasks}</strong></span>
             <div className="relative h-8 w-56">
               <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
               <input value={taskSearch} onChange={event => setTaskSearch(event.target.value)} placeholder="Search tasks..." className="h-8 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-8 text-xs transition placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10" />
@@ -1164,11 +1169,6 @@ export function Work() {
               `${ganttStats.scheduled} scheduled · ${ganttStats.withoutDates} without dates`,
             )}
           </span>
-        )}
-        {browserPermission === 'default' && (
-          <button onClick={() => void enableBrowserNotifications()} className={`${tab === 'tasks' || tab === 'gantt' ? 'ml-2' : 'ml-auto'} whitespace-nowrap rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/20`}>
-            Enable browser notifications
-          </button>
         )}
       </nav>
 
@@ -1206,9 +1206,18 @@ export function Work() {
               </p>
             )}
 
-            <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2">
-              <span className="w-fit whitespace-nowrap rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600">{tr("סה״כ משימות", "Total Tasks")}: <strong className="text-gray-900">{totalActiveTasks}</strong></span>
-              <div className="flex min-w-0 items-center justify-center gap-1.5 overflow-x-auto">
+            <div className="flex shrink-0 items-center gap-2">
+              {/* The strip is centred only while it fits. `justify-center` on
+                  the scroll container itself overflowed it in BOTH directions,
+                  and the start-side overflow is unreachable — a scroll
+                  container cannot scroll past offset 0 — so with enough boards
+                  (the Owner sees every one) the first board sat permanently
+                  cut off with no way to scroll back to it. Auto margins on an
+                  inner track centre it when there is spare room and collapse
+                  to 0 when there isn't, which puts the first board back at the
+                  scroll origin and makes the whole row reachable. */}
+              <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
+               <div className="mx-auto flex shrink-0 items-center gap-1.5">
                 {visibleBoards.map(board => {
                   const active = activeBoard === board.id
                   const count = tasks.filter(task => task.board === board.id && task.status !== "done" && task.status !== "archived").length
@@ -1221,65 +1230,10 @@ export function Work() {
                     </div>
                   )
                 })}
+               </div>
               </div>
-              {canManageWork ? <button onClick={() => setShowAddBoard(true)} className="flex h-7 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 transition-colors hover:border-primary hover:text-primary"><Plus size={13} /> Add Board</button> : <span />}
+              {canManageWork && <button onClick={() => setShowAddBoard(true)} className="flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 transition-colors hover:border-primary hover:text-primary"><Plus size={13} /> Add Board</button>}
             </div>
-
-            {/* Support board only: customer support issues and development
-                requests are managed separately, so each category gets its own
-                tab over the same columns. The board, its statuses, the shared
-                support queue and every ticket alert are untouched — this is a
-                view over the board, not a second board. */}
-            {activeBoard === 'support' && (() => {
-              const kinds = [
-                {
-                  id: 'support' as TicketKind,
-                  label: tr('כרטיסי תמיכה', 'Support Tickets'),
-                  hint: tr('תקלות ובקשות תמיכה שהגיעו מהלקוחות', 'Customer support issues reported from the app'),
-                },
-                {
-                  id: 'development' as TicketKind,
-                  label: tr('בקשות פיתוח', 'Development Requests'),
-                  hint: tr('שיפורים ובקשות פיתוח, כולל UI/UX', 'Improvements and development requests, including UI/UX'),
-                },
-              ]
-              const countOf = (kind: TicketKind) => tasks.filter(task =>
-                task.board === 'support' && task.status !== 'done' && task.status !== 'archived' && ticketKindOf(task) === kind,
-              ).length
-              const open = countOf(ticketKind)
-              const activeKind = kinds.find(kind => kind.id === ticketKind)
-              return (
-                <div className="flex shrink-0 flex-col gap-1">
-                  {/* Chips at the start of the row, not centred — they belong
-                      to the board below, so they line up with its left edge
-                      (start, so an RTL layout mirrors it) rather than floating
-                      in the middle like a second set of board tabs. */}
-                  <div className="flex items-center justify-start gap-1.5">
-                    {kinds.map(kind => {
-                      const active = ticketKind === kind.id
-                      return (
-                        <button
-                          key={kind.id}
-                          onClick={() => setTicketKind(kind.id)}
-                          title={kind.hint}
-                          className={`flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-xs font-semibold transition-colors ${active ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
-                        >
-                          {kind.label}
-                          <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none ${active ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700'}`}>{countOf(kind.id)}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                  {/* Says what the selected chip holds, and — when it holds
-                      nothing — why every column below reads "No tasks", which
-                      otherwise looks like the chip did not do anything. */}
-                  <p className="px-0.5 text-[11px] text-gray-500">
-                    {activeKind?.hint}
-                    {open === 0 && <span className="text-gray-400"> · {tr('אין כרטיסים פתוחים בטאב הזה', 'no open tickets in this tab')}</span>}
-                  </p>
-                </div>
-              )
-            })()}
 
             <VerticalBoard
               tasks={tasks}
@@ -1298,6 +1252,7 @@ export function Work() {
               search={taskSearch}
               onSearchChange={setTaskSearch}
               ticketKind={activeBoard === 'support' ? ticketKind : undefined}
+              onTicketKindChange={setTicketKind}
             />
           </div>
         )}
