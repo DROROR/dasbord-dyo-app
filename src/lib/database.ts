@@ -1216,6 +1216,7 @@ interface DbBoard {
   priorities: PriorityDef[] | null
   created_at: string
   all_tasks_to_support_queue: boolean | null
+  parent_board_id: string | null
 }
 
 function dbToBoard(b: DbBoard): Board {
@@ -1231,6 +1232,7 @@ function dbToBoard(b: DbBoard): Board {
       : DEFAULT_PRIORITY_DEFS,
     createdAt: b.created_at,
     allTasksToSupportQueue: b.all_tasks_to_support_queue ?? false,
+    parentBoardId: b.parent_board_id ?? null,
   }
 }
 
@@ -1244,6 +1246,7 @@ function boardToRow(b: Board): Record<string, unknown> {
     priorities: b.priorities,
     created_at: b.createdAt,
     all_tasks_to_support_queue: b.allTasksToSupportQueue ?? false,
+    parent_board_id: b.parentBoardId ?? null,
   }
 }
 
@@ -1295,6 +1298,9 @@ export async function updateBoard(board: Board): Promise<Board> {
       statuses: board.statuses,
       priorities: board.priorities,
       all_tasks_to_support_queue: board.allTasksToSupportQueue ?? false,
+      // Writable because 20261025140000 grants UPDATE on this one column;
+      // the rest of the row's columns are unchanged by this call.
+      parent_board_id: board.parentBoardId ?? null,
     })
     .eq('id', board.id)
     .select()

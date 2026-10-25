@@ -219,6 +219,7 @@ export function VerticalBoard({
   tasks, boards, activeBoardId, onOpenTask, onAddTask, assignees, readonly,
   canEditTask, eligibleAssigneesFor, onTaskSaved, onBoardFilterChange,
   canMoveTask, profiles, search, onSearchChange, ticketKind, onTicketKindChange,
+  subBoardTabs = [], onSubBoardChange,
 }: {
   /** Every task the caller wants considered — the internal Board filter (below) narrows this further; this is deliberately NOT pre-filtered to one board so "All Boards" has real data to show. */
   tasks: Task[]
@@ -250,6 +251,15 @@ export function VerticalBoard({
   ticketKind?: TicketKind
   /** Selects the other chip. Passed only alongside ticketKind, so a board without chips never renders them. */
   onTicketKindChange?: (kind: TicketKind) => void
+  /**
+   * The selected top-level board's own tab followed by its sub-boards, already
+   * resolved and counted by the caller. Empty for a board with no sub-boards,
+   * which is every board until somebody files one under another — then this row
+   * renders exactly as it does today.
+   */
+  subBoardTabs?: { id: string; name: string; count: number }[]
+  /** Selects a sub-board (or the parent's own tab); the id is a real board id. */
+  onSubBoardChange?: (boardId: string) => void
 }) {
   const { t: tr } = useWorkLang()
   const [movingTask, setMovingTask] = useState<Task | null>(null)
@@ -420,6 +430,23 @@ export function VerticalBoard({
           a narrower window, for settings that are changed rarely and then
           left alone. */}
       <div className="flex items-center gap-2 shrink-0">
+        {/* Sub-board tabs, when the selected board holds any. Same row as the
+            filter menu — one row for everything that decides what the columns
+            below show. A board with no sub-boards passes an empty list and
+            this renders nothing at all. */}
+        {onSubBoardChange && subBoardTabs.map(sub => {
+          const active = activeBoardId === sub.id
+          return (
+            <button
+              key={sub.id}
+              onClick={() => onSubBoardChange(sub.id)}
+              className={`flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-xs font-semibold transition-colors ${active ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
+            >
+              {sub.name}
+              <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none ${active ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700'}`}>{sub.count}</span>
+            </button>
+          )
+        })}
         {ticketKind && onTicketKindChange && ticketKinds.map(kind => {
           const active = ticketKind === kind.id
           return (

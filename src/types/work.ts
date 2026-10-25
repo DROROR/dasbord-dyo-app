@@ -242,6 +242,15 @@ export interface Board {
   createdAt: string
   /** When true, every eligible unclaimed task on this board enters the shared support queue regardless of priority. */
   allTasksToSupportQueue?: boolean
+  /**
+   * The board this one is nested inside, where it is drawn as a tab instead of
+   * appearing in the top board strip. Undefined/null means a top-level board,
+   * which is every board until somebody files one under another. A sub-board is
+   * still a whole board: it keeps its own id, tasks, statuses, priorities and
+   * access, and `tasks.board` never changes — only where it is drawn does.
+   * One level only; the DB enforces it (enforce_board_nesting).
+   */
+  parentBoardId?: string | null
 }
 
 export interface AssigneeOption { id: string; name: string }

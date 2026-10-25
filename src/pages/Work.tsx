@@ -174,8 +174,10 @@ const COLOR_OPTIONS = [
   { dot: 'bg-gray-400',   text: 'text-gray-600',   bg: 'bg-gray-50',   border: 'border-gray-200',   pill: 'bg-gray-100 text-gray-600',     left: 'border-l-gray-300',   label: 'Gray'   },
 ]
 
-function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDefs, tasks, onSave, onAccessChange, onDelete, onClose }: {
+function BoardSettingsModal({ board, boards, profiles, canManagePermissions, priorityDefs, tasks, onSave, onAccessChange, onDelete, onClose }: {
   board: Board
+  /** Every board the viewer can see — the "Inside" picker's options. */
+  boards: Board[]
   profiles: { id: string; name: string }[]
   canManagePermissions: boolean
   priorityDefs: PriorityDef[]
@@ -185,6 +187,7 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
   onDelete: () => void
   onClose: () => void
 }) {
+  const { t: tr } = useWorkLang()
   const [name,       setName]       = useState(board.name)
   // Access is saved immediately per change (see changeAccess below) via
   // update-resource-access, not batched into the Save button with
@@ -196,6 +199,7 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
   const [pDefs,      setPDefs]      = useState(priorityDefs)
   const [statuses,   setStatuses]   = useState<BoardStatus[]>(board.statuses ?? DEFAULT_BOARD_STATUSES)
   const [allTasksToSupportQueue, setAllTasksToSupportQueue] = useState(board.allTasksToSupportQueue ?? false)
+  const [parentBoardId, setParentBoardId] = useState<string>(board.parentBoardId ?? '')
   const [newPLabel,  setNewPLabel]  = useState('')
   const [newSLabel,  setNewSLabel]  = useState('')
   const [newSColor,  setNewSColor]  = useState(0)
@@ -209,6 +213,16 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
   const [tab, setTab]               = useState<'access' | 'priorities' | 'statuses'>(canManagePermissions ? 'access' : 'priorities')
 
   const boardTasks = tasks.filter(t => t.board === board.id)
+
+  // Mirrors the enforce_board_nesting DB trigger so the picker never offers a
+  // choice the database would reject: one level only, which also rules out
+  // every cycle. The trigger stays the authority — this only keeps the option
+  // out of the list.
+  const subBoardsOfThis = boards.filter(b => b.parentBoardId === board.id)
+  const parentOptions = subBoardsOfThis.length > 0
+    ? []
+    : boards.filter(b => b.id !== board.id && !b.parentBoardId)
+  const chosenParent = boards.find(b => b.id === parentBoardId)
 
   // Saves immediately through update-resource-access — access is no
   // longer part of the batched "Save" button (see onSave below).
@@ -334,6 +348,45 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
             </button>
           )}
           <button onClick={onClose} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100"><X size={14} /></button>
+        </div>
+
+        {/* Inside — files this board under another, where it is drawn as a
+            tab instead of in the top board strip. Nothing about its tasks
+            changes: they stay on this board and `task.board` is never
+            rewritten. Clearing it puts the board straight back in the strip. */}
+        <div className="flex flex-col gap-1.5 border-b border-gray-100 px-5 py-3">
+          <div className="flex items-center gap-3">
+            <span className="shrink-0 text-xs font-semibold text-gray-700">{tr('בתוך', 'Inside')}</span>
+            <select
+              value={parentBoardId}
+              onChange={e => setParentBoardId(e.target.value)}
+              disabled={subBoardsOfThis.length > 0}
+              className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">{tr('ללא — בורד עליון', 'None — top-level board')}</option>
+              {parentOptions.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+          {subBoardsOfThis.length > 0 ? (
+            <p className="text-[10px] text-gray-500">
+              {tr(
+                `הבורד הזה מכיל ${subBoardsOfThis.length} תתי-בורדים, ולכן אינו יכול להיכנס לתוך בורד אחר.`,
+                `This board holds ${subBoardsOfThis.length} sub-board${subBoardsOfThis.length !== 1 ? 's' : ''}, so it cannot go inside another board.`,
+              )}
+            </p>
+          ) : (parentBoardId || '') !== (board.parentBoardId ?? '') && (
+            <p className="text-[10px] font-medium text-primary">
+              {chosenParent
+                ? tr(
+                    `"${name}" יוצג כטאב בתוך "${chosenParent.name}". ${boardTasks.length} המשימות נשארות על "${name}" — שום דבר לא זז.`,
+                    `"${name}" will show as a tab inside "${chosenParent.name}". Its ${boardTasks.length} task${boardTasks.length !== 1 ? 's' : ''} stay on "${name}" — nothing moves.`,
+                  )
+                : tr(
+                    `"${name}" יחזור לשורת הבורדים העליונה. ${boardTasks.length} המשימות לא משתנות.`,
+                    `"${name}" will go back to the top board strip. Its ${boardTasks.length} task${boardTasks.length !== 1 ? 's' : ''} are unchanged.`,
+                  )}
+            </p>
+          )}
         </div>
 
         {/* Sub-tabs */}
@@ -551,7 +604,7 @@ function BoardSettingsModal({ board, profiles, canManagePermissions, priorityDef
             <button onClick={() => { onDelete(); onClose() }} className="text-xs text-red-500 hover:text-red-700 transition-colors mr-auto">Delete Board</button>
           )}
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
-          <button onClick={() => { onSave({ ...board, name, access, statuses, allTasksToSupportQueue }, pDefs); onClose() }} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors">
+          <button onClick={() => { onSave({ ...board, name, access, statuses, allTasksToSupportQueue, parentBoardId: parentBoardId || null }, pDefs); onClose() }} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors">
             <Check size={13} /> Save
           </button>
         </div>
@@ -689,6 +742,39 @@ export function Work() {
   // getBoards() — no client-side re-filtering by access needed or done here.
   const visibleBoards = boards
   const totalActiveTasks = tasks.filter(task => visibleBoards.some(board => board.id === task.board) && task.status !== "done" && task.status !== "archived").length
+
+  // ─── Sub-boards ───────────────────────────────────────────────────────────
+  // A board filed under another is drawn as a tab inside it instead of in the
+  // top strip. Nothing about its tasks changes — `task.board` still names the
+  // sub-board, and every other surface (My Board, Gantt, the report, Move
+  // task) goes on looking boards up by id in one flat list, which is why none
+  // of them needed a change.
+  const openTasksOnBoard = (boardId: string) =>
+    tasks.filter(task => task.board === boardId && task.status !== "done" && task.status !== "archived").length
+  const subBoardsOf = (boardId: string) => visibleBoards.filter(board => board.parentBoardId === boardId)
+  // Only boards the viewer can actually see are in `visibleBoards` (RLS
+  // already filtered them), so a sub-board whose parent is not visible would
+  // otherwise vanish entirely — it stays in the top strip instead.
+  const topLevelBoards = visibleBoards.filter(board =>
+    !board.parentBoardId || !visibleBoards.some(parent => parent.id === board.parentBoardId))
+  // Which top-strip board the selection belongs to: the selected board itself,
+  // or its parent when a sub-board tab is selected.
+  const activeTopLevelId = (() => {
+    const selected = visibleBoards.find(board => board.id === activeBoard)
+    if (selected?.parentBoardId && visibleBoards.some(parent => parent.id === selected.parentBoardId)) {
+      return selected.parentBoardId
+    }
+    return selected?.id ?? topLevelBoards[0]?.id ?? activeBoard
+  })()
+  const activeSubBoards = subBoardsOf(activeTopLevelId)
+  // The parent's own tab comes first and keeps the parent's own tasks
+  // reachable; the sub-boards follow. Rendered only when there is at least one
+  // sub-board, so a board without any looks exactly as it does today.
+  const subBoardTabs = activeSubBoards.length === 0 ? [] : [
+    visibleBoards.find(board => board.id === activeTopLevelId),
+    ...activeSubBoards,
+  ].filter((board): board is Board => !!board)
+    .map(board => ({ id: board.id, name: board.name, count: openTasksOnBoard(board.id) }))
 
   const activeBoardObj = visibleBoards.find(b => b.id === activeBoard) ?? visibleBoards[0]
   const openTask       = openId ? (tasks.find(t => t.id === openId) ?? null) : null
@@ -1218,9 +1304,13 @@ export function Work() {
                   scroll origin and makes the whole row reachable. */}
               <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
                <div className="mx-auto flex shrink-0 items-center gap-1.5">
-                {visibleBoards.map(board => {
-                  const active = activeBoard === board.id
-                  const count = tasks.filter(task => task.board === board.id && task.status !== "done" && task.status !== "archived").length
+                {topLevelBoards.map(board => {
+                  const active = activeTopLevelId === board.id
+                  // A board holding sub-boards counts its own open tasks plus
+                  // theirs, so the strip never reads lower than what opening it
+                  // actually shows.
+                  const count = openTasksOnBoard(board.id)
+                    + subBoardsOf(board.id).reduce((sum, sub) => sum + openTasksOnBoard(sub.id), 0)
                   return (
                     <div key={board.id} className={`flex h-7 shrink-0 items-center rounded-lg border transition-colors ${active ? "border-primary bg-primary text-white" : "border-gray-200 bg-gray-100 text-gray-700 hover:border-gray-300 hover:bg-gray-200"}`}>
                       <button onClick={() => setActiveBoard(board.id)} className="flex h-full items-center gap-1.5 whitespace-nowrap px-3 text-xs font-semibold">
@@ -1253,6 +1343,8 @@ export function Work() {
               onSearchChange={setTaskSearch}
               ticketKind={activeBoard === 'support' ? ticketKind : undefined}
               onTicketKindChange={setTicketKind}
+              subBoardTabs={subBoardTabs}
+              onSubBoardChange={setActiveBoard}
             />
           </div>
         )}
@@ -1370,6 +1462,7 @@ export function Work() {
       {settingsBoard && canManageWork && (
         <BoardSettingsModal
           board={settingsBoard}
+          boards={visibleBoards}
           profiles={profiles}
           canManagePermissions={canManagePermissions}
           priorityDefs={priorityDefsForBoard(settingsBoard)}
