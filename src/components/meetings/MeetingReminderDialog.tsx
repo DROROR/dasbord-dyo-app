@@ -108,7 +108,7 @@ export function MeetingReminderDialog({ meetings, now }: { meetings: DbMeeting[]
   const live = stage === 'live'
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className={`flex items-center gap-2.5 px-5 py-4 ${live ? 'bg-[#00832d]' : stage === 'final' ? 'bg-red-500' : 'bg-amber-500'}`}>
           <span className="shrink-0 rounded-md bg-white px-1.5 py-1">
             <GoogleMeetIcon size={16} />

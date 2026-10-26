@@ -240,7 +240,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4"
       onClick={() => { if (saving) return; if (mode === 'form') backToList(); else onClose() }}
     >
-      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex shrink-0 items-center gap-2.5 border-b border-gray-100 p-5 pb-3">
@@ -321,7 +321,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
         {/* ── Upcoming meetings ── */}
         {tab === 'meetings' && mode === 'list' && (
           <div className="flex flex-col gap-3 p-5">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {ordered.length === 0 && (
               <div className="col-span-full flex flex-col items-center gap-2 py-8 text-center">
                 <CalendarClock size={28} className="text-gray-200" />
@@ -419,7 +419,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
 
         {/* ── One-off meeting form ── */}
         {tab === 'meetings' && mode === 'form' && (
-          <div className="grid gap-3 p-5 sm:grid-cols-2">
+          <div className="mx-auto grid w-full max-w-2xl gap-3 p-5 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('נושא הפגישה', 'Meeting title')}</p>
               <input
@@ -523,7 +523,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
 
         {/* ── Weekly rules ── */}
         {tab === 'weekly' && mode === 'list' && (
-          <div className="grid gap-3 p-5 sm:grid-cols-2">
+          <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-3">
             <p className="text-[11px] text-gray-400 sm:col-span-2">
               {t('כלל שבועי נקבע פעם אחת והפגישות נוצרות לבד לשבועיים קדימה. כל פגישה בודדת ניתנת לשינוי או לביטול בנפרד.',
                  'A weekly rule is set once and the meetings appear by themselves, two weeks ahead. Any single one can still be moved or cancelled on its own.')}
@@ -597,7 +597,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
 
         {/* ── Weekly rule form ── */}
         {tab === 'weekly' && mode === 'form' && (
-          <div className="grid gap-3 p-5 sm:grid-cols-2">
+          <div className="mx-auto grid w-full max-w-2xl gap-3 p-5 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('נושא הפגישה', 'Meeting title')}</p>
               <input
