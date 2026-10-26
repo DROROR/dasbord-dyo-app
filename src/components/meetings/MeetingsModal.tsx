@@ -237,13 +237,13 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/50 p-4"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4"
       onClick={() => { if (saving) return; if (mode === 'form') backToList(); else onClose() }}
     >
-      <div className="my-8 flex w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div className="flex items-center gap-2.5 border-b border-gray-100 p-5 pb-3">
+        <div className="flex shrink-0 items-center gap-2.5 border-b border-gray-100 p-5 pb-3">
           {mode === 'form' ? (
             <button
               onClick={backToList}
@@ -285,7 +285,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-gray-100 px-5">
+        <div className="flex shrink-0 gap-1 border-b border-gray-100 px-5">
           {([
             { id: 'meetings' as const, label: t('קרובות', 'Upcoming'), icon: CalendarClock, count: meetings.filter(m => !m.cancelled_at).length },
             { id: 'weekly'   as const, label: t('שבועי', 'Weekly'),    icon: Repeat,        count: schedules.filter(s => s.active).length },
@@ -308,17 +308,22 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
         </div>
 
         {error && (
-          <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-[11px] text-red-600">
+          <div className="mx-5 mt-4 flex shrink-0 items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-[11px] text-red-600">
             <AlertCircle size={13} className="mt-0.5 shrink-0" />
             <span className="min-w-0 flex-1">{error}</span>
           </div>
         )}
 
+        {/* Only this scrolls. The header and tabs stay put, so the dialog keeps
+            its place and its size instead of jumping about as panels change. */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+
         {/* ── Upcoming meetings ── */}
         {tab === 'meetings' && mode === 'list' && (
           <div className="flex flex-col gap-3 p-5">
+            <div className="grid gap-3 sm:grid-cols-2">
             {ordered.length === 0 && (
-              <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <div className="col-span-full flex flex-col items-center gap-2 py-8 text-center">
                 <CalendarClock size={28} className="text-gray-200" />
                 <p className="text-xs text-gray-400">{t('אין פגישות מתוכננות', 'No meetings scheduled')}</p>
               </div>
@@ -405,6 +410,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
               )
             })}
 
+            </div>
             <button onClick={onReload} className="self-center text-[11px] font-semibold text-gray-400 hover:text-primary">
               {t('רענון', 'Refresh')}
             </button>
@@ -413,8 +419,8 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
 
         {/* ── One-off meeting form ── */}
         {tab === 'meetings' && mode === 'form' && (
-          <div className="flex flex-col gap-3 p-5">
-            <div>
+          <div className="grid gap-3 p-5 sm:grid-cols-2">
+            <div className="sm:col-span-2">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('נושא הפגישה', 'Meeting title')}</p>
               <input
                 value={form.title}
@@ -425,9 +431,11 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
               />
             </div>
 
-            <ZonePicker value={form.timezone} onChange={zone => setForm(f => ({ ...f, timezone: zone }))} label={t('באיזה שעון', 'Which clock')} />
+            <div className="sm:col-span-2">
+              <ZonePicker value={form.timezone} onChange={zone => setForm(f => ({ ...f, timezone: zone }))} label={t('באיזה שעון', 'Which clock')} />
+            </div>
 
-            <div>
+            <div className="sm:col-span-2">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                 {t('תאריך ושעה', 'Date and time')} — {zoneLabel(form.timezone)}
               </p>
@@ -442,7 +450,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
                 : <p className="mt-2 text-[11px] text-red-500">{t('שעה לא תקינה', 'That time is not valid')}</p>}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:col-span-2">
               <div>
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('התראה 1', 'Warning 1')}</p>
                 <select
@@ -468,7 +476,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
               </div>
             </div>
 
-            <div>
+            <div className="sm:col-span-2">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('קישור Google Meet', 'Google Meet link')}</p>
               <input
                 value={form.meetLink}
@@ -478,7 +486,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
               />
             </div>
 
-            <div>
+            <div className="sm:col-span-2">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('הערות', 'Notes')}</p>
               <textarea
                 value={form.notes}
@@ -488,12 +496,12 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
               />
             </div>
 
-            <p className="text-[11px] text-gray-400">
+            <p className="text-[11px] text-gray-400 sm:col-span-2">
               {t(`סלאק יקבל הודעה עם הקביעה, ${form.remindMinutes} דקות לפני, ושוב ${form.finalRemindMinutes} דקות לפני — עם הקישור.`,
                  `Slack gets a message when this is set, again ${form.remindMinutes} minutes before, and a last call ${form.finalRemindMinutes} minute${form.finalRemindMinutes === 1 ? '' : 's'} before — every one with the link.`)}
             </p>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 sm:col-span-2">
               <button
                 onClick={() => void save()}
                 disabled={saving || !form.title.trim() || !previewIso}
@@ -515,14 +523,14 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
 
         {/* ── Weekly rules ── */}
         {tab === 'weekly' && mode === 'list' && (
-          <div className="flex flex-col gap-3 p-5">
-            <p className="text-[11px] text-gray-400">
+          <div className="grid gap-3 p-5 sm:grid-cols-2">
+            <p className="text-[11px] text-gray-400 sm:col-span-2">
               {t('כלל שבועי נקבע פעם אחת והפגישות נוצרות לבד לשבועיים קדימה. כל פגישה בודדת ניתנת לשינוי או לביטול בנפרד.',
                  'A weekly rule is set once and the meetings appear by themselves, two weeks ahead. Any single one can still be moved or cancelled on its own.')}
             </p>
 
             {schedules.length === 0 && (
-              <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <div className="col-span-full flex flex-col items-center gap-2 py-8 text-center">
                 <Repeat size={28} className="text-gray-200" />
                 <p className="text-xs text-gray-400">{t('אין כללים שבועיים', 'No weekly rules yet')}</p>
               </div>
@@ -589,8 +597,8 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
 
         {/* ── Weekly rule form ── */}
         {tab === 'weekly' && mode === 'form' && (
-          <div className="flex flex-col gap-3 p-5">
-            <div>
+          <div className="grid gap-3 p-5 sm:grid-cols-2">
+            <div className="sm:col-span-2">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('נושא הפגישה', 'Meeting title')}</p>
               <input
                 value={rule.title}
@@ -601,9 +609,11 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
               />
             </div>
 
-            <ZonePicker value={rule.timezone} onChange={zone => setRule(r => ({ ...r, timezone: zone }))} label={t('באיזה שעון', 'Which clock')} />
+            <div className="sm:col-span-2">
+              <ZonePicker value={rule.timezone} onChange={zone => setRule(r => ({ ...r, timezone: zone }))} label={t('באיזה שעון', 'Which clock')} />
+            </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:col-span-2">
               <div>
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('יום בשבוע', 'Day of the week')}</p>
                 <select
@@ -626,13 +636,13 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
             </div>
 
             {rulePreviewIso && (
-              <div>
+              <div className="sm:col-span-2">
                 <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('הפעם הבאה', 'Next time')}</p>
                 <ZoneClocks iso={rulePreviewIso} locale={locale} className="mt-0" />
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:col-span-2">
               <div>
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('התראה 1', 'Warning 1')}</p>
                 <select
@@ -658,7 +668,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
               </div>
             </div>
 
-            <div>
+            <div className="sm:col-span-2">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('קישור Google Meet', 'Google Meet link')}</p>
               <input
                 value={rule.meetLink}
@@ -668,7 +678,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
               />
             </div>
 
-            <div>
+            <div className="sm:col-span-2">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('הערות', 'Notes')}</p>
               <textarea
                 value={rule.notes}
@@ -678,7 +688,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
               />
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 sm:col-span-2">
               <button
                 onClick={() => void save()}
                 disabled={saving || !rule.title.trim()}
@@ -697,6 +707,8 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
             </div>
           </div>
         )}
+
+        </div>
       </div>
     </div>
   )
