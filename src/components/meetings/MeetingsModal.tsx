@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
-import { AlertCircle, CalendarClock, Check, Loader2, Pause, Pencil, Play, Plus, Repeat, RotateCcw, Trash2, Video, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertCircle, ArrowLeft, ArrowRight, CalendarClock, Check, Loader2, Pause, Pencil, Play, Plus, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
 import { useLang } from '../../contexts/LanguageContext'
+import { GoogleMeetIcon } from './GoogleMeetIcon'
 import {
   DEFAULT_MEET_LINK, MEETING_INPUT_ZONE, MEETING_ZONES, WEEKDAYS, cancelMeeting, countdownText,
   createMeeting, createMeetingSchedule, deleteMeetingSchedule, isoToZonedLocal, meetingDateInZone,
@@ -136,7 +137,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
   onChanged: (row: DbMeeting) => void
   onReload: () => void
 }) {
-  const { t, lang } = useLang()
+  const { t, lang, dir } = useLang()
   const locale = lang === 'he' ? 'he-IL' : 'en-GB'
   const [tab, setTab]       = useState<'meetings' | 'weekly'>('meetings')
   const [mode, setMode]     = useState<'list' | 'form'>('list')
@@ -166,6 +167,18 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
   function startEdit(meeting: DbMeeting)       { setForm(formOf(meeting)); setEditId(meeting.id); setError(null); setMode('form') }
   function startEditRule(sched: DbMeetingSchedule) { setRule(scheduleFormOf(sched)); setEditId(sched.id); setError(null); setMode('form') }
   function backToList()  { setMode('list'); setEditId(null); setError(null) }
+
+  // Escape steps back one level rather than throwing everything away: out of
+  // the form to the list, and only out of the list to the page behind.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== 'Escape' || saving) return
+      if (mode === 'form') backToList()
+      else onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   async function save() {
     if (saving) return
@@ -223,17 +236,39 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={() => !saving && onClose()}>
+    <div
+      className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/50 p-4"
+      onClick={() => { if (saving) return; if (mode === 'form') backToList(); else onClose() }}
+    >
       <div className="my-8 flex w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex items-center gap-2.5 border-b border-gray-100 p-5 pb-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-            <Video size={16} className="text-primary" />
-          </div>
+          {mode === 'form' ? (
+            <button
+              onClick={backToList}
+              disabled={saving}
+              title={t('חזרה לרשימה', 'Back to the list')}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary"
+            >
+              {dir === 'rtl' ? <ArrowRight size={16} /> : <ArrowLeft size={16} />}
+            </button>
+          ) : (
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-50">
+              <GoogleMeetIcon size={19} />
+            </div>
+          )}
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-gray-900">{t('פגישות צוות', 'Team meetings')}</p>
-            <p className="text-[11px] text-gray-400">{t('ישראל · פקיסטן · אוקראינה', 'Israel · Pakistan · Ukraine')}</p>
+            <p className="text-sm font-semibold text-gray-900">
+              {mode === 'form'
+                ? (tab === 'meetings'
+                    ? (editId ? t('עריכת פגישה', 'Edit meeting') : t('פגישה חדשה', 'New meeting'))
+                    : (editId ? t('עריכת כלל שבועי', 'Edit weekly rule') : t('כלל שבועי חדש', 'New weekly rule')))
+                : t('פגישות צוות', 'Team meetings')}
+            </p>
+            <p className="text-[11px] text-gray-400">
+              {mode === 'form' ? t('לחיצה על החץ חוזרת לרשימה', 'The arrow goes back to the list') : t('ישראל · פקיסטן · אוקראינה', 'Israel · Pakistan · Ukraine')}
+            </p>
           </div>
           {mode === 'list' && canEdit && (
             <button
@@ -300,7 +335,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
                   key={meeting.id}
                   className={`rounded-xl border p-3 transition-colors ${
                     cancelled ? 'border-gray-100 bg-gray-50 opacity-60'
-                      : running ? 'border-emerald-200 bg-emerald-50/40'
+                      : running ? 'border-[#00832d]/30 bg-[#00832d]/5'
                       : soon    ? 'border-amber-200 bg-amber-50/40'
                       : 'border-gray-200'
                   }`}
@@ -313,7 +348,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
                     <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums ${
                       cancelled ? 'bg-gray-200 text-gray-500'
                         : over    ? 'bg-gray-100 text-gray-400'
-                        : running ? 'bg-emerald-500 text-white'
+                        : running ? 'bg-[#00832d] text-white'
                         : soon    ? 'bg-amber-500 text-white'
                         : 'bg-primary/10 text-primary'
                     }`}>
@@ -334,11 +369,13 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
                       target="_blank"
                       rel="noreferrer"
                       className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
-                        cancelled || over ? 'bg-gray-100 text-gray-400' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        cancelled || over ? 'bg-gray-100 text-gray-400' : 'bg-[#00832d] text-white hover:bg-[#026c26]'
                       }`}
                     >
-                      <Video size={12} />
-                      {t('הצטרפות', 'Join')}
+                      <span className={cancelled || over ? 'opacity-40 grayscale' : 'rounded-[3px] bg-white px-1 py-0.5'}>
+                        <GoogleMeetIcon size={11} />
+                      </span>
+                      {t('הצטרפות ב-Google Meet', 'Join Google Meet')}
                     </a>
                     <span className="min-w-0 flex-1 truncate text-[10px] text-gray-400">
                       {meeting.meet_link.replace(/^https?:\/\//, '')}
@@ -470,7 +507,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
                 disabled={saving}
                 className="rounded-lg border border-gray-200 px-3 py-2.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-gray-50"
               >
-                {t('ביטול', 'Cancel')}
+                {t('חזרה', 'Back')}
               </button>
             </div>
           </div>
@@ -655,7 +692,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
                 disabled={saving}
                 className="rounded-lg border border-gray-200 px-3 py-2.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-gray-50"
               >
-                {t('ביטול', 'Cancel')}
+                {t('חזרה', 'Back')}
               </button>
             </div>
           </div>

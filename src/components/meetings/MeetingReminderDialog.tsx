@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Video, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { useLang } from '../../contexts/LanguageContext'
 import { countdownText, meetingStage, msUntil, type DbMeeting } from '../../lib/meetings'
 import { ZoneClocks } from './MeetingsModal'
+import { GoogleMeetIcon } from './GoogleMeetIcon'
 
 // The "your meeting is about to start" dialog. It appears over whatever page is
 // open — the top bar hosts it, and the top bar is on every page — at the first
@@ -108,8 +109,10 @@ export function MeetingReminderDialog({ meetings, now }: { meetings: DbMeeting[]
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className={`flex items-center gap-2.5 px-5 py-4 ${live ? 'bg-emerald-600' : stage === 'final' ? 'bg-red-500' : 'bg-amber-500'}`}>
-          <Video size={18} className="shrink-0 text-white" />
+        <div className={`flex items-center gap-2.5 px-5 py-4 ${live ? 'bg-[#00832d]' : stage === 'final' ? 'bg-red-500' : 'bg-amber-500'}`}>
+          <span className="shrink-0 rounded-md bg-white px-1.5 py-1">
+            <GoogleMeetIcon size={16} />
+          </span>
           <p className="min-w-0 flex-1 text-sm font-bold text-white">
             {live
               ? t('הפגישה מתחילה עכשיו', 'The meeting is starting now')
@@ -131,10 +134,12 @@ export function MeetingReminderDialog({ meetings, now }: { meetings: DbMeeting[]
               target="_blank"
               rel="noreferrer"
               onClick={dismiss}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#00832d] px-3 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-[#026c26]"
             >
-              <Video size={14} />
-              {t('הצטרפות לפגישה', 'Join the meeting')}
+              <span className="rounded-[3px] bg-white px-1 py-0.5">
+                <GoogleMeetIcon size={13} />
+              </span>
+              {t('הצטרפות ב-Google Meet', 'Join Google Meet')}
             </a>
             <button
               onClick={dismiss}

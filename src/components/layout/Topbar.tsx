@@ -10,6 +10,7 @@ import { useTheme } from '../../contexts/theme'
 import { useMeetings } from '../../hooks/useMeetings'
 import { MeetingsModal } from '../meetings/MeetingsModal'
 import { MeetingReminderDialog } from '../meetings/MeetingReminderDialog'
+import { GoogleMeetIcon } from '../meetings/GoogleMeetIcon'
 import { countdownText, msUntil } from '../../lib/meetings'
 
 const PAGE_TITLES: Record<string, { he: string; en: string }> = {
@@ -258,6 +259,29 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
 
       {/* Left: Search + Notifications + Avatar */}
       <div className="relative z-10 flex items-center gap-2">
+        {/* Team meetings — opens Google Meet. First in the row, and a labelled
+            button rather than one more grey icon, because this is the one
+            control in the top bar that is time-critical. */}
+        {canSeeMeetings && (
+          <button
+            onClick={() => setMeetingsOpen(true)}
+            title={next ? next.title : t('פגישות צוות', 'Team meetings')}
+            className={`flex h-9 items-center gap-2 rounded-lg border px-2.5 font-semibold transition-colors ${
+              meetingBadge
+                ? 'border-[#00832d]/30 bg-[#00832d]/10 text-[#00832d] hover:bg-[#00832d]/15'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            <GoogleMeetIcon size={18} />
+            <span className="hidden text-xs sm:inline">{t('פגישה', 'Meeting')}</span>
+            {meetingBadge && (
+              <span className="rounded-full bg-[#00832d] px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">
+                {meetingBadge}
+              </span>
+            )}
+          </button>
+        )}
+
         <button
           onClick={toggleTheme}
           title={theme === 'dark' ? t('מצב בהיר', 'Light mode') : t('מצב כהה', 'Dark mode')}
@@ -328,23 +352,6 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
           <Globe size={15} />
           {lang === 'he' ? 'EN' : 'עב'}
         </button>
-
-        {/* Team meetings — Google Meet */}
-        {canSeeMeetings && (
-          <button
-            onClick={() => setMeetingsOpen(true)}
-            title={next ? next.title : t('פגישות צוות', 'Team meetings')}
-            aria-label={t('פגישות צוות', 'Team meetings')}
-            className={`flex h-9 items-center gap-1.5 rounded-lg px-2 transition-colors ${
-              meetingBadge
-                ? 'bg-amber-50 text-amber-600 hover:bg-amber-100'
-                : 'text-gray-500 hover:bg-gray-100 hover:text-primary'
-            }`}
-          >
-            <Video size={17} />
-            {meetingBadge && <span className="text-[11px] font-bold tabular-nums">{meetingBadge}</span>}
-          </button>
-        )}
 
         {/* Notifications */}
         <div className="relative" ref={panelRef}>
