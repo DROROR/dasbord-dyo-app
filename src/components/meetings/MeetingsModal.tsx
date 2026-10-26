@@ -21,7 +21,9 @@ import {
 // A time is typed once, in whichever of the three zones suits whoever is
 // setting it; the other two are shown, never typed, so they cannot disagree.
 
-const DURATIONS = [15, 30, 45, 60, 90, 120]
+// Nobody knows in advance how long a meeting will run, so its length is never
+// asked for. An hour is simply the point after which it stops showing as live.
+const DEFAULT_DURATION = 60
 // Two warnings per meeting: the heads-up, then the last call.
 const FIRST_WARNINGS = [3, 5, 10, 15, 30, 60]
 const FINAL_WARNINGS = [1, 2, 3, 5]
@@ -34,7 +36,7 @@ function emptyForm(): MeetingInput {
     title: '',
     localStart: `${local.slice(0, 14)}00`,
     timezone: MEETING_INPUT_ZONE,
-    durationMinutes: 30,
+    durationMinutes: DEFAULT_DURATION,
     meetLink: DEFAULT_MEET_LINK,
     remindMinutes: 5,
     finalRemindMinutes: 1,
@@ -61,7 +63,7 @@ function emptySchedule(): ScheduleInput {
     weekday: 1,
     localTime: '17:00',
     timezone: 'Asia/Karachi',
-    durationMinutes: 30,
+    durationMinutes: DEFAULT_DURATION,
     meetLink: DEFAULT_MEET_LINK,
     remindMinutes: 5,
     finalRemindMinutes: 1,
@@ -339,7 +341,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
                       {t('הצטרפות', 'Join')}
                     </a>
                     <span className="min-w-0 flex-1 truncate text-[10px] text-gray-400">
-                      {meeting.meet_link.replace(/^https?:\/\//, '')} · {meeting.duration_minutes}{t(' דק׳', ' min')}
+                      {meeting.meet_link.replace(/^https?:\/\//, '')}
                     </span>
                     {canEdit && (
                       <>
@@ -403,17 +405,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
                 : <p className="mt-2 text-[11px] text-red-500">{t('שעה לא תקינה', 'That time is not valid')}</p>}
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('משך', 'Duration')}</p>
-                <select
-                  value={form.durationMinutes}
-                  onChange={e => setForm(f => ({ ...f, durationMinutes: Number(e.target.value) }))}
-                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                >
-                  {DURATIONS.map(d => <option key={d} value={d}>{d} {t('דק׳', 'min')}</option>)}
-                </select>
-              </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('התראה 1', 'Warning 1')}</p>
                 <select
@@ -521,7 +513,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
 
                   <div className="mt-2.5 flex items-center gap-1.5">
                     <span className="min-w-0 flex-1 truncate text-[10px] text-gray-400">
-                      {schedule.meet_link.replace(/^https?:\/\//, '')} · {schedule.duration_minutes}{t(' דק׳', ' min')}
+                      {schedule.meet_link.replace(/^https?:\/\//, '')}
                     </span>
                     {canEdit && (
                       <>
@@ -603,17 +595,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
               </div>
             )}
 
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('משך', 'Duration')}</p>
-                <select
-                  value={rule.durationMinutes}
-                  onChange={e => setRule(r => ({ ...r, durationMinutes: Number(e.target.value) }))}
-                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                >
-                  {DURATIONS.map(d => <option key={d} value={d}>{d} {t('דק׳', 'min')}</option>)}
-                </select>
-              </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{t('התראה 1', 'Warning 1')}</p>
                 <select

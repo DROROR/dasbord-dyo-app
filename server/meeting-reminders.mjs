@@ -18,7 +18,10 @@
 const SUPABASE_URL  = process.env.SUPABASE_URL
 const SERVICE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY
 const SLACK_WEBHOOK = process.env.SLACK_MEETINGS_WEBHOOK_URL
-const DASHBOARD_URL = process.env.DASHBOARD_URL || 'https://planner.dyocourses.com'
+// The owl the planner already serves — Slack draws it beside every post, so
+// the app wears the DYO logo without anything being uploaded by hand.
+const ICON_URL      = process.env.SLACK_MEETINGS_ICON_URL || 'https://planner.dyocourses.com/pwa-512.png'
+const BOT_NAME      = process.env.SLACK_MEETINGS_NAME || 'DYO Planner'
 // Who gets pinged on the two warnings. '' turns the ping off entirely.
 const SLACK_PING    = process.env.SLACK_MEETINGS_PING ?? '<!channel>'
 const POLL_MS       = 20_000
@@ -152,20 +155,31 @@ async function materializeSchedules() {
 const esc = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 function headline(meeting, kind) {
-  if (kind === 'created')  return `📅  New meeting — ${meeting.title}`
-  if (kind === 'reminder') return `⏰  ${meeting.title} starts in ${meeting.remind_minutes} minutes`
+  if (kind === 'created')   return `📅  New meeting — ${meeting.title}`
+  if (kind === 'moved')     return `🔁  Meeting moved — ${meeting.title}`
+  if (kind === 'cancelled') return `❌  Meeting cancelled — ${meeting.title}`
+  if (kind === 'reminder')  return `⏰  ${meeting.title} starts in ${meeting.remind_minutes} minutes`
   return `🔴  Last call — ${meeting.title} starts in ${meeting.final_remind_minutes} minute${meeting.final_remind_minutes === 1 ? '' : 's'}`
+}
+
+function leadLine(meeting, kind) {
+  if (kind === 'created') return 'A team meeting has been scheduled. The time below is the same moment everywhere — each line is your own clock.'
+  if (kind === 'moved') {
+    const was = meeting.previous_starts_at
+      ? ZONES.map(z => `${z.label} ${timeIn(meeting.previous_starts_at, z.zone)} ${dayIn(meeting.previous_starts_at, z.zone)}`).join(' · ')
+      : null
+    return was ? `The time has changed. It *was* ${was}. The new time is below.` : 'The time has changed. The new time is below.'
+  }
+  if (kind === 'cancelled') return 'This meeting is not taking place. Nothing to join.'
+  return 'Join on time, please — the link is the same for everyone.'
 }
 
 function slackMessage(meeting, kind) {
   const title = headline(meeting, kind)
-  const clocks = ZONES
-    .map(z => `${z.flag}  *${z.label}*\n${timeIn(meeting.starts_at, z.zone)}  ·  ${dayIn(meeting.starts_at, z.zone)}`)
-    .join('\n\n')
+  // The ping is for the things people must not miss: a move, a cancellation,
+  // and the two warnings. A meeting being set weeks ahead is not one of them.
   const ping = kind === 'created' || !SLACK_PING ? '' : `${SLACK_PING} `
-  const lead = kind === 'created'
-    ? 'A team meeting has been scheduled. The time below is the same moment everywhere — each line is your own clock.'
-    : 'Join on time, please — the link is the same for everyone.'
+  const lead = leadLine(meeting, kind)
 
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: title.slice(0, 150), emoji: true } },
@@ -174,24 +188,28 @@ function slackMessage(meeting, kind) {
       type: 'mrkdwn',
       text: `${z.flag}  *${z.label}*\n${timeIn(meeting.starts_at, z.zone)}  ·  ${dayIn(meeting.starts_at, z.zone)}`,
     })) },
-    { type: 'section', text: { type: 'mrkdwn', text: `⏱  *Duration:* ${meeting.duration_minutes} minutes` } },
   ]
   if (meeting.notes) {
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `📝  ${esc(meeting.notes).slice(0, 2500)}` } })
   }
-  blocks.push({
-    type: 'actions',
-    elements: [
-      { type: 'button', style: 'primary', text: { type: 'plain_text', text: '🎥  Join Google Meet', emoji: true }, url: meeting.meet_link },
-      { type: 'button', text: { type: 'plain_text', text: 'Open the planner', emoji: true }, url: DASHBOARD_URL },
-    ],
-  })
-  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `<${meeting.meet_link}|${esc(meeting.meet_link.replace(/^https?:\/\//, ''))}>` }] })
+  if (kind !== 'cancelled') {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        { type: 'button', style: 'primary', text: { type: 'plain_text', text: '🎥  Join Google Meet', emoji: true }, url: meeting.meet_link },
+      ],
+    })
+    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `<${meeting.meet_link}|${esc(meeting.meet_link.replace(/^https?:\/\//, ''))}>` }] })
+  }
 
   // `text` is the notification line and the fallback wherever blocks do not
   // render (phone banners, email digests), so it carries the link too.
   return {
-    text: `${ping}${title} — ${ZONES.map(z => `${z.label} ${timeIn(meeting.starts_at, z.zone)}`).join(' · ')} — ${meeting.meet_link}`,
+    username: BOT_NAME,
+    icon_url: ICON_URL,
+    text: kind === 'cancelled'
+      ? `${ping}${title}`
+      : `${ping}${title} — ${ZONES.map(z => `${z.label} ${timeIn(meeting.starts_at, z.zone)}`).join(' · ')} — ${meeting.meet_link}`,
     blocks,
   }
 }
@@ -233,6 +251,13 @@ async function send(meeting, column, kind) {
   try {
     await postToSlack(slackMessage(meeting, kind))
     console.log(`meeting ${meeting.id}: posted "${kind}"`)
+    // The old time has now been told to the team; it is not needed again, and
+    // leaving it would make the next ordinary post read as another move.
+    if (kind === 'moved') {
+      await fetch(`${SUPABASE_URL}/rest/v1/meetings?id=eq.${meeting.id}`, {
+        method: 'PATCH', headers, body: JSON.stringify({ previous_starts_at: null }),
+      }).catch(() => {})
+    }
   } catch (error) {
     await release(meeting, column)
     throw error
@@ -248,7 +273,8 @@ async function run() {
   // two days ahead — far enough for any warning window.
   const from = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
   const to   = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
-  const query = `cancelled_at=is.null&starts_at=gte.${from}&starts_at=lte.${to}&order=starts_at.asc&limit=50`
+  // Cancelled ones are included: the team has to hear that a meeting is off.
+  const query = `starts_at=gte.${from}&starts_at=lte.${to}&order=starts_at.asc&limit=50`
   const response = await fetch(`${SUPABASE_URL}/rest/v1/meetings?${query}`, { headers })
   if (!response.ok) throw new Error(`Meetings read failed (${response.status})`)
 
@@ -256,10 +282,20 @@ async function run() {
   for (const meeting of await response.json()) {
     const startsIn = new Date(meeting.starts_at).getTime() - now
     try {
-      // "A meeting was set" — only while it is still in the future, so an old
+      if (meeting.cancelled_at) {
+        // Say it once, and only about a meeting the team was told about and
+        // has not already sat through.
+        if (!meeting.slack_cancel_sent_at && meeting.slack_created_sent_at && startsIn > 0) {
+          await send(meeting, 'slack_cancel_sent_at', 'cancelled')
+        }
+        continue
+      }
+
+      // "A meeting was set", or "it has moved" when the team already has the
+      // old time. Either way only while it is still in the future, so an old
       // row edited after the fact does not announce a meeting that is over.
       if (!meeting.slack_created_sent_at && startsIn > 0) {
-        await send(meeting, 'slack_created_sent_at', 'created')
+        await send(meeting, 'slack_created_sent_at', meeting.previous_starts_at ? 'moved' : 'created')
       }
       // First warning, then the last call. Both stop once the meeting starts:
       // a worker that was down through the whole window stays quiet rather than
