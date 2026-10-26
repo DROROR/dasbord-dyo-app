@@ -7,6 +7,10 @@ import { searchEverything, type SearchHit, type SearchKind } from '../../lib/glo
 import { useLang } from '../../contexts/LanguageContext'
 import type { NotificationType, AppNotification } from '../../types/work'
 import { useTheme } from '../../contexts/theme'
+import { useMeetings } from '../../hooks/useMeetings'
+import { MeetingsModal } from '../meetings/MeetingsModal'
+import { MeetingReminderDialog } from '../meetings/MeetingReminderDialog'
+import { countdownText, msUntil } from '../../lib/meetings'
 
 const PAGE_TITLES: Record<string, { he: string; en: string }> = {
   dashboard:   { he: 'לוח בקרה',    en: 'Dashboard' },
@@ -134,7 +138,21 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
   const [expandedWa, setExpandedWa] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
-  const { canViewPage } = useAuth()
+  const { canViewPage, hasPermission } = useAuth()
+
+  // Team meetings — the Meet button, its countdown badge, the dialog it opens
+  // and the "starts soon" warning all hang off the top bar, so they follow the
+  // user across every page instead of living inside one tab.
+  const canSeeMeetings = hasPermission('work', 'view')
+  const canSetMeetings = hasPermission('work', 'edit')
+  const { meetings, schedules, next, dueSoon, now, reload, applyLocal } = useMeetings(canSeeMeetings)
+  const [meetingsOpen, setMeetingsOpen] = useState(false)
+  // Only count down in the button once the meeting is close enough to matter.
+  const nextMs = next ? msUntil(next.starts_at, now) : null
+  const meetingBadge = next && nextMs !== null && nextMs <= 60 * 60_000
+    ? (nextMs > 0 ? countdownText(nextMs, lang === 'he') : t('עכשיו', 'now'))
+    : null
+
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SearchHit[]>([])
   const [searching, setSearching] = useState(false)
@@ -311,6 +329,23 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
           {lang === 'he' ? 'EN' : 'עב'}
         </button>
 
+        {/* Team meetings — Google Meet */}
+        {canSeeMeetings && (
+          <button
+            onClick={() => setMeetingsOpen(true)}
+            title={next ? next.title : t('פגישות צוות', 'Team meetings')}
+            aria-label={t('פגישות צוות', 'Team meetings')}
+            className={`flex h-9 items-center gap-1.5 rounded-lg px-2 transition-colors ${
+              meetingBadge
+                ? 'bg-amber-50 text-amber-600 hover:bg-amber-100'
+                : 'text-gray-500 hover:bg-gray-100 hover:text-primary'
+            }`}
+          >
+            <Video size={17} />
+            {meetingBadge && <span className="text-[11px] font-bold tabular-nums">{meetingBadge}</span>}
+          </button>
+        )}
+
         {/* Notifications */}
         <div className="relative" ref={panelRef}>
           <button
@@ -458,6 +493,21 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
           א
         </button>
       </div>
+
+      {meetingsOpen && (
+        <MeetingsModal
+          meetings={meetings}
+          schedules={schedules}
+          now={now}
+          canEdit={canSetMeetings}
+          onClose={() => setMeetingsOpen(false)}
+          onChanged={applyLocal}
+          onReload={reload}
+        />
+      )}
+
+      {/* Shown over whatever page is open, not only over the meetings dialog. */}
+      {dueSoon.length > 0 && <MeetingReminderDialog meetings={dueSoon} now={now} />}
     </header>
   )
 }

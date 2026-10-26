@@ -27,5 +27,19 @@ module.exports = {
       max_memory_restart: '192M',
       env: { NODE_ENV: 'production' },
     },
+    {
+      // Slack posts for team meetings — on the server so the warning arrives
+      // even when nobody has the planner open.
+      name: 'dashboard-meeting-reminders',
+      script: 'server/meeting-reminders.mjs',
+      cwd: '/opt/dashboard-dyo-app',
+      interpreter: '/home/fahad/.nvm/versions/node/v22.23.2/bin/node',
+      node_args: '--env-file=/opt/dashboard-dyo-app/.env',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      max_memory_restart: '192M',
+      env: { NODE_ENV: 'production' },
+    },
   ],
 }
