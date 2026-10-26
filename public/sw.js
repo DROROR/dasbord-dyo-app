@@ -1,4 +1,7 @@
-const CACHE_NAME = 'dyo-work-shell-v2'
+// Bumped whenever a release must not be served from an old cache: on activate
+// every cache under a different name is deleted, so a stale tab heals itself on
+// its next load instead of needing the service worker unregistered by hand.
+const CACHE_NAME = 'dyo-work-shell-v3'
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/dyo-favicon.png', '/pwa-192.png', '/pwa-512.png']
 
 self.addEventListener('install', event => {
