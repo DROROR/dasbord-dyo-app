@@ -11,7 +11,8 @@ import { useMeetings } from '../../hooks/useMeetings'
 import { MeetingsModal } from '../meetings/MeetingsModal'
 import { MeetingReminderDialog } from '../meetings/MeetingReminderDialog'
 import { GoogleMeetIcon } from '../meetings/GoogleMeetIcon'
-import { countdownText, msUntil } from '../../lib/meetings'
+import { countdownText, meetingStage, meetingTimeInZone, msUntil, MEETING_ZONES } from '../../lib/meetings'
+import { meetingNotificationsAllowed, notifyMeeting, playMeetingBeep } from '../../lib/meetingAlerts'
 
 const PAGE_TITLES: Record<string, { he: string; en: string }> = {
   dashboard:   { he: 'לוח בקרה',    en: 'Dashboard' },
@@ -148,6 +149,30 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
   const canSetMeetings = hasPermission('work', 'edit')
   const { meetings, schedules, next, dueSoon, now, reload, applyLocal } = useMeetings(canSeeMeetings)
   const [meetingsOpen, setMeetingsOpen] = useState(false)
+  // Every warning is announced once: a beep, and a desktop notification that
+  // arrives even when the planner is behind another window. Kept here rather
+  // than in the dialog so dismissing one warning cannot silence the next.
+  const announcedStages = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    for (const meeting of dueSoon) {
+      const stage = meetingStage(meeting, now)
+      if (!stage) continue
+      const key = `${meeting.id}@${meeting.starts_at}#${stage}`
+      if (announcedStages.current.has(key)) continue
+      announcedStages.current.add(key)
+
+      // The first warning gets one beep, the last call three, the start two.
+      playMeetingBeep(stage === 'final' ? 3 : stage === 'live' ? 2 : 1)
+
+      const when = MEETING_ZONES
+        .map(z => `${z.flag} ${meetingTimeInZone(meeting.starts_at, z.zone, lang === 'he' ? 'he-IL' : 'en-GB')}`)
+        .join('  ·  ')
+      const headline = stage === 'live'
+        ? t('הפגישה מתחילה עכשיו', 'The meeting is starting now')
+        : `${t('הפגישה מתחילה בעוד', 'Meeting starts in')} ${countdownText(msUntil(meeting.starts_at, now), lang === 'he')}`
+      notifyMeeting(`${meeting.title} — ${headline}`, `${when}\n${meeting.meet_link}`, `meeting-${meeting.id}`)
+    }
+  }, [dueSoon, now, lang, t])
   // Only count down in the button once the meeting is close enough to matter.
   const nextMs = next ? msUntil(next.starts_at, now) : null
   const meetingBadge = next && nextMs !== null && nextMs <= 60 * 60_000

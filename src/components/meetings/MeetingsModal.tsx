@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, ArrowLeft, ArrowRight, Ban, CalendarClock, Check, Loader2, Pause, Pencil, Play, Plus, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, Ban, Bell, CalendarClock, Check, Loader2, Pause, Pencil, Play, Plus, Repeat, RotateCcw, Trash2, Volume2, X } from 'lucide-react'
 import { useLang } from '../../contexts/LanguageContext'
 import { GoogleMeetIcon } from './GoogleMeetIcon'
+import { meetingNotificationsAllowed, notifyMeeting, playMeetingBeep } from '../../lib/meetingAlerts'
 import {
   DEFAULT_MEET_LINK, MEETING_INPUT_ZONE, MEETING_ZONES, WEEKDAYS, cancelMeeting, countdownText,
   createMeeting, createMeetingSchedule, deleteMeeting, deleteMeetingSchedule, isoToZonedLocal, meetingDateInZone,
@@ -104,8 +105,17 @@ export function ZoneClocks({ iso, locale, className = 'mt-2' }: { iso: string; l
   )
 }
 
-function ZonePicker({ value, onChange, label }: { value: string; onChange: (zone: string) => void; label: string }) {
+/**
+ * The clock the time is typed in — and, under each one, what that clock reads
+ * at this moment. Shown because the whole feature rests on these three being
+ * right: anyone can glance at their own line and see the app agrees with the
+ * watch on their wrist before they trust it with a meeting.
+ */
+function ZonePicker({ value, onChange, label, now, locale }: {
+  value: string; onChange: (zone: string) => void; label: string; now: number; locale: string
+}) {
   const { t, lang } = useLang()
+  const nowIso = new Date(now).toISOString()
   return (
     <div>
       <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{label}</p>
@@ -115,11 +125,14 @@ function ZonePicker({ value, onChange, label }: { value: string; onChange: (zone
             key={z.zone}
             type="button"
             onClick={() => onChange(z.zone)}
-            className={`flex-1 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-colors ${
+            className={`flex-1 rounded-lg border px-2 py-1.5 transition-colors ${
               value === z.zone ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 text-gray-500 hover:bg-gray-50'
             }`}
           >
-            {z.flag} {lang === 'he' ? z.labelHe : z.labelEn}
+            <span className="block text-[11px] font-semibold">{z.flag} {lang === 'he' ? z.labelHe : z.labelEn}</span>
+            <span className="block text-[10px] tabular-nums opacity-70">
+              {t('עכשיו', 'now')} {meetingTimeInZone(nowIso, z.zone, locale)}
+            </span>
           </button>
         ))}
       </div>
@@ -147,6 +160,7 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError]   = useState<string | null>(null)
+  const [canNotify, setCanNotify] = useState(meetingNotificationsAllowed)
 
   // Finished ones sink to the bottom; everything else is soonest-first.
   const ordered = useMemo(() => {
@@ -282,7 +296,14 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
                 : t('פגישות צוות', 'Team meetings')}
             </p>
             <p className="text-[11px] text-gray-400">
-              {mode === 'form' ? t('לחיצה על החץ חוזרת לרשימה', 'The arrow goes back to the list') : t('ישראל · פקיסטן · אוקראינה', 'Israel · Pakistan · Ukraine')}
+              {mode === 'form'
+                ? t('לחיצה על החץ חוזרת לרשימה', 'The arrow goes back to the list')
+                : (
+                  <span className="tabular-nums">
+                    {t('עכשיו', 'Now')} · {MEETING_ZONES.map(z =>
+                      `${z.flag} ${meetingTimeInZone(new Date(now).toISOString(), z.zone, locale)}`).join('  ·  ')}
+                  </span>
+                )}
             </p>
           </div>
           {mode === 'list' && canEdit && (
@@ -336,6 +357,44 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
         {/* ── Upcoming meetings ── */}
         {tab === 'meetings' && mode === 'list' && (
           <div className="flex flex-col gap-3 p-5">
+            {/* Both of these are the browser's to grant, not the app's: sound
+                needs a click on the page first, and a desktop notification
+                needs permission. Offered here so neither is discovered missing
+                a minute before a meeting. */}
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-gray-50 px-3 py-2">
+              <Bell size={13} className={canNotify ? 'text-[#00832d]' : 'text-gray-400'} />
+              <span className="min-w-0 flex-1 text-[11px] text-gray-500">
+                {canNotify
+                  ? t('התראות שולחן העבודה פעילות — תקבלו התראה גם כשהחלון מאחור.',
+                       'Desktop notifications are on — you will be told even when this window is behind another.')
+                  : t('הפעילו התראות שולחן העבודה כדי לקבל התראה גם כשהחלון מאחור.',
+                       'Turn on desktop notifications to be told even when this window is behind another.')}
+              </span>
+              {!canNotify && (
+                <button
+                  onClick={async () => {
+                    if (typeof Notification === 'undefined') return
+                    await Notification.requestPermission()
+                    setCanNotify(meetingNotificationsAllowed())
+                  }}
+                  className="rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-primary/90"
+                >
+                  {t('הפעלה', 'Turn on')}
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  playMeetingBeep(3)
+                  notifyMeeting(t('בדיקה', 'Test'), t('כך תיראה התראה על פגישה.', 'This is what a meeting warning looks like.'), 'meeting-test')
+                }}
+                title={t('השמעת הצליל', 'Play the sound')}
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-gray-600 transition-colors hover:bg-gray-50"
+              >
+                <Volume2 size={13} />
+                {t('בדיקת צליל', 'Test sound')}
+              </button>
+            </div>
+
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {ordered.length === 0 && (
               <div className="col-span-full flex flex-col items-center gap-2 py-8 text-center">
@@ -465,7 +524,13 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
             </div>
 
             <div className="sm:col-span-2">
-              <ZonePicker value={form.timezone} onChange={zone => setForm(f => ({ ...f, timezone: zone }))} label={t('באיזה שעון', 'Which clock')} />
+              <ZonePicker
+                value={form.timezone}
+                onChange={zone => setForm(f => ({ ...f, timezone: zone }))}
+                label={t('באיזה שעון', 'Which clock')}
+                now={now}
+                locale={locale}
+              />
             </div>
 
             <div className="sm:col-span-2">
@@ -643,7 +708,13 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
             </div>
 
             <div className="sm:col-span-2">
-              <ZonePicker value={rule.timezone} onChange={zone => setRule(r => ({ ...r, timezone: zone }))} label={t('באיזה שעון', 'Which clock')} />
+              <ZonePicker
+                value={rule.timezone}
+                onChange={zone => setRule(r => ({ ...r, timezone: zone }))}
+                label={t('באיזה שעון', 'Which clock')}
+                now={now}
+                locale={locale}
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:col-span-2">
