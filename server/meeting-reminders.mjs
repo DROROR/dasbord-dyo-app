@@ -5,10 +5,15 @@
 //    clock plus its zone, so 17:00 in Karachi stays 17:00 in Karachi when
 //    Israel or Ukraine change their clocks.
 //
-// 2. Posts team meetings to Slack: once when the meeting is set, again at the
-//    first warning (5 minutes before by default), and a last call (1 minute
-//    before). Every post carries the Google Meet link as a button and the same
-//    time in Israel, Pakistan and Ukraine.
+// 2. Posts team meetings to Slack: when a one-off meeting is set, when any
+//    meeting moves or is called off, at the first warning (5 minutes before by
+//    default) and at the last call (1 minute before). Every post carries the
+//    Google Meet link as a button and the same time in Israel, Pakistan and
+//    Ukraine.
+//
+//    A meeting the weekly rule laid down is not announced when it appears —
+//    the team already knows there is one every Monday — but it warns and
+//    reports changes exactly like any other.
 //
 // This runs on the server, not in the browser, so the warning still arrives
 // when nobody has the planner open. The three meetings.slack_*_sent_at stamps
@@ -304,7 +309,19 @@ async function run() {
       // old time. Either way only while it is still in the future, so an old
       // row edited after the fact does not announce a meeting that is over.
       if (!meeting.slack_created_sent_at && startsIn > 0) {
-        await send(meeting, 'slack_created_sent_at', meeting.previous_starts_at ? 'moved' : 'created')
+        if (meeting.previous_starts_at) {
+          await send(meeting, 'slack_created_sent_at', 'moved')
+        } else if (meeting.schedule_id) {
+          // A meeting the weekly rule laid down is not news — the team knows
+          // there is one every Monday. Announcing each one would be three
+          // messages a week saying what everybody already knows. The stamp is
+          // still claimed, silently, because it is what the database reads to
+          // tell a later move from a first announcement: without it, moving
+          // one of these would say nothing at all.
+          await claim(meeting, 'slack_created_sent_at')
+        } else {
+          await send(meeting, 'slack_created_sent_at', 'created')
+        }
       }
       // First warning, then the last call. Both stop once the meeting starts:
       // a worker that was down through the whole window stays quiet rather than
