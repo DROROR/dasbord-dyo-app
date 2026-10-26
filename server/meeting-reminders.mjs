@@ -123,6 +123,15 @@ async function materializeSchedules() {
     if (!held.ok) throw new Error(`Occurrence read failed (${held.status})`)
     const existing = new Set((await held.json()).map(row => row.occurrence_date))
 
+    // And the days somebody deleted outright. Without this the delete would
+    // undo itself on the next pass, which is not a delete at all.
+    const skipped = await fetch(
+      `${SUPABASE_URL}/rest/v1/meeting_schedule_skips?schedule_id=eq.${schedule.id}&occurrence_date=gte.${from}&select=occurrence_date`,
+      { headers },
+    )
+    if (!skipped.ok) throw new Error(`Skip read failed (${skipped.status})`)
+    for (const row of await skipped.json()) existing.add(row.occurrence_date)
+
     const rows = wanted.filter(w => !existing.has(w.date)).map(w => ({
       title: schedule.title,
       starts_at: w.startsAt,

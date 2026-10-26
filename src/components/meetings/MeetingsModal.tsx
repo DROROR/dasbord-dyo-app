@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, ArrowLeft, ArrowRight, CalendarClock, Check, Loader2, Pause, Pencil, Play, Plus, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, Ban, CalendarClock, Check, Loader2, Pause, Pencil, Play, Plus, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
 import { useLang } from '../../contexts/LanguageContext'
 import { GoogleMeetIcon } from './GoogleMeetIcon'
 import {
   DEFAULT_MEET_LINK, MEETING_INPUT_ZONE, MEETING_ZONES, WEEKDAYS, cancelMeeting, countdownText,
-  createMeeting, createMeetingSchedule, deleteMeetingSchedule, isoToZonedLocal, meetingDateInZone,
+  createMeeting, createMeetingSchedule, deleteMeeting, deleteMeetingSchedule, isoToZonedLocal, meetingDateInZone,
   meetingTimeInZone, msUntil, nextOccurrenceIso, restoreMeeting, setMeetingScheduleActive,
   updateMeeting, updateMeetingSchedule, zonedLocalToIso,
   type DbMeeting, type DbMeetingSchedule, type MeetingInput, type ScheduleInput,
@@ -216,6 +216,21 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
     }
   }
 
+  /** For actions that take a row away: the list is re-read rather than patched. */
+  async function runOnRow(id: string, action: (id: string) => Promise<unknown>) {
+    if (busyId) return
+    setBusyId(id)
+    setError(null)
+    try {
+      await action(id)
+      onReload()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('הפעולה נכשלה', 'Action failed'))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   async function runOnRule(id: string, action: (id: string) => Promise<unknown>) {
     if (busyId) return
     setBusyId(id)
@@ -394,14 +409,32 @@ export function MeetingsModal({ meetings, schedules, now, canEdit, onClose, onCh
                         >
                           <Pencil size={13} />
                         </button>
+                        {/* Call off — the row stays, struck through, and Slack
+                            is told. For a meeting people are expecting, this is
+                            the honest one. */}
                         <button
                           onClick={() => void runOn(meeting.id, cancelled ? restoreMeeting : cancelMeeting)}
                           disabled={busyId === meeting.id}
-                          title={cancelled ? t('החזרה', 'Restore') : t('ביטול', 'Cancel')}
-                          className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-red-500"
+                          title={cancelled ? t('החזרה', 'Put it back') : t('ביטול הפגישה', 'Call it off')}
+                          className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-amber-600"
                         >
                           {busyId === meeting.id ? <Loader2 size={13} className="animate-spin" />
-                            : cancelled ? <RotateCcw size={13} /> : <Trash2 size={13} />}
+                            : cancelled ? <RotateCcw size={13} /> : <Ban size={13} />}
+                        </button>
+                        {/* Delete — actually gone, no undo. */}
+                        <button
+                          onClick={() => {
+                            const warning = meeting.schedule_id
+                              ? t('למחוק את הפגישה הזו לגמרי? היא לא תיווצר שוב מהכלל השבועי. אין ביטול.',
+                                  'Delete this meeting for good? The weekly rule will not create it again. There is no undo.')
+                              : t('למחוק את הפגישה הזו לגמרי? אין ביטול.', 'Delete this meeting for good? There is no undo.')
+                            if (window.confirm(warning)) void runOnRow(meeting.id, deleteMeeting)
+                          }}
+                          disabled={busyId === meeting.id}
+                          title={t('מחיקה', 'Delete')}
+                          className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-red-500"
+                        >
+                          <Trash2 size={13} />
                         </button>
                       </>
                     )}

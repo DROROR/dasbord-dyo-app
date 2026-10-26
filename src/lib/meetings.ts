@@ -270,6 +270,16 @@ export async function cancelMeeting(id: string): Promise<DbMeeting> {
   return data as DbMeeting
 }
 
+/**
+ * Gone for good. A meeting that came from a weekly rule leaves a skip behind it
+ * (recorded in the database, not here), so the worker treats that rule day as
+ * dealt with instead of laying the meeting down again a few seconds later.
+ */
+export async function deleteMeeting(id: string): Promise<void> {
+  const { error } = await supabase.from('meetings').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function restoreMeeting(id: string): Promise<DbMeeting> {
   const { data, error } = await supabase
     .from('meetings')
