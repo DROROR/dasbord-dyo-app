@@ -1005,10 +1005,6 @@ export function TaskDetailModal({
     const resolved = resolveTicketLink()
     const appId = task.appId ?? resolved?.appId
     const ticketId = task.ticketId ?? resolved?.ticketId
-    if (!ticketId) {
-      setAdminMsgError('This task has no support ticket ID — only client-submitted tickets can receive admin messages.')
-      return
-    }
     if (!appId) {
       setAdminMsgError('Link a client app above before sending a message.')
       return
@@ -1021,7 +1017,8 @@ export function TaskDetailModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           app_id: appId,
-          ticket_id: ticketId,
+          ...(ticketId && { ticket_id: ticketId }),
+          subject: task.title,
           text: adminMessage.trim(),
           sender: 'dyo',
           ...(Object.keys(adminMsgTranslations).length > 0 && { text_translations: adminMsgTranslations }),
@@ -1030,6 +1027,12 @@ export function TaskDetailModal({
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { error?: string }
         throw new Error(typeof body.error === 'string' ? body.error : `Server error ${res.status}`)
+      }
+      const body = await res.json() as { ticket_id?: string; is_new_ticket?: boolean }
+      // If the cloud function created a new ticket, persist its ID to the task
+      // so future messages (and the reply thread) route to the same ticket.
+      if (body.is_new_ticket && body.ticket_id) {
+        save({ ticketId: body.ticket_id })
       }
       setAdminMsgSent(true)
       setAdminMessage('')
