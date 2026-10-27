@@ -463,6 +463,18 @@ export function TaskDetailModal({
       addNotification({ type: 'support_opened', message: `New support ticket: ${taskRef.current.title}`, taskId: task.id, taskTitle: task.title, severity: 'high' })
     }
     save(patch)
+
+    // Sync status to Firestore support ticket when task has a linked ticket.
+    const linkedAppId = task.appId ?? resolveTicketLink()?.appId
+    const linkedTicketId = task.ticketId ?? resolveTicketLink()?.ticketId
+    if (linkedTicketId && linkedAppId) {
+      const firestoreStatus = newStatus === 'done' ? 'done' : newStatus === 'not_started' ? 'requestSent' : 'inProgress'
+      fetch('/api/claude/send-ticket-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app_id: linkedAppId, ticket_id: linkedTicketId, status_update: firestoreStatus }),
+      }).catch(() => { /* best-effort */ })
+    }
   }
 
   function startTimer() {
