@@ -1298,15 +1298,21 @@ export async function updateBoard(board: Board): Promise<Board> {
       statuses: board.statuses,
       priorities: board.priorities,
       all_tasks_to_support_queue: board.allTasksToSupportQueue ?? false,
-      // Writable because 20261025140000 grants UPDATE on this one column;
-      // the rest of the row's columns are unchanged by this call.
-      parent_board_id: board.parentBoardId ?? null,
     })
     .eq('id', board.id)
     .select()
     .single()
   if (error) throw error
   return dbToBoard(data as DbBoard)
+}
+
+// Requires migration 20261025140000_board_sub_boards to be applied first.
+export async function reparentBoard(boardId: string, parentBoardId: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('boards')
+    .update({ parent_board_id: parentBoardId })
+    .eq('id', boardId)
+  if (error) throw error
 }
 
 export async function deleteBoard(id: string): Promise<void> {

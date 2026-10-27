@@ -1002,9 +1002,14 @@ export function TaskDetailModal({
 
   async function handleSendAdminMessage() {
     if (!adminMessage.trim() || sendingAdminMsg) return
-    const appId = task.appId ?? resolveTicketLink()?.appId
-    const ticketId = task.ticketId ?? resolveTicketLink()?.ticketId
-    if (!appId || !ticketId) {
+    const resolved = resolveTicketLink()
+    const appId = task.appId ?? resolved?.appId
+    const ticketId = task.ticketId ?? resolved?.ticketId
+    if (!ticketId) {
+      setAdminMsgError('This task has no support ticket ID — only client-submitted tickets can receive admin messages.')
+      return
+    }
+    if (!appId) {
       setAdminMsgError('Link a client app above before sending a message.')
       return
     }

@@ -13,6 +13,7 @@ import {
   getBoards,
   createBoard as dbCreateBoard,
   updateBoard as dbUpdateBoard,
+  reparentBoard as dbReparentBoard,
   deleteBoard as dbDeleteBoard,
   getClients,
   getProfiles,
@@ -1175,10 +1176,14 @@ export function Work() {
 
   function saveBoardSettings(updated: Board, newPDefs: PriorityDef[]) {
     if (!canManageWork) return
-    // Priorities are saved on the board itself, so edits survive a refresh.
     const withPriorities: Board = { ...updated, priorities: newPDefs }
+    const original = boards.find(b => b.id === withPriorities.id)
     setBoards(prev => prev.map(b => b.id === withPriorities.id ? withPriorities : b))
     void dbUpdateBoard(withPriorities).catch(err => console.error('Board save failed:', err))
+    if (original && original.parentBoardId !== withPriorities.parentBoardId) {
+      void dbReparentBoard(withPriorities.id, withPriorities.parentBoardId ?? null)
+        .catch(err => console.error('Board reparent failed (migration 20261025140000 may not be applied yet):', err))
+    }
   }
 
   function deleteBoard(id: string) {
