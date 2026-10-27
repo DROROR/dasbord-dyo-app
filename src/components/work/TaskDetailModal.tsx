@@ -218,9 +218,10 @@ export function TaskDetailModal({
   const [adminMsgSent,         setAdminMsgSent]         = useState(false)
   const [adminMsgError,        setAdminMsgError]        = useState<string | null>(null)
   const [selectedAdminLangs,   setSelectedAdminLangs]   = useState<Set<string>>(() => new Set(['he']))
-  const [adminMsgTranslations, setAdminMsgTranslations] = useState<Record<string, string>>({})
-  const [translatingAdminMsg,  setTranslatingAdminMsg]  = useState(false)
-  const [showAdminMsgTr,       setShowAdminMsgTr]       = useState(false)
+  const [adminMsgTranslations,     setAdminMsgTranslations]     = useState<Record<string, string>>({})
+  const [adminSubjectTranslations, setAdminSubjectTranslations] = useState<Record<string, string>>({})
+  const [translatingAdminMsg,      setTranslatingAdminMsg]      = useState(false)
+  const [showAdminMsgTr,           setShowAdminMsgTr]           = useState(false)
 
   const [showChat,        setShowChat]        = useState(true)
   const [ticketMessages,  setTicketMessages]  = useState<TicketMessageItem[]>([])
@@ -885,15 +886,15 @@ export function TaskDetailModal({
     try {
       const langLabels: Record<string, string> = { he: 'Hebrew (he)', ar: 'Arabic (ar)', es: 'Spanish (es)' }
       const targets = [...selectedAdminLangs].map(l => `${langLabels[l]} as "${l}"`).join(', ')
-      const keys = [...selectedAdminLangs].map(l => `"${l}":"..."`).join(',')
+      const langKeys = [...selectedAdminLangs].map(l => `"${l}":"..."`).join(',')
       const res = await fetch('/api/claude/v1/translation-messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 1024,
-          system: `Translate the text to ${targets}. Return ONLY valid JSON: {${keys}}.`,
-          messages: [{ role: 'user', content: adminMessage }],
+          max_tokens: 2048,
+          system: `Translate the message and title to ${targets}. Return ONLY valid JSON: {"message":{${langKeys}},"title":{${langKeys}}}.`,
+          messages: [{ role: 'user', content: JSON.stringify({ message: adminMessage, title: task.title }) }],
         }),
       })
       if (!res.ok) return
@@ -901,8 +902,9 @@ export function TaskDetailModal({
       const text = data.content?.[0]?.text ?? ''
       const match = text.match(/\{[\s\S]*\}/)
       if (!match) return
-      const tr = JSON.parse(match[0]) as Record<string, string>
-      setAdminMsgTranslations(prev => ({ ...prev, ...tr }))
+      const tr = JSON.parse(match[0]) as { message?: Record<string, string>; title?: Record<string, string> }
+      if (tr.message) setAdminMsgTranslations(prev => ({ ...prev, ...tr.message }))
+      if (tr.title) setAdminSubjectTranslations(prev => ({ ...prev, ...tr.title }))
       setShowAdminMsgTr(true)
     } finally {
       setTranslatingAdminMsg(false)
@@ -1031,6 +1033,7 @@ export function TaskDetailModal({
           app_id: appId,
           ...(ticketId && { ticket_id: ticketId }),
           subject: task.title,
+          ...(Object.keys(adminSubjectTranslations).length > 0 && { subject_translations: adminSubjectTranslations }),
           text: adminMessage.trim(),
           sender: 'dyo',
           ...(Object.keys(adminMsgTranslations).length > 0 && { text_translations: adminMsgTranslations }),
@@ -1049,6 +1052,7 @@ export function TaskDetailModal({
       setAdminMsgSent(true)
       setAdminMessage('')
       setAdminMsgTranslations({})
+      setAdminSubjectTranslations({})
       setShowAdminMsgTr(false)
       setTimeout(() => setAdminMsgSent(false), 4000)
       void refreshTicketMessages()
