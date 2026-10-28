@@ -99,3 +99,16 @@ export function MeetingReminderDialog({ meetings, now }: { meetings: DbMeeting[]
     </div>
   )
 }
+
+function readDismissed(): string[] {
+  try {
+    const raw = localStorage.getItem(DISMISSED_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed.filter((key): key is string => typeof key === 'string') : []
+  } catch {
+    // Private mode, or a key left behind in an older shape.
+    return []
+  }
+}
+
+const keyOf = (meeting: DbMeeting, stage: string) => `${meeting.id}@${meeting.starts_at}#${stage}`
