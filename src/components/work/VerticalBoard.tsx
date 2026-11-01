@@ -266,6 +266,12 @@ export function VerticalBoard({
   const [assignee,     setAssignee]     = useState('')
   const [priority,     setPriority]     = useState('')
   const [client,       setClient]       = useState('')
+  // How the cards sit inside each status column. 'default' leaves them in the
+  // order they arrive (newest first), exactly as before; 'client' puts one
+  // client's cards together, which is what the support board wants when the
+  // same app has filed several tickets and the Client filter would only show
+  // one app at a time.
+  const [sort,         setSort]         = useState<'default' | 'client'>('default')
   // Starts on the board the outer tabs have selected, not on '' ("All
   // Boards"): the sync below only fires when activeBoardId CHANGES, so an
   // empty initial value meant a fresh load showed every board's tasks under
@@ -388,18 +394,35 @@ export function VerticalBoard({
     })
   }, [tasks, search, assignee, priority, client, boardFilter, showArchived, ticketKind])
 
+  // Sorted, never narrowed: every card the filters above left through is still
+  // shown, only its place in its own column changes. A card with no client at
+  // all sinks below the named ones instead of sorting under an empty string,
+  // and two cards of the same client fall back to their titles so the order is
+  // stable from one render to the next.
+  const ordered = useMemo(() => {
+    if (sort !== 'client') return filtered
+    return [...filtered].sort((a, b) => {
+      const left  = a.clientName ?? ''
+      const right = b.clientName ?? ''
+      if (!left !== !right) return left ? -1 : 1
+      return left.localeCompare(right) || a.title.localeCompare(b.title)
+    })
+  }, [filtered, sort])
+
   const visibleStatuses = statuses
     .filter(s => showArchived ? true : s.id !== 'archived')
     .sort((a, b) => a.order - b.order)
 
-  const anyFilterActive = !!(search || assignee || priority || client || boardFilter || !showArchived)
+  const anyFilterActive = !!(search || assignee || priority || client || boardFilter || !showArchived || sort !== 'default')
   // Only the ones the menu itself owns — the search box lives in the page's
   // own tab bar, so counting it here would show a badge for something this
   // menu cannot clear from view.
-  const activeFilterCount = [assignee, priority, client, boardFilter].filter(Boolean).length + (showArchived ? 0 : 1)
+  const activeFilterCount = [assignee, priority, client, boardFilter].filter(Boolean).length
+    + (showArchived ? 0 : 1)
+    + (sort === 'default' ? 0 : 1)
 
   function clearFilters() {
-    onSearchChange(''); setAssignee(''); setPriority(''); setClient(''); setShowArchived(true); changeBoardFilter('')
+    onSearchChange(''); setAssignee(''); setPriority(''); setClient(''); setSort('default'); setShowArchived(true); changeBoardFilter('')
   }
 
   // The Support board's two chips, rendered in this same row rather than in a
@@ -535,6 +558,18 @@ export function VerticalBoard({
                   </select>
                 </label>
 
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('מיון', 'Sort by')}</span>
+                  <select
+                    value={sort}
+                    onChange={e => setSort(e.target.value as 'default' | 'client')}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  >
+                    <option value="default">{tr('ברירת מחדל (חדשים קודם)', 'Default (newest first)')}</option>
+                    <option value="client">{tr('לקוח / אפליקציה (א׳–ת׳)', 'Client / App name (A–Z)')}</option>
+                  </select>
+                </label>
+
                 <button
                   onClick={() => setShowArchived(s => !s)}
                   className={`flex h-8 items-center justify-center rounded-lg border px-3 text-xs font-semibold transition-colors ${showArchived ? 'border-gray-300 bg-gray-200 text-gray-700' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'}`}
@@ -576,7 +611,7 @@ export function VerticalBoard({
           <StatusSection
             key={col.id}
             col={col}
-            tasks={filtered.filter(t => t.status === col.id)}
+            tasks={ordered.filter(t => t.status === col.id)}
             boards={boards}
             onCardClick={onOpenTask}
             onAddTask={onAddTask}
