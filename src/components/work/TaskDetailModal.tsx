@@ -1074,7 +1074,7 @@ export function TaskDetailModal({
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 2048,
-          system: 'Translate the given Hebrew task title and description to English. Return ONLY valid JSON: {"title":"...","description":"..."}.',
+          system: 'Translate the given task title and description to English. If a field is already English, return it unchanged. Return ONLY valid JSON: {"title":"...","description":"..."}.',
           messages: [{ role: 'user', content: JSON.stringify({ title, description: desc }) }],
         }),
       })
@@ -1790,7 +1790,11 @@ export function TaskDetailModal({
             <section>
               <div className="mb-2 flex min-w-0 items-center gap-3">
                 <p className="text-xs font-bold text-gray-900 uppercase tracking-wide">Description</p>
-                {/[֐-׿]/.test(title + desc) && (
+                {/* The button used to be shown only when the text held Hebrew, so
+                    on an English-written ticket it looked like it had been removed.
+                    It is always offered now; an already-English task simply comes
+                    back unchanged. */}
+                {(title.trim() || desc.trim()) && (
                   <button
                     onClick={() => void translateTask()}
                     disabled={translatingTask}
