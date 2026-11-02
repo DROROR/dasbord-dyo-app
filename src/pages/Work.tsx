@@ -1147,6 +1147,16 @@ export function Work() {
       }
     }
 
+    // Notify Firebase that this support ticket is resolved.
+    // Fire-and-forget: the WhatsApp flow must not be blocked by a Firebase failure.
+    if (ticket.ticketId && ticket.appId) {
+      void fetch('/api/claude/send-ticket-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app_id: ticket.appId, ticket_id: ticket.ticketId, status_update: 'done' }),
+      }).catch(err => console.error('Could not update Firebase ticket status:', err))
+    }
+
     if (answers.messageChoice === 'none') return
 
     try {
