@@ -75,6 +75,11 @@ interface TicketMessageItem {
 }
 
 /** What the developer answered when closing a support ticket. */
+// The two markers the task translation is asked for and read back with.
+// Deliberately not JSON: a description with a quote in it broke JSON.parse.
+const TRANSLATION_TITLE_MARK = '###TITLE###'
+const TRANSLATION_DESC_MARK  = '###DESCRIPTION###'
+
 export interface TicketDoneAnswers {
   requiresAppUpdate: boolean
   /** now = write the customer message, wait = write it but hold, none = skip */
@@ -862,7 +867,7 @@ export function TaskDetailModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 1024,
+          max_tokens: 8192,
           system: `Translate the text to ${targets}. Return ONLY valid JSON: {${keys}}.`,
           messages: [{ role: 'user', content: deployMessage }],
         }),
@@ -892,7 +897,7 @@ export function TaskDetailModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 2048,
+          max_tokens: 8192,
           system: `Translate the message and title to ${targets}. Return ONLY valid JSON: {"message":{${langKeys}},"title":{${langKeys}}}.`,
           messages: [{ role: 'user', content: JSON.stringify({ message: adminMessage, title: task.title }) }],
         }),
@@ -937,7 +942,7 @@ export function TaskDetailModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 512,
+          max_tokens: 4096,
           system: 'Translate the text to English. Return ONLY the translated text, no explanation.',
           messages: [{ role: 'user', content: text }],
         }),
@@ -963,7 +968,7 @@ export function TaskDetailModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 1024,
+          max_tokens: 8192,
           system: `Translate the text to ${targets}. Return ONLY valid JSON: {${keys}}.`,
           messages: [{ role: 'user', content: chatReply }],
         }),
@@ -1068,24 +1073,49 @@ export function TaskDetailModal({
     setTranslatingTask(true)
     setTaskTranslateErr(null)
     try {
+      // The translation used to be asked for as JSON. Two things went wrong
+      // with that on real tasks: a description holding a quote character came
+      // back as JSON the browser could not parse ("Translation failed"), and
+      // 2048 output tokens were not enough for a long task, so the model
+      // answered with a one-paragraph summary instead of the text — a
+      // 562-line description came back as a single line. The title and the
+      // description are asked for as two marked blocks now, which no quote or
+      // newline inside the text can break, and the limit is large enough for
+      // the longest task on the board.
       const res = await fetch('/api/claude/v1/translation-messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 2048,
-          system: 'Translate the given task title and description to English. If a field is already English, return it unchanged. Return ONLY valid JSON: {"title":"...","description":"..."}.',
-          messages: [{ role: 'user', content: JSON.stringify({ title, description: desc }) }],
+          max_tokens: 16000,
+          system: [
+            'You are a translator. Translate the task below into English.',
+            'Translate the ENTIRE text, however long it is. Never summarise, shorten, merge, reorder or omit anything, and never add anything of your own.',
+            'Keep the original layout exactly: every line break, blank line, bullet, dash, number, heading and emoji stays where it is.',
+            'Leave IDs, URLs, file names, code, numbers and phone numbers exactly as they are.',
+            'Text that is already English is returned unchanged.',
+            'Answer with nothing but these two blocks, in this order and with no other commentary:',
+            `${TRANSLATION_TITLE_MARK}`,
+            '<the translated title on one line>',
+            `${TRANSLATION_DESC_MARK}`,
+            '<the translated description>',
+          ].join('\n'),
+          messages: [{ role: 'user', content: `${TRANSLATION_TITLE_MARK}\n${title}\n${TRANSLATION_DESC_MARK}\n${desc}` }],
         }),
       })
       if (!res.ok) { setTaskTranslateErr('Translation request failed — please try again.'); return }
-      const data = await res.json() as { content: Array<{ text: string }> }
+      const data = await res.json() as { content?: Array<{ text?: string }>; stop_reason?: string }
       const text = data.content?.[0]?.text ?? ''
-      const match = text.match(/\{[\s\S]*\}/)
-      if (!match) { setTaskTranslateErr('Could not parse translation response.'); return }
-      const tr = JSON.parse(match[0]) as { title?: string; description?: string }
-      const newTitleEn = tr.title ?? ''
-      const newDescEn  = tr.description ?? ''
+      if (data.stop_reason === 'max_tokens') {
+        setTaskTranslateErr('This task is too long to translate in one go — translate it in smaller parts.')
+        return
+      }
+      const descAt  = text.indexOf(TRANSLATION_DESC_MARK)
+      const titleAt = text.indexOf(TRANSLATION_TITLE_MARK)
+      if (descAt === -1) { setTaskTranslateErr('Could not read the translation — please try again.'); return }
+      const newTitleEn = titleAt === -1 ? '' : text.slice(titleAt + TRANSLATION_TITLE_MARK.length, descAt).trim()
+      const newDescEn  = text.slice(descAt + TRANSLATION_DESC_MARK.length).trim()
+      if (!newTitleEn && !newDescEn) { setTaskTranslateErr('Could not read the translation — please try again.'); return }
       setTitleEn(newTitleEn)
       setDescEn(newDescEn)
       save({ titleEn: newTitleEn, descriptionEn: newDescEn })
