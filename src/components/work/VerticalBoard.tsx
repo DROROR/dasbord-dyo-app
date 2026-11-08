@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Calendar, Clock, ChevronDown, Plus, ArrowRightLeft, SlidersHorizontal } from 'lucide-react'
 import type { Task, Board, BoardStatus, AssigneeOption, PriorityDef } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, priorityDefsForBoard, ticketKindOf, type TicketKind } from '../../data/workConstants'
@@ -245,7 +246,7 @@ export function VerticalBoard({
   tasks, boards, activeBoardId, onOpenTask, onAddTask, assignees, readonly,
   canEditTask, eligibleAssigneesFor, onTaskSaved, onBoardFilterChange,
   canMoveTask, profiles, search, onSearchChange, ticketKind, onTicketKindChange,
-  subBoardTabs = [], onSubBoardChange, adminChatStates = {},
+  subBoardTabs = [], onSubBoardChange, adminChatStates = {}, filterSlot,
 }: {
   /** Every task the caller wants considered — the internal Board filter (below) narrows this further; this is deliberately NOT pre-filtered to one board so "All Boards" has real data to show. */
   tasks: Task[]
@@ -293,6 +294,12 @@ export function VerticalBoard({
    * an Admin-reply filter that matches nothing, never a wrong answer.
    */
   adminChatStates?: Record<string, AdminChatState>
+  /**
+   * Where to render the Filters button: an element the page keeps at the end
+   * of the board-tabs row. Without one (any other caller) the button falls
+   * back to its own row exactly as before.
+   */
+  filterSlot?: HTMLElement | null
 }) {
   const { t: tr } = useWorkLang()
   const [movingTask, setMovingTask] = useState<Task | null>(null)
@@ -492,6 +499,8 @@ export function VerticalBoard({
     t.board === 'support' && t.status !== 'done' && t.status !== 'archived' && ticketKindOf(t) === kind,
   ).length
   const activeTicketKind = ticketKind ? ticketKinds.find(k => k.id === ticketKind) : undefined
+  // Whether the row below the board tabs has anything of its own to show.
+  const chipsRow = (!!onSubBoardChange && subBoardTabs.length > 0) || !!(ticketKind && onTicketKindChange)
 
   // How many tasks each admin-thread choice would leave — shown in the option
   // itself so the state of the queue is readable without picking one. Counted
@@ -506,14 +515,136 @@ export function VerticalBoard({
     { id: 'none',     label: tr('אין הודעות בשרשור',     'No messages yet') },
   ]
 
+  const filterControl = (
+    <div className="relative shrink-0" ref={filterMenuRef}>
+      <button
+        onClick={() => setFilterMenuOpen(o => !o)}
+        className={`flex ${filterSlot ? 'h-7' : 'h-8'} items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors ${filterMenuOpen || activeFilterCount > 0 ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
+      >
+        <SlidersHorizontal size={13} />
+        {tr('סינון', 'Filters')}
+        {activeFilterCount > 0 && (
+          <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-white">{activeFilterCount}</span>
+        )}
+        <ChevronDown size={12} className={`transition-transform ${filterMenuOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {filterMenuOpen && (
+        <div className="absolute end-0 top-full z-40 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-4 shadow-xl">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('סינון משימות', 'Filter tasks')}</p>
+            <button onClick={() => setFilterMenuOpen(false)} className="p-1 text-gray-400 transition-colors hover:text-gray-600"><X size={13} /></button>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('בורד', 'Board')}</span>
+              <select
+                value={boardFilter}
+                onChange={e => changeBoardFilter(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+              >
+                <option value="">{tr('כל הבורדים', 'All Boards')}</option>
+                {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('אחראי', 'Assignee')}</span>
+              <select
+                value={assignee}
+                onChange={e => setAssignee(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+              >
+                <option value="">All assignees</option>
+                {assignees.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('עדיפות', 'Priority')}</span>
+              <select
+                value={priority}
+                onChange={e => setPriority(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+              >
+                <option value="">All priorities</option>
+                {priorityFilterOptions.map(p => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('לקוח', 'Client')}</span>
+              <select
+                value={client}
+                onChange={e => setClient(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+              >
+                <option value="">{tr('כל הלקוחות', 'All Clients')}</option>
+                <option value={NO_CLIENT}>{tr('ללא לקוח', 'No Client')}</option>
+                {/* Client names are stored data — never translated. */}
+                {clientOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
+              </select>
+            </label>
+
+            {/* Asked for so a ticket we wrote to the admin about can be
+                told apart from one they already answered, without opening
+                each task to look at its chat. */}
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('תשובת אדמין', 'Admin reply')}</span>
+              <select
+                value={adminReply}
+                onChange={e => setAdminReply(e.target.value as '' | AdminReplyStatus)}
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+              >
+                <option value="">{tr('הכל', 'All tasks')}</option>
+                {adminReplyOptions.map(option => (
+                  <option key={option.id} value={option.id}>{option.label} ({adminReplyCount(option.id)})</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('מיון', 'Sort by')}</span>
+              <select
+                value={sort}
+                onChange={e => setSort(e.target.value as 'default' | 'client')}
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+              >
+                <option value="default">{tr('ברירת מחדל (חדשים קודם)', 'Default (newest first)')}</option>
+                <option value="client">{tr('לקוח / אפליקציה (א׳–ת׳)', 'Client / App name (A–Z)')}</option>
+              </select>
+            </label>
+
+            <button
+              onClick={() => setShowArchived(s => !s)}
+              className={`flex h-8 items-center justify-center rounded-lg border px-3 text-xs font-semibold transition-colors ${showArchived ? 'border-gray-300 bg-gray-200 text-gray-700' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'}`}
+            >
+              {showArchived ? 'Hide Archived' : 'Show Archived'}
+            </button>
+
+            {anyFilterActive && (
+              <button onClick={clearFilters} className="flex items-center justify-center gap-1 text-xs text-gray-500 transition-colors hover:text-primary">
+                <X size={12} /> Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <div className="flex flex-col gap-3 flex-1 min-h-0">
-      {/* Filter bar — the controls themselves live in the menu this button
-          opens. As five permanently expanded dropdowns they took a full row
-          straight under the board tabs and still wrapped onto a second row on
-          a narrower window, for settings that are changed rarely and then
-          left alone. */}
-      <div className="flex items-center gap-2 shrink-0">
+      {/* The chips row. It exists only when it has chips to show: with the
+          Filters button lifted into the board-tabs row above (filterSlot), a
+          board with no sub-boards and no ticket chips would otherwise hold an
+          empty row open for nothing, which is exactly the wasted line this
+          was asked to get rid of. */}
+      {chipsRow && (
+        <div className="flex items-center gap-2 shrink-0">
         {/* Sub-board tabs, when the selected board holds any. Same row as the
             filter menu — one row for everything that decides what the columns
             below show. A board with no sub-boards passes an empty list and
@@ -545,132 +676,25 @@ export function VerticalBoard({
             </button>
           )
         })}
-        <div className="flex-1" />
-        <div className="relative shrink-0" ref={filterMenuRef}>
-          <button
-            onClick={() => setFilterMenuOpen(o => !o)}
-            className={`flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors ${filterMenuOpen || activeFilterCount > 0 ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
-          >
-            <SlidersHorizontal size={13} />
-            {tr('סינון', 'Filters')}
-            {activeFilterCount > 0 && (
-              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-white">{activeFilterCount}</span>
-            )}
-            <ChevronDown size={12} className={`transition-transform ${filterMenuOpen ? 'rotate-180' : ''}`} />
-          </button>
-
-          {filterMenuOpen && (
-            <div className="absolute end-0 top-full z-40 mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-4 shadow-xl">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('סינון משימות', 'Filter tasks')}</p>
-                <button onClick={() => setFilterMenuOpen(false)} className="p-1 text-gray-400 transition-colors hover:text-gray-600"><X size={13} /></button>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <label className="flex flex-col gap-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('בורד', 'Board')}</span>
-                  <select
-                    value={boardFilter}
-                    onChange={e => changeBoardFilter(e.target.value)}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
-                  >
-                    <option value="">{tr('כל הבורדים', 'All Boards')}</option>
-                    {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
-                </label>
-
-                <label className="flex flex-col gap-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('אחראי', 'Assignee')}</span>
-                  <select
-                    value={assignee}
-                    onChange={e => setAssignee(e.target.value)}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
-                  >
-                    <option value="">All assignees</option>
-                    {assignees.map(a => <option key={a} value={a}>{a}</option>)}
-                  </select>
-                </label>
-
-                <label className="flex flex-col gap-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('עדיפות', 'Priority')}</span>
-                  <select
-                    value={priority}
-                    onChange={e => setPriority(e.target.value)}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
-                  >
-                    <option value="">All priorities</option>
-                    {priorityFilterOptions.map(p => (
-                      <option key={p.id} value={p.id}>{p.label}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="flex flex-col gap-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('לקוח', 'Client')}</span>
-                  <select
-                    value={client}
-                    onChange={e => setClient(e.target.value)}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
-                  >
-                    <option value="">{tr('כל הלקוחות', 'All Clients')}</option>
-                    <option value={NO_CLIENT}>{tr('ללא לקוח', 'No Client')}</option>
-                    {/* Client names are stored data — never translated. */}
-                    {clientOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
-                  </select>
-                </label>
-
-                {/* Asked for so a ticket we wrote to the admin about can be
-                    told apart from one they already answered, without opening
-                    each task to look at its chat. */}
-                <label className="flex flex-col gap-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('תשובת אדמין', 'Admin reply')}</span>
-                  <select
-                    value={adminReply}
-                    onChange={e => setAdminReply(e.target.value as '' | AdminReplyStatus)}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
-                  >
-                    <option value="">{tr('הכל', 'All tasks')}</option>
-                    {adminReplyOptions.map(option => (
-                      <option key={option.id} value={option.id}>{option.label} ({adminReplyCount(option.id)})</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="flex flex-col gap-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('מיון', 'Sort by')}</span>
-                  <select
-                    value={sort}
-                    onChange={e => setSort(e.target.value as 'default' | 'client')}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
-                  >
-                    <option value="default">{tr('ברירת מחדל (חדשים קודם)', 'Default (newest first)')}</option>
-                    <option value="client">{tr('לקוח / אפליקציה (א׳–ת׳)', 'Client / App name (A–Z)')}</option>
-                  </select>
-                </label>
-
-                <button
-                  onClick={() => setShowArchived(s => !s)}
-                  className={`flex h-8 items-center justify-center rounded-lg border px-3 text-xs font-semibold transition-colors ${showArchived ? 'border-gray-300 bg-gray-200 text-gray-700' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'}`}
-                >
-                  {showArchived ? 'Hide Archived' : 'Show Archived'}
-                </button>
-
-                {anyFilterActive && (
-                  <button onClick={clearFilters} className="flex items-center justify-center gap-1 text-xs text-gray-500 transition-colors hover:text-primary">
-                    <X size={12} /> Clear
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+        {!filterSlot && (
+          <>
+            <div className="flex-1" />
+            {filterControl}
+          </>
+        )}
         </div>
-      </div>
+      )}
+
+      {/* Lifted into the board-tabs row above when the page offers a slot for
+          it, so the filter lives on the same line as the boards instead of
+          costing a row of its own. */}
+      {filterSlot && createPortal(filterControl, filterSlot)}
 
       {/* The line under the row: what the selected chip holds — and, when it
           holds nothing, why every column below reads "No tasks", which
           otherwise looks like the chip did not do anything — plus the count of
           what the filters above left showing. */}
-      <div className="-mt-2 flex shrink-0 items-center gap-2 px-0.5">
+      <div className={`flex shrink-0 items-center gap-2 px-0.5 ${chipsRow ? '-mt-2' : '-mt-1'}`}>
         {activeTicketKind && (
           <p className="min-w-0 text-[11px] text-gray-500">
             {activeTicketKind.hint}

@@ -1820,11 +1820,15 @@ export function TaskDetailModal({
             <section>
               <div className="mb-2 flex min-w-0 items-center gap-3">
                 <p className="text-xs font-bold text-gray-900 uppercase tracking-wide">Description</p>
-                {/* The button used to be shown only when the text held Hebrew, so
-                    on an English-written ticket it looked like it had been removed.
-                    It is always offered now; an already-English task simply comes
-                    back unchanged. */}
-                {(title.trim() || desc.trim()) && (
+                {/* Support tickets only. They arrive written by the customer,
+                    usually in Hebrew, which is the whole reason for this
+                    button; every other board's tasks are ones we write
+                    ourselves, in English, so the button was only clutter
+                    there. The Hebrew-text gate this used to carry is NOT back:
+                    a ticket written in English still gets the button, because
+                    not finding it on such a ticket read as if it had been
+                    removed. */}
+                {task.board === 'support' && (title.trim() || desc.trim()) && (
                   <button
                     onClick={() => void translateTask()}
                     disabled={translatingTask}

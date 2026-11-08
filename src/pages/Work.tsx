@@ -668,6 +668,10 @@ export function Work() {
   // keyed by `${appId}/${ticketId}` exactly as the proxy returns it. Lives
   // here rather than in the board so one fetch serves every view of it.
   const [adminChatStates, setAdminChatStates] = useState<Record<string, AdminChatState>>({})
+  // The element at the end of the board-tabs row that the Tasks board renders
+  // its Filters button into. Held as state, not a ref, because the board has
+  // to re-render once the node exists for the portal to land in it.
+  const [filterSlot, setFilterSlot] = useState<HTMLDivElement | null>(null)
   const [ganttStats,   setGanttStats]   = useState({ scheduled: 0, withoutDates: 0 })
   const [tasksLoading, setTasksLoading] = useState(true)
   // INITIAL_BOARDS (the seed constant `boards` starts as) never carries a
@@ -1375,6 +1379,9 @@ export function Work() {
                </div>
               </div>
               {canManageWork && <button onClick={() => setShowAddBoard(true)} className="flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 transition-colors hover:border-primary hover:text-primary"><Plus size={13} /> Add Board</button>}
+              {/* The Tasks board's Filters button lands here, at the end of
+                  this row, instead of holding a row of its own open under it. */}
+              <div ref={setFilterSlot} className="flex shrink-0 items-center" />
             </div>
 
             <VerticalBoard
@@ -1398,6 +1405,7 @@ export function Work() {
               subBoardTabs={subBoardTabs}
               onSubBoardChange={setActiveBoard}
               adminChatStates={adminChatStates}
+              filterSlot={filterSlot}
             />
           </div>
         )}
