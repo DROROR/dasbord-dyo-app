@@ -25,6 +25,7 @@ import {
 import type { TicketDoneAnswers } from '../components/work/TaskDetailModal'
 import { TIMER_ENTRY_SAVED_EVENT, type TimerEntrySavedDetail } from '../contexts/TimerContext'
 import { takeTaskFocus, TASK_FOCUS_EVENT, takeDocFocus, DOC_FOCUS_EVENT } from '../lib/focusTarget'
+import { ticketLinksKeyOf, ticketLinksFromKey, type AdminChatState } from '../lib/ticketChat'
 import { DEFAULT_PRIORITY_DEFS, INITIAL_BOARDS, DEFAULT_BOARD_STATUSES, priorityDefsForBoard, statusesForBoard, type TicketKind } from '../data/workConstants'
 import { VerticalBoard }    from '../components/work/VerticalBoard'
 import { MyBoard }          from '../components/work/MyBoard'
@@ -663,6 +664,10 @@ export function Work() {
   // it to 'support' on every mount matches how the board itself opens.
   const [ticketKind,   setTicketKind]   = useState<TicketKind>('support')
   const [taskSearch,   setTaskSearch]   = useState('')
+  // Per-ticket chat state (did we write to the admin, and did they answer),
+  // keyed by `${appId}/${ticketId}` exactly as the proxy returns it. Lives
+  // here rather than in the board so one fetch serves every view of it.
+  const [adminChatStates, setAdminChatStates] = useState<Record<string, AdminChatState>>({})
   const [ganttStats,   setGanttStats]   = useState({ scheduled: 0, withoutDates: 0 })
   const [tasksLoading, setTasksLoading] = useState(true)
   // INITIAL_BOARDS (the seed constant `boards` starts as) never carries a
@@ -915,6 +920,38 @@ export function Work() {
     }, 0)
     return () => window.clearTimeout(timer)
   }, [tasksLoading, tasks])
+
+  // Which admin threads have been answered. The ticket list is reduced to one
+  // joined string so this re-runs when a ticket link appears or disappears,
+  // not on every unrelated task edit; the proxy caches each ticket for a
+  // minute, so the slow refresh below costs almost nothing.
+  const ticketLinksKey = useMemo(() => ticketLinksKeyOf(tasks), [tasks])
+  useEffect(() => {
+    const tickets = ticketLinksFromKey(ticketLinksKey)
+    if (tickets.length === 0) {
+      setAdminChatStates({})
+      return
+    }
+    let cancelled = false
+    async function load() {
+      try {
+        const res = await fetch('/api/claude/get-ticket-message-states', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tickets }),
+        })
+        if (!res.ok || cancelled) return
+        const data = await res.json() as { states?: Record<string, AdminChatState> }
+        if (!cancelled) setAdminChatStates(data.states ?? {})
+      } catch {
+        // Nothing to show is better than something wrong: the board simply
+        // renders no reply badges and the filter finds nothing.
+      }
+    }
+    void load()
+    const interval = setInterval(() => void load(), 120_000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [ticketLinksKey])
 
   // Clicking a task notification while already on Work (no navigation, so
   // the mount-time effect above never re-runs and the sessionStorage value
@@ -1360,6 +1397,7 @@ export function Work() {
               onTicketKindChange={setTicketKind}
               subBoardTabs={subBoardTabs}
               onSubBoardChange={setActiveBoard}
+              adminChatStates={adminChatStates}
             />
           </div>
         )}

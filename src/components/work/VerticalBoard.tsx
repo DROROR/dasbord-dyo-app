@@ -7,6 +7,7 @@ import { ClientBadge } from './ClientBadge'
 import { MoveTaskModal } from './MoveTaskModal'
 import { TaskPlatformBadges } from './TaskPlatforms'
 import { useWorkLang } from '../../contexts/WorkLanguageContext'
+import { ticketLinkOf, ticketKey, adminReplyStatusOf, type AdminChatState, type AdminReplyStatus } from '../../lib/ticketChat'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,7 @@ const NO_CLIENT = '__none__'
 
 function TaskCard({
   task, priorityDefs, statusDef, onClick, canEdit, eligibleAssignees, onTaskSaved, canMove, onMoveClick,
+  adminReplyStatus,
 }: {
   task: Task
   /** This task's OWN board's priorities — never a cross-board merged map. */
@@ -58,6 +60,8 @@ function TaskCard({
   /** Mirrors "tasks: delete"'s formula (work:'full' AND board:'full' on this task's current board) — same bar move_task_to_board() itself requires for the source board. */
   canMove: boolean
   onMoveClick: (task: Task) => void
+  /** Where this task's admin thread stands, when it has one and the state is known. Undefined renders no badge at all, which is what an unlinked task — or a ticket the proxy could not read — gets. */
+  adminReplyStatus?: AdminReplyStatus
 }) {
   const overdue         = isOverdue(task.dueDate)
   const isSupport       = task.board === 'support'
@@ -94,6 +98,25 @@ function TaskCard({
         {unclaimed && (
           <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold animate-pulse shrink-0">
             UNCLAIMED
+          </span>
+        )}
+        {/* Whether the admin has answered the message we sent — on the card so
+            the thread does not have to be opened to find out. A thread with no
+            messages in it gets no badge; there is nothing to be waiting for. */}
+        {adminReplyStatus === 'awaiting' && (
+          <span
+            title="We messaged the admin and they have not answered yet"
+            className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold shrink-0"
+          >
+            AWAITING ADMIN
+          </span>
+        )}
+        {adminReplyStatus === 'replied' && (
+          <span
+            title="The admin answered — their message is the latest in the thread"
+            className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold shrink-0"
+          >
+            ADMIN REPLIED
           </span>
         )}
         {canMove && (
@@ -145,6 +168,7 @@ function TaskCard({
 
 function StatusSection({
   col, tasks, boards, onCardClick, onAddTask, defaultOpen, readonly, canEditTask, eligibleAssigneesFor, onTaskSaved, canMoveTask, onMoveClick,
+  adminReplyStatusFor,
 }: {
   col: BoardStatus
   tasks: Task[]
@@ -158,6 +182,7 @@ function StatusSection({
   onTaskSaved: (updated: Task) => void
   canMoveTask: (task: Task) => boolean
   onMoveClick: (task: Task) => void
+  adminReplyStatusFor: (task: Task) => AdminReplyStatus | undefined
 }) {
   const [open, setOpen] = useState(defaultOpen)
 
@@ -196,6 +221,7 @@ function StatusSection({
               onTaskSaved={onTaskSaved}
               canMove={canMoveTask(task)}
               onMoveClick={onMoveClick}
+              adminReplyStatus={adminReplyStatusFor(task)}
             />
           ))}
           {!readonly && (
@@ -219,7 +245,7 @@ export function VerticalBoard({
   tasks, boards, activeBoardId, onOpenTask, onAddTask, assignees, readonly,
   canEditTask, eligibleAssigneesFor, onTaskSaved, onBoardFilterChange,
   canMoveTask, profiles, search, onSearchChange, ticketKind, onTicketKindChange,
-  subBoardTabs = [], onSubBoardChange,
+  subBoardTabs = [], onSubBoardChange, adminChatStates = {},
 }: {
   /** Every task the caller wants considered — the internal Board filter (below) narrows this further; this is deliberately NOT pre-filtered to one board so "All Boards" has real data to show. */
   tasks: Task[]
@@ -260,12 +286,22 @@ export function VerticalBoard({
   subBoardTabs?: { id: string; name: string; count: number }[]
   /** Selects a sub-board (or the parent's own tab); the id is a real board id. */
   onSubBoardChange?: (boardId: string) => void
+  /**
+   * Where each linked ticket's admin thread stands, keyed by
+   * `${appId}/${ticketId}`. Fetched once by the page and passed down; an empty
+   * map (nothing fetched yet, or the fetch failed) simply means no badges and
+   * an Admin-reply filter that matches nothing, never a wrong answer.
+   */
+  adminChatStates?: Record<string, AdminChatState>
 }) {
   const { t: tr } = useWorkLang()
   const [movingTask, setMovingTask] = useState<Task | null>(null)
   const [assignee,     setAssignee]     = useState('')
   const [priority,     setPriority]     = useState('')
   const [client,       setClient]       = useState('')
+  // '' is "don't narrow by the admin thread at all" — the default, so every
+  // board looks exactly as it did before anybody touches this.
+  const [adminReply,   setAdminReply]   = useState<'' | AdminReplyStatus>('')
   // How the cards sit inside each status column. 'default' leaves them in the
   // order they arrive (newest first), exactly as before; 'client' puts one
   // client's cards together, which is what the support board wants when the
@@ -369,6 +405,14 @@ export function VerticalBoard({
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]))
   }, [tasks])
 
+  // One place that turns a task into its thread state, used by both the
+  // filter below and the badge on the card.
+  const adminReplyStatusFor = useMemo(() => (task: Task) => {
+    const link = ticketLinkOf(task)
+    if (!link) return undefined
+    return adminReplyStatusOf(adminChatStates[ticketKey(link.appId, link.ticketId)])
+  }, [adminChatStates])
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return tasks.filter(t => {
@@ -383,6 +427,10 @@ export function VerticalBoard({
       // selected tab, which is also the only time the chips are on screen to
       // explain the narrowed list.
       if (ticketKind && t.board === 'support' && ticketKindOf(t) !== ticketKind) return false
+      // Only tasks wired to a real ticket thread can answer this one, so a
+      // task without one drops out of all three choices rather than piling up
+      // under "no messages yet".
+      if (adminReply && adminReplyStatusFor(t) !== adminReply) return false
       if (q && !t.title.toLowerCase().includes(q) && !t.description.toLowerCase().includes(q)) return false
       if (assignee && t.assignee !== assignee) return false
       if (priority && t.priority !== priority) return false
@@ -392,7 +440,7 @@ export function VerticalBoard({
       }
       return true
     })
-  }, [tasks, search, assignee, priority, client, boardFilter, showArchived, ticketKind])
+  }, [tasks, search, assignee, priority, client, boardFilter, showArchived, ticketKind, adminReply, adminReplyStatusFor])
 
   // Sorted, never narrowed: every card the filters above left through is still
   // shown, only its place in its own column changes. A card with no client at
@@ -413,16 +461,16 @@ export function VerticalBoard({
     .filter(s => showArchived ? true : s.id !== 'archived')
     .sort((a, b) => a.order - b.order)
 
-  const anyFilterActive = !!(search || assignee || priority || client || boardFilter || !showArchived || sort !== 'default')
+  const anyFilterActive = !!(search || assignee || priority || client || boardFilter || adminReply || !showArchived || sort !== 'default')
   // Only the ones the menu itself owns — the search box lives in the page's
   // own tab bar, so counting it here would show a badge for something this
   // menu cannot clear from view.
-  const activeFilterCount = [assignee, priority, client, boardFilter].filter(Boolean).length
+  const activeFilterCount = [assignee, priority, client, boardFilter, adminReply].filter(Boolean).length
     + (showArchived ? 0 : 1)
     + (sort === 'default' ? 0 : 1)
 
   function clearFilters() {
-    onSearchChange(''); setAssignee(''); setPriority(''); setClient(''); setSort('default'); setShowArchived(true); changeBoardFilter('')
+    onSearchChange(''); setAssignee(''); setPriority(''); setClient(''); setAdminReply(''); setSort('default'); setShowArchived(true); changeBoardFilter('')
   }
 
   // The Support board's two chips, rendered in this same row rather than in a
@@ -444,6 +492,19 @@ export function VerticalBoard({
     t.board === 'support' && t.status !== 'done' && t.status !== 'archived' && ticketKindOf(t) === kind,
   ).length
   const activeTicketKind = ticketKind ? ticketKinds.find(k => k.id === ticketKind) : undefined
+
+  // How many tasks each admin-thread choice would leave — shown in the option
+  // itself so the state of the queue is readable without picking one. Counted
+  // over the board's own tasks, archived ones left out, and deliberately NOT
+  // narrowed by the other filters, which is how the ticket chips count too.
+  const adminReplyCount = (status: AdminReplyStatus) => tasks.filter(t =>
+    t.status !== 'archived' && (!boardFilter || t.board === boardFilter) && adminReplyStatusFor(t) === status,
+  ).length
+  const adminReplyOptions: { id: AdminReplyStatus; label: string }[] = [
+    { id: 'awaiting', label: tr('ממתין לתשובת האדמין', 'Waiting for admin reply') },
+    { id: 'replied',  label: tr('האדמין השיב',          'Admin replied') },
+    { id: 'none',     label: tr('אין הודעות בשרשור',     'No messages yet') },
+  ]
 
   return (
     <div className="flex flex-col gap-3 flex-1 min-h-0">
@@ -558,6 +619,23 @@ export function VerticalBoard({
                   </select>
                 </label>
 
+                {/* Asked for so a ticket we wrote to the admin about can be
+                    told apart from one they already answered, without opening
+                    each task to look at its chat. */}
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('תשובת אדמין', 'Admin reply')}</span>
+                  <select
+                    value={adminReply}
+                    onChange={e => setAdminReply(e.target.value as '' | AdminReplyStatus)}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  >
+                    <option value="">{tr('הכל', 'All tasks')}</option>
+                    {adminReplyOptions.map(option => (
+                      <option key={option.id} value={option.id}>{option.label} ({adminReplyCount(option.id)})</option>
+                    ))}
+                  </select>
+                </label>
+
                 <label className="flex flex-col gap-1">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{tr('מיון', 'Sort by')}</span>
                   <select
@@ -615,6 +693,7 @@ export function VerticalBoard({
             boards={boards}
             onCardClick={onOpenTask}
             onAddTask={onAddTask}
+            adminReplyStatusFor={adminReplyStatusFor}
             defaultOpen={col.id !== 'done' && col.id !== 'archived'}
             // "Add task" always creates on one specific target board
             // (see addTaskWithStatus in Work.tsx) — in "All Boards"
