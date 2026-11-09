@@ -6,8 +6,19 @@ module.exports = {
       cwd: '/opt/dashboard-dyo-app',
       interpreter: '/home/fahad/.nvm/versions/node/v22.23.2/bin/node',
       node_args: '--env-file=/opt/dashboard-dyo-app/.env',
-      instances: 1,
-      exec_mode: 'fork',
+      // Two of them, sharing port 3002 through pm2's cluster mode. This is the
+      // only service the browser waits on — every translation and every ticket
+      // chat goes through it — so one worker dying, or a deploy reloading it,
+      // should not be something anybody notices. The second instance also
+      // makes the reload zero-downtime: pm2 brings one up before taking the
+      // other down.
+      //
+      // Safe to run twice: it keeps no state that matters. The ticket-state
+      // cache is per-worker, which costs at most one extra upstream read.
+      // The workers below stay at one instance each on purpose — two copies
+      // of a sender would send everything twice.
+      instances: 2,
+      exec_mode: 'cluster',
       autorestart: true,
       max_memory_restart: '256M',
       env: {

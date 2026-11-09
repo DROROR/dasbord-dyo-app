@@ -16,44 +16,18 @@ export function getChannelLabel(channel: Channel): string {
   return channel === 'service' ? 'שירות' : 'מכירות'
 }
 
-function buildApiUrl(instanceId: string, token: string): string {
-  return `https://api.green-api.com/waInstance${instanceId}/sendMessage/${token}`
-}
-
-function formatChatId(phone: string): string {
-  const digits     = phone.replace(/\D/g, '')
-  const normalized = digits.startsWith('0') ? `972${digits.slice(1)}` : digits
-  return `${normalized}@c.us`
-}
-
-export async function sendWhatsApp(
-  phone: string,
-  message: string,
-  recipientType: 'client' | 'lead',
-): Promise<void> {
-  const channel = getRecipientChannel(recipientType)
-
-  const instanceId = channel === 'service'
-    ? import.meta.env.VITE_GREEN_API_INSTANCE_SERVICE
-    : import.meta.env.VITE_GREEN_API_INSTANCE_SALES
-  const token = channel === 'service'
-    ? import.meta.env.VITE_GREEN_API_TOKEN_SERVICE
-    : import.meta.env.VITE_GREEN_API_TOKEN_SALES
-
-  if (!instanceId || !token) {
-    throw new Error(`WhatsApp channel "${channel}" is not configured`)
-  }
-
-  const url    = buildApiUrl(instanceId as string, token as string)
-  const chatId = formatChatId(phone)
-
-  const response = await fetch(url, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ chatId, message }),
-  })
-
-  if (!response.ok) {
-    throw new Error(`WhatsApp send failed: ${response.status}`)
-  }
-}
+// There used to be a sendWhatsApp() here that read
+// VITE_GREEN_API_TOKEN_SALES / _SERVICE straight out of import.meta.env.
+//
+// Anything named VITE_* is compiled into the JavaScript the browser downloads,
+// so those two tokens would have been published to everyone the moment they
+// were given values — and with them, anybody could send WhatsApp messages from
+// the business number. The tokens happen to be empty today, which is the only
+// reason nothing leaked.
+//
+// Nothing ever called that function. It is gone, and with it the only
+// reference to those variables, so filling them in can no longer publish them.
+// Sending is the server's job: server/lead-sequence-worker.mjs talks to Green
+// API with GREEN_API_INSTANCE_SALES / GREEN_API_TOKEN_SALES — no VITE_ prefix,
+// never bundled. Anything the browser needs sent must go through an endpoint
+// on the proxy, never straight to Green API.
