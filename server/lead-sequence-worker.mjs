@@ -163,6 +163,11 @@ async function run() {
     try {
       const sequence = byId.get(progress.sequence_id)
       if (!sequence || !sequence.is_active) continue
+      // This worker sends the no-answer chain and nothing else. The three
+      // older onboarding chains (seq_key a/b/c) are active and have never had
+      // a progress row; if one ever appeared, by hand or from some future
+      // screen, it must not be this worker that starts posting them to leads.
+      if (!NO_ANSWER_SEQUENCE_KEYS.includes(String(sequence.seq_key ?? '').trim().toLowerCase())) continue
 
       const steps = [...(sequence.sequence_steps ?? [])].sort((a, b) => a.day - b.day)
       const elapsedDays = Math.floor((Date.now() - new Date(progress.started_at).getTime()) / DAY_MS)
