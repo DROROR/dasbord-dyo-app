@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { takeLeadFocus, LEAD_FOCUS_EVENT } from '../lib/focusTarget'
 import { Users, UserPlus, Calendar, Clock, AlertTriangle, X, Check, CheckCheck, Phone, PhoneOff, Mail, Archive, Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search, ArrowUp, ArrowDown, Pencil, PhoneCall, Sparkles } from 'lucide-react'
 import { getLeadPipelineStatuses, createLeadPipelineStatus, deleteLeadPipelineStatus, createManualLead, updateLead as dbUpdateLead, deleteLead as dbDeleteLead } from '../lib/database'
+import { getSequences, getLeadSequenceProgress, startLeadSequence, cancelLeadSequence } from '../lib/database'
+import type { DbSequenceWithSteps, DbLeadSequenceProgress } from '../lib/database'
+import { NO_ANSWER_THRESHOLD, countNoAnswer, findNoAnswerStatus, findNoAnswerSequence, mayAutoMove, reachedThreshold } from '../lib/leadNoAnswer'
 import type { DbLead, DbLeadHistory, DbLeadPipelineStatus, LeadStatusColor } from '../lib/database'
 import { useCan } from '../hooks/useCan'
 import { useLang } from '../contexts/LanguageContext'
@@ -277,7 +280,9 @@ function LeadCard({ lead, onClick, isNew = false }: { lead: Lead; onClick: () =>
       <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('נכנס', 'Entry')}</small>{short(lead.entryDate)}</span>
       <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('שיחה ראשונה', 'First Call')}</small>{short(calls[0])}</span>
       <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('שיחה אחרונה', 'Last Call')}</small>{short(calls.at(-1))}</span>
-      <span className="text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('אין מענה', 'No Answer')}</small>{attempts}</span>
+      {/* Shown against the threshold, so "4/5" says on the board itself that
+          one more failed call carries this lead over on its own. */}
+      <span className={`text-xs ${attempts >= NO_ANSWER_THRESHOLD ? 'font-semibold text-amber-600' : 'text-gray-600'}`}><small className="block text-[10px] text-gray-400">{t('אין מענה', 'No Answer')}</small>{attempts}/{NO_ANSWER_THRESHOLD}</span>
       <span className="min-w-0 truncate text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('קמפיין', 'Campaign')}</small>{lead.campaignName || '—'}</span>
       <span className="min-w-0 truncate text-xs text-gray-600"><small className="block text-[10px] text-gray-400">{t('פלטפורמה', 'Platform')}</small>{lead.source === 'Manual' ? (lead.imported ? '—' : t('ידני', 'Manual')) : lead.source}</span>
       <span className={`text-xs ${isLeadDueOverdue(lead) ? 'font-semibold text-red-600' : 'text-gray-600'}`}><small className="block text-[10px] text-gray-400">{t('שיחה מתוזמנת', 'Scheduled')}</small>{short(lead.dueAt ?? undefined)}</span>
@@ -337,9 +342,194 @@ function KanbanColumn({ col, leads, onLeadClick, onDelete, onEdit, onMoveUp, onM
   )
 }
 
+// ─── No-answer notice tile ────────────────────────────────────────────────────
+
+type NoAnswerNotice = {
+  name: string
+  attempts: number
+  /** The lead was carried into the target column by this attempt. */
+  moved: boolean
+  /** Set when the threshold was reached but the column is one the automation leaves alone. */
+  heldIn?: string
+  statusLabel?: string
+}
+
+/**
+ * The strip above the board after an attempt is recorded. Three readings, each
+ * with its own weight: still counting (quiet amber), moved (filled, because
+ * something actually changed), and held because somebody had set the status by
+ * hand (grey, since nothing happened on purpose).
+ */
+function NoAnswerNoticeTile({ notice, onClose }: { notice: NoAnswerNotice; onClose: () => void }) {
+  const { t } = useLang()
+  const { attempts, moved, heldIn } = notice
+  const left = Math.max(0, NO_ANSWER_THRESHOLD - attempts)
+  // All three sit on the plain surface, which is also what carries the theme
+  // (bg-white is remapped for dark mode in index.css). The reading is told
+  // apart by the border and the icon, never by a coloured fill behind text:
+  // amber behind amber was the unreadable version of this.
+  const tone = moved
+    ? 'border-amber-400 bg-white text-amber-800 shadow-sm'
+    : heldIn
+      ? 'border-gray-200 bg-white text-gray-700'
+      : 'border-amber-200 bg-white text-amber-800'
+
+  return (
+    <div className={`mb-3 flex items-center gap-3 rounded-xl border px-3 py-2.5 ${tone}`}>
+      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${moved ? 'bg-amber-500 text-white' : heldIn ? 'bg-gray-100 text-gray-500' : 'bg-amber-100 text-amber-700'}`}>
+        <PhoneOff size={14} />
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-bold">{notice.name}</p>
+        <p className={`truncate text-[11px] ${moved ? 'text-amber-800' : heldIn ? 'text-gray-500' : 'text-amber-700'}`}>
+          {moved
+            ? t(`הועבר ל"${notice.statusLabel}" — ${attempts} ניסיונות ללא מענה`, `Moved to "${notice.statusLabel}" — ${attempts} unanswered attempts`)
+            : heldIn
+              ? t(`${attempts} ניסיונות — נשאר ב"${heldIn}" (סטטוס שנקבע ידנית)`, `${attempts} attempts — stays in "${heldIn}" (status set by hand)`)
+              : t(`ניסיון ללא מענה נרשם · עוד ${left} ויעבור אוטומטית`, `Unanswered attempt recorded · ${left} more and it moves automatically`)}
+        </p>
+      </div>
+
+      {/* One dot per attempt up to the threshold: the distance left, at a glance. */}
+      <span className="hidden shrink-0 items-center gap-1 sm:flex" aria-hidden="true">
+        {Array.from({ length: NO_ANSWER_THRESHOLD }, (_, i) => (
+          <span
+            key={i}
+            className={`h-1.5 w-1.5 rounded-full ${i < attempts
+              ? moved ? 'bg-amber-500' : heldIn ? 'bg-gray-400' : 'bg-amber-400'
+              : moved ? 'bg-amber-100' : heldIn ? 'bg-gray-200' : 'bg-amber-100'}`}
+          />
+        ))}
+      </span>
+
+      <span className={`shrink-0 rounded-lg px-2 py-0.5 text-xs font-bold tabular-nums ${moved ? 'bg-amber-100 text-amber-800' : heldIn ? 'bg-gray-100 text-gray-700' : 'bg-amber-50 text-amber-800'}`}>
+        {attempts}/{NO_ANSWER_THRESHOLD}
+      </span>
+
+      <button onClick={onClose} className={`shrink-0 rounded-md p-1 transition-colors ${moved ? 'text-amber-700 hover:text-amber-800' : 'text-gray-400 hover:text-gray-600'}`} aria-label={t('סגור', 'Dismiss')}>
+        <X size={13} />
+      </button>
+    </div>
+  )
+}
+
+// ─── No-answer automation panel ───────────────────────────────────────────────
+
+/**
+ * What the unanswered-call automation has done, or will do, for this one lead.
+ *
+ * Shown only once there is something to say — an attempt on the record or a
+ * chain already running — so a lead nobody has tried to call yet looks exactly
+ * as it did before. It reports state and offers the one manual override
+ * (stopping the chain); it never sends anything and never counts anything of
+ * its own.
+ */
+function NoAnswerPanel({ lead, status, sequence, progress, canEdit, onStopSequence }: {
+  lead: Lead
+  status?: DbLeadPipelineStatus
+  sequence?: DbSequenceWithSteps
+  progress?: DbLeadSequenceProgress
+  canEdit: boolean
+  onStopSequence?: (progressId: string) => Promise<void>
+}) {
+  const { t, lang } = useLang()
+  const [stopping, setStopping] = useState(false)
+  const attempts = countNoAnswer(lead.history)
+  if (attempts === 0 && !progress) return null
+
+  const left = Math.max(0, NO_ANSWER_THRESHOLD - attempts)
+  const inTargetColumn = !!status && lead.pipelineStatusId === status.id
+  const steps = [...(sequence?.steps ?? [])].sort((a, b) => a.day - b.day)
+  const nextStep = progress?.status === 'active' ? steps.find(step => step.day > progress.last_day_sent) : undefined
+  const sentCount = steps.filter(step => step.day <= (progress?.last_day_sent ?? 0)).length
+  const nextDate = nextStep && progress
+    ? new Date(new Date(progress.started_at).getTime() + nextStep.day * 86_400_000)
+    : undefined
+
+  return <section className="space-y-2 border-t border-gray-100 pt-4">
+    <h3 className="flex items-center gap-1.5 text-sm font-bold text-gray-800">
+      <PhoneOff size={14} className="text-amber-600" />
+      {t('אוטומציית אין מענה', 'No-answer automation')}
+    </h3>
+
+    <div className={`rounded-xl border bg-white p-3 text-xs text-gray-700 ${attempts >= NO_ANSWER_THRESHOLD ? 'border-amber-400' : 'border-amber-200'}`}>
+      {/* The count as a figure with the distance drawn next to it, rather than
+          a sentence the eye has to read to the end. */}
+      <div className="flex items-center gap-2.5">
+        <span className={`rounded-lg px-2 py-0.5 text-sm font-bold tabular-nums ${attempts >= NO_ANSWER_THRESHOLD ? 'bg-amber-100 text-amber-800' : 'bg-amber-50 text-amber-800'}`}>
+          {attempts}/{NO_ANSWER_THRESHOLD}
+        </span>
+        <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
+          {Array.from({ length: NO_ANSWER_THRESHOLD }, (_, index) => (
+            <span key={index} className={`h-1.5 w-1.5 rounded-full ${index < attempts ? 'bg-amber-500' : 'bg-amber-100'}`} aria-hidden="true" />
+          ))}
+        </span>
+        <span className="min-w-0 flex-1 text-[11px] leading-tight text-gray-500">
+          {t('ניסיונות ללא מענה', 'unanswered attempts')}
+          {left > 0 && !inTargetColumn && (
+            <>{' · '}{t(`עוד ${left} ויעבור אוטומטית`, `${left} more and it moves automatically`)}</>
+          )}
+        </span>
+      </div>
+
+      {/* Without a "No Answer" column there is nothing to move to, and saying
+          so here is the only place anybody would find that out. */}
+      {!status && (
+        <p className="mt-2 border-t border-amber-100 pt-2 text-[11px] text-gray-500">
+          {t(
+            'אין עמודת "אין מענה" בלוח — צור אותה בכפתור "הוסף סטטוס" כדי להפעיל את ההעברה',
+            'No "No Answer" column on the board yet — create one with "Add Status" to switch the move on',
+          )}
+        </p>
+      )}
+      {inTargetColumn && status && (
+        <p className="mt-2 flex items-center gap-1 border-t border-amber-100 pt-2 font-semibold text-amber-700">
+          {t(`נמצא בעמודת "${status.label_he}"`, `Sitting in the "${status.label_en}" column`)}
+        </p>
+      )}
+
+      {progress ? (
+        <p className="mt-2 border-t border-amber-100 pt-2">
+          {progress.status === 'active' ? (
+            <>
+              <strong>{t('מעקב וואטסאפ פעיל', 'WhatsApp follow-up running')}</strong>
+              {' · '}{t(`${sentCount} מתוך ${steps.length} נשלחו`, `${sentCount} of ${steps.length} sent`)}
+              {nextDate && <>{' · '}{t('הבא', 'next')} {nextDate.toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}</>}
+              {!nextStep && <>{' · '}{t('הושלם', 'finished')}</>}
+            </>
+          ) : (
+            <span className="text-gray-500">{t('מעקב וואטסאפ הופסק', 'WhatsApp follow-up stopped')}</span>
+          )}
+        </p>
+      ) : (
+        !sequence && attempts >= NO_ANSWER_THRESHOLD && (
+          <p className="mt-2 border-t border-amber-100 pt-2 text-gray-500">
+            {t(
+              'אין שרשרת מעקב מוגדרת — לכן לא נשלחו הודעות',
+              'No follow-up chain is set up yet — so no messages have gone out',
+            )}
+          </p>
+        )
+      )}
+
+      {canEdit && progress?.status === 'active' && onStopSequence && (
+        <button
+          onClick={async () => { setStopping(true); try { await onStopSequence(progress.id) } finally { setStopping(false) } }}
+          disabled={stopping}
+          className="mt-2 flex h-8 items-center gap-1 rounded-lg border border-gray-300 bg-surface px-3 text-xs font-semibold text-gray-600 transition-colors hover:border-gray-400 disabled:opacity-40"
+        >
+          {stopping ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+          {t('הפסק מעקב', 'Stop follow-up')}
+        </button>
+      )}
+    </div>
+  </section>
+}
+
 // ─── Lead modal ───────────────────────────────────────────────────────────────
 
-function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, canDelete, statuses }: {
+function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, canDelete, statuses, noAnswerStatus, noAnswerSequence, sequenceProgress, onStopSequence }: {
   lead: Lead
   onClose: () => void
   onUpdate: (id: string, patch: Partial<Lead>) => Promise<void>
@@ -348,6 +538,13 @@ function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, c
   canEdit: boolean
   canDelete: boolean
   statuses: DbLeadPipelineStatus[]
+  /** The column the automation moves to, when one has been created. */
+  noAnswerStatus?: DbLeadPipelineStatus
+  /** The follow-up chain it starts, when one has been set up. */
+  noAnswerSequence?: DbSequenceWithSteps
+  /** This lead's own place in that chain, if it was ever enrolled. */
+  sequenceProgress?: DbLeadSequenceProgress
+  onStopSequence?: (progressId: string) => Promise<void>
 }) {
   const { t, lang } = useLang()
   const [tab,          setTab]          = useState<ModalTab>('details')
@@ -574,6 +771,16 @@ function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, c
               </div>
           )}
 
+          {tab === 'details' && (
+            <NoAnswerPanel
+              lead={lead}
+              status={noAnswerStatus}
+              sequence={noAnswerSequence}
+              progress={sequenceProgress}
+              canEdit={canEdit}
+              onStopSequence={onStopSequence}
+            />
+          )}
           {tab === 'details' && <LeadHistoryPanel entries={lead.history} canEdit={canEdit} onAdd={(kind, body, occurredAt) => onAddHistory(lead.id, kind, body, occurredAt)} onNotRelevant={canEdit && archivedStatus && lead.pipelineStatusId !== archivedStatus.id ? () => changePipelineStatus(archivedStatus.id) : undefined} />}
           {/* ── WhatsApp ── */}
           {tab === 'whatsapp' && (
@@ -746,6 +953,7 @@ export function Leads() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   // Kept current for the focus listener, which is registered once at mount.
   const leadsRef = useRef<Lead[]>([])
+  const noticeTimerRef = useRef<number | null>(null)
   const [statuses, setStatuses] = useState<DbLeadPipelineStatus[]>([])
   const [addingStatus, setAddingStatus] = useState(false)
   const [addingLead, setAddingLead] = useState(false)
@@ -774,13 +982,31 @@ export function Leads() {
   const [syncingCold, setSyncingCold] = useState(false)
   const [clockNow, setClockNow] = useState(() => Date.now())
   const [statsRange, setStatsRange] = useState<StatsRange>('all')
+  // The follow-up chains and where each lead stands in one. Loaded alongside
+  // the leads so the automation below can decide without a round trip, and so
+  // the lead dialog can show a chain that is already running.
+  const [sequences, setSequences] = useState<DbSequenceWithSteps[]>([])
+  const [sequenceProgress, setSequenceProgress] = useState<DbLeadSequenceProgress[]>([])
+  // The tile above the board. Shown after EVERY unanswered attempt, not only
+  // the one that moves the lead, so the count is visible without opening the
+  // card again.
+  const [noAnswerNotice, setNoAnswerNotice] = useState<NoAnswerNotice | null>(null)
   useEffect(() => { const interval = window.setInterval(() => setClockNow(Date.now()), 60_000); return () => window.clearInterval(interval) }, [])
 
   const load = async (showLoading = true) => {
     if (showLoading) setLoading(true)
     setFetchError(null)
     try {
-      const [rows, pipelineStatuses, history] = await Promise.all([getAllLeads(), getLeadPipelineStatuses(), getLeadHistory()])
+      // The two new reads are additive and failure-tolerant on purpose: a
+      // leads board that cannot read the follow-up chains must still load the
+      // leads, so neither of them can break this screen.
+      const [rows, pipelineStatuses, history, chains, progress] = await Promise.all([
+        getAllLeads(),
+        getLeadPipelineStatuses(),
+        getLeadHistory(),
+        getSequences().catch(() => [] as DbSequenceWithSteps[]),
+        getLeadSequenceProgress().catch(() => [] as DbLeadSequenceProgress[]),
+      ])
       const byLead = new Map<string, DbLeadHistory[]>()
       history.forEach(entry => byLead.set(entry.lead_id, [...(byLead.get(entry.lead_id) ?? []), entry]))
       const fresh = rows.map(row => ({ ...dbLeadToLead(row), history: byLead.get(row.id) ?? [] }))
@@ -789,6 +1015,8 @@ export function Leads() {
       // state from when the page loaded.
       setSelectedLead(prev => prev ? fresh.find(lead => lead.id === prev.id) ?? prev : null)
       setStatuses(pipelineStatuses)
+      setSequences(chains)
+      setSequenceProgress(progress)
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : t('שגיאה בטעינת לידים', 'Failed to load leads'))
     } finally {
@@ -985,6 +1213,77 @@ export function Leads() {
     const append = (lead: Lead) => lead.id === id ? { ...lead, history: [...lead.history, entry] } : lead
     setLeads(prev => prev.map(append))
     setSelectedLead(prev => prev ? append(prev) : null)
+    if (kind === 'no_answer') await runNoAnswerAutomation(id, [...(leadsRef.current.find(lead => lead.id === id)?.history ?? []), entry])
+  }
+
+  /**
+   * The unanswered-call automation, run only right after an attempt was just
+   * recorded — never as a sweep over existing rows, so deploying this moves
+   * nothing by itself. Every step is optional and silent when its piece is not
+   * set up yet: no "No Answer" column means no move, no "no_answer" sequence
+   * means no chain, and a failure in either is swallowed so that recording the
+   * attempt itself — the thing the agent actually did — always stands.
+   */
+  const runNoAnswerAutomation = async (id: string, history: DbLeadHistory[]) => {
+    const attempts = countNoAnswer(history)
+    const lead = leadsRef.current.find(item => item.id === id)
+    if (!lead) return
+    const target = findNoAnswerStatus(statuses)
+    const current = statuses.find(status => status.id === lead.pipelineStatusId)
+    const atThreshold = reachedThreshold(attempts)
+    const moving = !!target && atThreshold && canEdit && mayAutoMove(current, target)
+
+    // The tile goes up for every attempt, including the ones still counting.
+    setNoAnswerNotice({
+      name: lead.name,
+      attempts,
+      moved: moving,
+      ...(moving ? { statusLabel: t(target!.label_he, target!.label_en) } : {}),
+      ...(atThreshold && !moving && current ? { heldIn: t(current.label_he, current.label_en) } : {}),
+    })
+    if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current)
+    noticeTimerRef.current = window.setTimeout(() => setNoAnswerNotice(null), moving ? 10_000 : 6000)
+
+    if (!canEdit || !atThreshold) return
+
+    try {
+      if (moving && target) {
+        await handleUpdate(id, {
+          pipelineStatusId: target.id,
+          statusUpdatedAt: new Date().toISOString(),
+          lastUpdate: new Date().toISOString(),
+        })
+        // Why the lead suddenly changed column, written where whoever opens it
+        // will look. Without this the move reads as somebody else's edit.
+        const note = await addLeadHistory({
+          lead_id: id,
+          kind: 'note',
+          body: t(
+            `הועבר אוטומטית ל"${target.label_he}" לאחר ${attempts} ניסיונות ללא מענה`,
+            `Moved automatically to "${target.label_en}" after ${attempts} unanswered attempts`,
+          ),
+        })
+        const append = (item: Lead) => item.id === id ? { ...item, history: [...item.history, note] } : item
+        setLeads(prev => prev.map(append))
+        setSelectedLead(prev => prev ? append(prev) : null)
+      }
+
+      // The chain starts once per lead: a sixth and seventh attempt must not
+      // enrol it again and send the whole series twice.
+      const chain = findNoAnswerSequence(sequences)
+      const alreadyRunning = sequenceProgress.some(row => row.lead_id === id && row.status === 'active')
+      if (chain && !alreadyRunning) {
+        const started = await startLeadSequence(id, chain.id)
+        setSequenceProgress(prev => [started, ...prev])
+      }
+    } catch (err) {
+      console.error('No-answer automation failed:', err)
+    }
+  }
+
+  const handleStopSequence = async (progressId: string) => {
+    const stopped = await cancelLeadSequence(progressId)
+    setSequenceProgress(prev => prev.map(row => row.id === progressId ? stopped : row))
   }
 
   const handleDeleteLead = async (id: string) => {
@@ -1120,6 +1419,10 @@ export function Leads() {
         </div>
       )}
 
+      {noAnswerNotice && (
+        <NoAnswerNoticeTile notice={noAnswerNotice} onClose={() => setNoAnswerNotice(null)} />
+      )}
+
       {view === 'kanban' && (
         <div className="flex w-full flex-col gap-2">
           {statuses.filter(status => !status.is_archived).map(col => (
@@ -1146,6 +1449,11 @@ export function Leads() {
           onClose={() => setSelectedLead(null)}
           onUpdate={handleUpdate}
           onAddHistory={handleAddHistory}
+          noAnswerStatus={findNoAnswerStatus(statuses)}
+          noAnswerSequence={findNoAnswerSequence(sequences)}
+          sequenceProgress={sequenceProgress.find(row => row.lead_id === selectedLead.id && row.status === 'active')
+            ?? sequenceProgress.find(row => row.lead_id === selectedLead.id)}
+          onStopSequence={handleStopSequence}
           onDelete={handleDeleteLead}
           canEdit={canEdit}
           canDelete={canDeleteStatuses}

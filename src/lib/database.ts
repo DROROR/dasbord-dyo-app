@@ -698,6 +698,55 @@ export async function deleteSequenceStep(id: string): Promise<void> {
   if (error) throw error
 }
 
+// ── LEAD SEQUENCE PROGRESS ────────────────────────────────────────────────────
+//
+// Where each lead stands in a WhatsApp follow-up chain. The table (and its
+// permission-gated RLS) has existed unused since the leads board was built;
+// these are the first readers and writers of it. Sending the messages is a
+// separate job — nothing here sends anything, it only records that a chain was
+// started, how far it has got, and whether somebody stopped it.
+
+export interface DbLeadSequenceProgress {
+  id: string
+  lead_id: string
+  sequence_id: string
+  started_at: string
+  /** The `day` of the last step delivered; 0 while nothing has gone out yet. */
+  last_day_sent: number
+  status: 'active' | 'cancelled' | 'done' | string
+  updated_at: string
+}
+
+export async function getLeadSequenceProgress(): Promise<DbLeadSequenceProgress[]> {
+  const { data, error } = await supabase
+    .from('lead_sequence_progress')
+    .select('*')
+    .order('started_at', { ascending: false })
+  if (error) throw error
+  return (data ?? []) as DbLeadSequenceProgress[]
+}
+
+export async function startLeadSequence(leadId: string, sequenceId: string): Promise<DbLeadSequenceProgress> {
+  const { data, error } = await supabase
+    .from('lead_sequence_progress')
+    .insert({ lead_id: leadId, sequence_id: sequenceId, status: 'active', last_day_sent: 0 })
+    .select()
+    .single()
+  if (error) throw error
+  return data as DbLeadSequenceProgress
+}
+
+export async function cancelLeadSequence(id: string): Promise<DbLeadSequenceProgress> {
+  const { data, error } = await supabase
+    .from('lead_sequence_progress')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw error
+  return data as DbLeadSequenceProgress
+}
+
 // ── DASHBOARD STATS ───────────────────────────────────────────────────────────────
 
 const PACKAGE_PRICES: Record<string, number> = {
