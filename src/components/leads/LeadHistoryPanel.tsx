@@ -73,7 +73,7 @@ export function LeadHistoryPanel({ entries, canEdit, onAdd, onNotRelevant }: {
         >
           {saving ? <Loader2 size={15} className="animate-spin" /> : <PhoneOff size={15} />}
           {t('ניסיון קשר — אין מענה', 'Contact Attempt — No Answer')}
-          <span className={`inline-flex h-5 min-w-[32px] items-center justify-center rounded-full bg-amber-950 px-1 text-[10px] font-bold leading-none tabular-nums text-amber-50 transition-transform duration-200 ${bumped ? 'motion-safe:scale-[1.35]' : 'scale-100'}`}>{attempts}/{NO_ANSWER_THRESHOLD}</span>
+          <span className={`inline-flex h-5 min-w-[32px] items-center justify-center rounded-full bg-amber-950 px-1 text-[10px] font-bold leading-none tabular-nums text-amber-50 transition-transform duration-200 ${bumped ? 'motion-safe:scale-[1.35]' : 'scale-100'}`}>{atThreshold ? attempts : `${attempts}/${NO_ANSWER_THRESHOLD}`}</span>
         </button>
         {onNotRelevant && <button onClick={onNotRelevant} disabled={saving} title={t('מעביר את הליד לארכיון — ההיסטוריה נשמרת', 'Moves the lead to the archive — its history is kept')} className="flex h-9 items-center gap-1 rounded-lg border border-gray-300 px-3 text-xs font-semibold text-gray-600 transition-colors hover:border-gray-400 hover:bg-gray-50 disabled:opacity-40"><Archive size={13} />{t('לא רלוונטי', 'Not relevant')}</button>}
         {saving && <Loader2 size={14} className="animate-spin text-primary" />}

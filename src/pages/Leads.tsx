@@ -404,7 +404,7 @@ function NoAnswerNoticeTile({ notice, onClose }: { notice: NoAnswerNotice; onClo
       </span>
 
       <span className={`shrink-0 rounded-lg px-2 py-0.5 text-xs font-bold tabular-nums ${moved ? 'bg-amber-100 text-amber-800' : heldIn ? 'bg-gray-100 text-gray-700' : 'bg-amber-50 text-amber-800'}`}>
-        {attempts}/{NO_ANSWER_THRESHOLD}
+        {attempts >= NO_ANSWER_THRESHOLD ? attempts : `${attempts}/${NO_ANSWER_THRESHOLD}`}
       </span>
 
       <button onClick={onClose} className={`shrink-0 rounded-md p-1 transition-colors ${moved ? 'text-amber-700 hover:text-amber-800' : 'text-gray-400 hover:text-gray-600'}`} aria-label={t('סגור', 'Dismiss')}>
@@ -441,8 +441,12 @@ function NoAnswerPanel({ lead, status, sequence, progress, canEdit, onStopSequen
   const left = Math.max(0, NO_ANSWER_THRESHOLD - attempts)
   const inTargetColumn = !!status && lead.pipelineStatusId === status.id
   const steps = [...(sequence?.steps ?? [])].sort((a, b) => a.day - b.day)
-  const nextStep = progress?.status === 'active' ? steps.find(step => step.day > progress.last_day_sent) : undefined
-  const sentCount = steps.filter(step => step.day <= (progress?.last_day_sent ?? 0)).length
+  // -1 is "nothing has gone out". Reading 0 as the floor counted a step
+  // scheduled for day 0 as already delivered, so the dialog said "1 of 4 sent"
+  // while no message had left the building.
+  const lastDaySent = progress ? (progress.last_day_sent < 0 ? -1 : progress.last_day_sent) : -1
+  const nextStep = progress?.status === 'active' ? steps.find(step => step.day > lastDaySent) : undefined
+  const sentCount = steps.filter(step => step.day <= lastDaySent).length
   const nextDate = nextStep && progress
     ? new Date(new Date(progress.started_at).getTime() + nextStep.day * 86_400_000)
     : undefined
@@ -457,8 +461,10 @@ function NoAnswerPanel({ lead, status, sequence, progress, canEdit, onStopSequen
       {/* The count as a figure with the distance drawn next to it, rather than
           a sentence the eye has to read to the end. */}
       <div className="flex items-center gap-2.5">
+        {/* The denominator is the distance to the move, so it stops being
+            worth printing once the move has happened: "7/5" read as an error. */}
         <span className={`rounded-lg px-2 py-0.5 text-sm font-bold tabular-nums ${attempts >= NO_ANSWER_THRESHOLD ? 'bg-amber-100 text-amber-800' : 'bg-amber-50 text-amber-800'}`}>
-          {attempts}/{NO_ANSWER_THRESHOLD}
+          {attempts >= NO_ANSWER_THRESHOLD ? attempts : `${attempts}/${NO_ANSWER_THRESHOLD}`}
         </span>
         <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
           {Array.from({ length: NO_ANSWER_THRESHOLD }, (_, index) => (

@@ -711,7 +711,12 @@ export interface DbLeadSequenceProgress {
   lead_id: string
   sequence_id: string
   started_at: string
-  /** The `day` of the last step delivered; 0 while nothing has gone out yet. */
+  /**
+   * The `day` of the last step delivered. -1 while nothing has gone out: a
+   * sequence may legitimately have a step on day 0 (send as soon as the lead
+   * is enrolled), so 0 cannot also mean "nothing sent" — that collision made
+   * the first step unsendable.
+   */
   last_day_sent: number
   status: 'active' | 'cancelled' | 'done' | string
   updated_at: string
@@ -729,7 +734,7 @@ export async function getLeadSequenceProgress(): Promise<DbLeadSequenceProgress[
 export async function startLeadSequence(leadId: string, sequenceId: string): Promise<DbLeadSequenceProgress> {
   const { data, error } = await supabase
     .from('lead_sequence_progress')
-    .insert({ lead_id: leadId, sequence_id: sequenceId, status: 'active', last_day_sent: 0 })
+    .insert({ lead_id: leadId, sequence_id: sequenceId, status: 'active', last_day_sent: -1 })
     .select()
     .single()
   if (error) throw error

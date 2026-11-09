@@ -114,9 +114,9 @@ async function sendWhatsApp(phone, message) {
  * The filter carries the value last_day_sent is expected to still hold, so
  * exactly one caller can move it forward.
  */
-async function claimStep(progress, day) {
+async function claimStep(progress, lastSent, day) {
   const claimed = await rest(
-    `lead_sequence_progress?id=eq.${progress.id}&last_day_sent=eq.${progress.last_day_sent}&status=eq.active`,
+    `lead_sequence_progress?id=eq.${progress.id}&last_day_sent=eq.${lastSent}&status=eq.active`,
     {
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
@@ -170,13 +170,20 @@ async function run() {
       if (!NO_ANSWER_SEQUENCE_KEYS.includes(String(sequence.seq_key ?? '').trim().toLowerCase())) continue
 
       const steps = [...(sequence.sequence_steps ?? [])].sort((a, b) => a.day - b.day)
+      // -1 means nothing has gone out. A sequence may legitimately open with a
+      // step on day 0, so 0 cannot also mean "nothing sent": that collision
+      // made the first step unsendable and showed in the dialog as "1 of 4
+      // sent" when nothing had been. Rows written before -1 was the sentinel
+      // carry 0 and are read as untouched, because a day-0 step is only ever
+      // marked by the claim that raises last_day_sent to 0 from -1.
+      const lastSent = progress.last_day_sent < 0 ? -1 : progress.last_day_sent
       const elapsedDays = Math.floor((Date.now() - new Date(progress.started_at).getTime()) / DAY_MS)
       // One step per lead per run: a chain that was paused does not fire its
       // whole backlog into somebody's phone at once.
-      const due = steps.find(step => step.day > progress.last_day_sent && step.day <= elapsedDays)
+      const due = steps.find(step => step.day > lastSent && step.day <= elapsedDays)
 
       if (!due) {
-        const remaining = steps.some(step => step.day > progress.last_day_sent)
+        const remaining = steps.some(step => step.day > lastSent)
         if (!remaining) await closeChain(progress, 'done')
         continue
       }
@@ -195,7 +202,7 @@ async function run() {
         console.log(`[lead-sequence] DRY RUN — would send day ${due.day} to ${lead.name} <${lead.phone}>:\n${message}\n`)
         continue
       }
-      if (!(await claimStep(progress, due.day))) continue
+      if (!(await claimStep(progress, progress.last_day_sent, due.day))) continue
 
       try {
         await sendWhatsApp(lead.phone, message)
