@@ -10,6 +10,56 @@ const SEND_TICKET_MESSAGE_URL = process.env.SEND_TICKET_MESSAGE_URL
 const GET_TICKET_MESSAGES_URL = process.env.GET_TICKET_MESSAGES_URL
 const DEPLOY_SECRET = process.env.DEPLOY_SECRET
 
+// ── Who is calling ───────────────────────────────────────────────────────────
+//
+// These endpoints reach a paid Anthropic account and the ticket webhooks, and
+// they used to ask the caller for nothing: anyone who knew the URL could spend
+// the account's money from a terminal. The browser now sends the signed-in
+// user's Supabase token on every call (src/lib/claudeApiAuth.ts); this checks
+// it.
+//
+// It is OFF until CLAUDE_REQUIRE_AUTH=on. The reason is the people who already
+// have the planner open: their tab is running the bundle from before the token
+// was sent, and switching enforcement on in the same breath as the deploy
+// would lock every one of them out mid-sentence until they happened to reload.
+// While it is off the check still runs and still logs, so the log answers the
+// only question that matters before turning it on — is anybody still calling
+// without a token.
+const REQUIRE_AUTH = process.env.CLAUDE_REQUIRE_AUTH === 'on'
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
+
+// A token is good for a while, so it is checked once and remembered rather
+// than costing a round trip to Supabase on every translation keystroke.
+const TOKEN_TTL_MS = 5 * 60_000
+const tokenCache = new Map()
+
+async function callerIsSignedIn(request) {
+  const header = request.headers.authorization || ''
+  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
+  if (!token) return { ok: false, why: 'no token' }
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return { ok: false, why: 'auth not configured' }
+
+  const cached = tokenCache.get(token)
+  if (cached && Date.now() - cached.at < TOKEN_TTL_MS) return cached.result
+
+  let result
+  try {
+    const upstream = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SUPABASE_ANON_KEY, authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+    result = upstream.ok ? { ok: true } : { ok: false, why: `rejected (${upstream.status})` }
+  } catch {
+    // Supabase unreachable. Not the caller's fault, so this is not treated as
+    // a failed sign-in: a blip there must not take the planner's AI down.
+    return { ok: true, why: 'auth check unavailable — allowed' }
+  }
+  if (tokenCache.size > 500) tokenCache.clear()
+  tokenCache.set(token, { at: Date.now(), result })
+  return result
+}
+
 if (!API_KEY) {
   console.error('ANTHROPIC_API_KEY is required')
   process.exit(1)
@@ -107,6 +157,15 @@ const server = http.createServer(async (request, response) => {
   const isGetTicketMessageStates = request.method === 'POST' && request.url === '/get-ticket-message-states'
   if (!isClaudeRequest && !isDeployNotification && !isSendTicketMessage && !isGetTicketMessages && !isGetTicketMessageStates) {
     return sendJson(response, 404, { error: 'Not found' })
+  }
+
+  const caller = await callerIsSignedIn(request)
+  if (!caller.ok) {
+    if (REQUIRE_AUTH) {
+      console.warn(`Rejected an unauthenticated ${request.url} (${caller.why})`)
+      return sendJson(response, 401, { error: 'Sign in to use this' })
+    }
+    console.warn(`Unauthenticated ${request.url} (${caller.why}) — allowed, CLAUDE_REQUIRE_AUTH is not on`)
   }
 
   try {

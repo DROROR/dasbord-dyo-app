@@ -5,6 +5,10 @@ import App from './App.tsx'
 import { SettingsProvider } from './context/SettingsContext.tsx'
 import { AuthProvider } from './hooks/useAuth.tsx'
 import { ThemeProvider } from './contexts/ThemeContext.tsx'
+import { installClaudeApiAuth } from './lib/claudeApiAuth'
+
+// Before anything renders, so the first request already carries the token.
+installClaudeApiAuth()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
