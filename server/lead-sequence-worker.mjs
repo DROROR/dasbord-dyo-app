@@ -39,6 +39,9 @@ const TIMEZONE   = process.env.LEAD_SEQUENCE_TZ || 'Asia/Jerusalem'
 
 const POLL_MS = Number(process.env.LEAD_SEQUENCE_POLL_MS ?? 300_000)
 
+// Said once, not every five minutes.
+let warnedUnconfigured = false
+
 // The column the planner moves an unreachable lead into, recognised by name
 // exactly as src/lib/leadNoAnswer.ts does it.
 const NO_ANSWER_LABELS = ['no answer', 'no-answer', 'אין מענה', 'ללא מענה']
@@ -147,6 +150,18 @@ async function stopReasonFor(progress, lead, noAnswerStatusId) {
 }
 
 async function run() {
+  // Checked before anything is claimed. Without a channel every send would
+  // throw, and because a step is claimed BEFORE it is sent, a chain would
+  // quietly burn through all four of its steps marking them failed — so by
+  // the time the credentials arrived there would be nothing left to send.
+  if (SENDING && (!GREEN_INSTANCE || !GREEN_TOKEN)) {
+    if (!warnedUnconfigured) {
+      warnedUnconfigured = true
+      console.error('[lead-sequence] the sales WhatsApp channel has no credentials — standing down until GREEN_API_INSTANCE_SALES and GREEN_API_TOKEN_SALES are set')
+    }
+    return
+  }
+
   const running = await rest('lead_sequence_progress?status=eq.active&select=*&order=started_at.asc&limit=200')
   if (running.length === 0) return
 
