@@ -172,19 +172,35 @@ function fingerprintOf(template) {
   return longest.length >= 20 ? longest.slice(0, 60) : ''
 }
 
+// What a person writes when they want the messages to end. Matched against
+// the WHOLE of a short reply, never a word inside a longer one: "stop by the
+// office tomorrow" is a customer talking, not a request to be left alone.
+const OPT_OUT_REPLIES = [
+  'הסר', 'הסירו', 'הסירו אותי', 'הסר אותי', 'להסיר', 'תסירו אותי', 'הסרה', 'די', 'מספיק', 'תפסיקו', 'לא מעוניין', 'לא מעוניינת', 'לא רלוונטי',
+  'stop', 'unsubscribe', 'remove', 'remove me', 'no more', 'not interested',
+]
+
+const textOf = record => record?.message?.conversation ?? record?.message?.extendedTextMessage?.text ?? ''
+
+function isOptOut(text) {
+  const said = squash(text)
+  return said.length > 0 && said.length <= 40 && OPT_OUT_REPLIES.some(reply => said === reply || said === `${reply} בבקשה` || said === `${reply} please` || said === `please ${reply}` || said === `בבקשה ${reply}`)
+}
+
 /**
- * Whether this lead has already been sent this very text from the business
- * number — by the client's own new-lead automation, or by a person. The chain
- * runs alongside those, and the same message twice is worse than none.
+ * What the business number's own chat with this lead says about the step that
+ * is about to go: whether the lead asked for the messages to end, and whether
+ * this very text already reached them.
  *
  * Throws when the gateway cannot be asked; the caller then leaves the step for
  * the next run rather than guessing.
  */
-async function alreadySent(phone, template) {
-  if (!USE_EVOLUTION) return false
+async function chatCheck(phone, template) {
+  const nothing = { optedOut: false, alreadySent: false }
+  if (!USE_EVOLUTION) return nothing
   const print = fingerprintOf(template)
   const chatId = chatIdOf(phone)
-  if (!print || !chatId) return false
+  if (!chatId) return nothing
   const response = await fetch(`${EVOLUTION_URL}/chat/findMessages/${encodeURIComponent(EVOLUTION_INSTANCE)}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', apikey: EVOLUTION_KEY },
@@ -194,11 +210,10 @@ async function alreadySent(phone, template) {
   if (!response.ok) throw new Error(`Evolution API returned ${response.status} for the message history`)
   const data = await response.json()
   const records = Array.isArray(data) ? data : (data?.messages?.records ?? [])
-  return records.some(record => {
-    if (!record?.key?.fromMe) return false
-    const text = record.message?.conversation ?? record.message?.extendedTextMessage?.text ?? ''
-    return squash(text).includes(print)
-  })
+  return {
+    optedOut: records.some(record => record?.key?.fromMe === false && isOptOut(textOf(record))),
+    alreadySent: print !== '' && records.some(record => record?.key?.fromMe && squash(textOf(record)).includes(print)),
+  }
 }
 
 /**
@@ -433,7 +448,19 @@ async function run() {
       }
       // Asked before the step is claimed: if the gateway cannot answer, the
       // step is simply still due next time.
-      if (await alreadySent(lead.phone, due.message)) {
+      const chat = await chatCheck(lead.phone, due.message)
+      if (chat.optedOut) {
+        // They wrote back asking for it to end. The chain closes, its open
+        // calls with it, and the reason is left on the lead for whoever opens it.
+        console.log(`[lead-sequence] chain ${progress.id} stopped — the lead asked on WhatsApp not to be written to`)
+        await closeChain(progress, 'stopped')
+        await rest(`lead_followup_tasks?progress_id=eq.${progress.id}&status=eq.open`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'cancelled', updated_at: new Date().toISOString() }),
+        }).catch(() => {})
+        continue
+      }
+      if (chat.alreadySent) {
         if (await claimStep(progress, progress.last_day_sent, due.day)) {
           console.log(`[lead-sequence] day ${due.day} of ${sequence.seq_key} skipped for ${lead.name} — this text already reached them`)
         }

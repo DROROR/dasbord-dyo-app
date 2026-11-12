@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { takeLeadFocus, LEAD_FOCUS_EVENT } from '../lib/focusTarget'
 import { Users, UserPlus, Calendar, Clock, AlertTriangle, X, Check, CheckCheck, Phone, PhoneOff, Mail, Archive, Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search, ArrowUp, ArrowDown, Pencil, PhoneCall, Sparkles, Pause, Play, ListChecks } from 'lucide-react'
 import { getLeadPipelineStatuses, createLeadPipelineStatus, deleteLeadPipelineStatus, createManualLead, updateLead as dbUpdateLead, deleteLead as dbDeleteLead } from '../lib/database'
-import { getSequences, getLeadSequenceProgress, startLeadSequence } from '../lib/database'
+import { getSequences, getLeadSequenceProgress } from '../lib/database'
 import type { DbSequenceWithSteps, DbLeadSequenceProgress } from '../lib/database'
 import { NO_ANSWER_THRESHOLD, countNoAnswer, findNoAnswerStatus, findNoAnswerSequence, mayAutoMove, reachedThreshold } from '../lib/leadNoAnswer'
 import type { DbLead, DbLeadHistory, DbLeadPipelineStatus, LeadStatusColor } from '../lib/database'
@@ -1459,14 +1459,9 @@ export function Leads() {
         setSelectedLead(prev => prev ? append(prev) : null)
       }
 
-      // The chain starts once per lead: a sixth and seventh attempt must not
-      // enrol it again and send the whole series twice.
-      const chain = findNoAnswerSequence(sequences)
-      const alreadyRunning = sequenceProgress.some(row => row.lead_id === id && row.status === 'active')
-      if (chain && !alreadyRunning) {
-        const started = await startLeadSequence(id, chain.id)
-        setSequenceProgress(prev => [started, ...prev])
-      }
+      // No chain is started here. The client's rule: a sequence begins only
+      // when a person starts it from the lead's own dialog — never by itself,
+      // and so never for a cold-call lead who merely did not pick up.
     } catch (err) {
       console.error('No-answer automation failed:', err)
     }
