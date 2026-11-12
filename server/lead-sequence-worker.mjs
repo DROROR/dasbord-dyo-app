@@ -79,7 +79,7 @@ const AUTO_ENROL_SINCE = Date.parse(process.env.LEAD_FOLLOWUP_AUTO_ENROL_SINCE ?
 // Columns a lead may sit in while its chain runs. Anywhere else — a meeting is
 // booked, it is in production, it was archived — a person has taken over.
 const CHAIN_LEGACY_STATUSES = ['new', 'followup']
-const CHAIN_LABELS = ['cold call', ...NO_ANSWER_LABELS]
+const CHAIN_LABELS = [...NO_ANSWER_LABELS]
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
   console.error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required')

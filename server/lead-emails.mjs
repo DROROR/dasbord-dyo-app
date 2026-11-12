@@ -42,7 +42,7 @@ const NO_ANSWER_SEQUENCE_KEYS = ['no_answer', 'noanswer']
 // The same columns the WhatsApp chain may run in. Anywhere else — a meeting
 // is booked, the lead is a customer, it was archived — a person has taken over.
 const CHAIN_LEGACY_STATUSES = ['new', 'followup']
-const CHAIN_LABELS = ['cold call', 'no answer', 'no-answer', 'אין מענה', 'ללא מענה']
+const CHAIN_LABELS = ['no answer', 'no-answer', 'אין מענה', 'ללא מענה']
 
 export const mailConfigured = () => Boolean(MAIL_USER && MAIL_PASS && MAIL_NAME)
 

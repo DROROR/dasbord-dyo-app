@@ -546,7 +546,8 @@ function NoAnswerPanel({ lead, status, sequence, progress, canEdit, onStopSequen
  * change; the page refetches on that announcement, so this panel keeps no copy
  * of its own to fall out of step.
  */
-function FollowUpPanel({ lead, sequence, progress, tasks, statuses, archived }: {
+function FollowUpPanel({ lead, sequence, progress, tasks, statuses, archived, coldCall }: {
+  coldCall: boolean
   lead: Lead
   sequence?: DbSequenceWithSteps
   progress?: DbLeadSequenceProgress
@@ -612,7 +613,15 @@ function FollowUpPanel({ lead, sequence, progress, tasks, statuses, archived }: 
       </div>
     )}
 
-    {!running && !paused && !legacyRunning && sequence && !archived && (
+    {/* The sequence is for people who asked to be contacted. A cold-call lead
+        never did, so it is not offered one — only a callback, below. */}
+    {!running && !paused && !legacyRunning && sequence && !archived && coldCall && (
+      <p className="rounded-xl border border-gray-200 bg-white p-3 text-xs text-gray-500">
+        {t('ליד משיחות קרות — הרצף מיועד ללידים נכנסים בלבד.', 'Cold-call lead — this sequence is for inbound leads only.')}
+      </p>
+    )}
+
+    {!running && !paused && !legacyRunning && sequence && !archived && !coldCall && (
       <div className="rounded-xl border border-gray-200 bg-white p-3">
         {!confirmStart ? (
           <button onClick={() => setConfirmStart(true)} className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90">
@@ -657,7 +666,8 @@ function FollowUpPanel({ lead, sequence, progress, tasks, statuses, archived }: 
 
 // ─── Lead modal ───────────────────────────────────────────────────────────────
 
-function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, canDelete, statuses, noAnswerStatus, noAnswerSequence, sequenceProgress, onStopSequence, followUpTasks, followUpAvailable }: {
+function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, canDelete, statuses, noAnswerStatus, noAnswerSequence, sequenceProgress, onStopSequence, followUpTasks, followUpAvailable, coldCall }: {
+  coldCall: boolean
   lead: Lead
   onClose: () => void
   onUpdate: (id: string, patch: Partial<Lead>) => Promise<void>
@@ -910,6 +920,7 @@ function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, c
               progress={sequenceProgress}
               tasks={followUpTasks}
               statuses={statuses}
+              coldCall={coldCall}
               archived={!!archivedStatus && lead.pipelineStatusId === archivedStatus.id}
             />
           )}
@@ -1642,6 +1653,7 @@ export function Leads() {
           onStopSequence={handleStopSequence}
           followUpTasks={followUpTasks.filter(task => task.lead_id === selectedLead.id)}
           followUpAvailable={followUpAvailable}
+          coldCall={isColdCallLead(selectedLead)}
           onDelete={handleDeleteLead}
           canEdit={canEdit}
           canDelete={canDeleteStatuses}

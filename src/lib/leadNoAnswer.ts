@@ -10,8 +10,8 @@ import type { DbLeadHistory, DbLeadPipelineStatus, DbSequenceWithSteps } from '.
  * call is recorded.
  */
 
-/** How many unanswered attempts (the fifth included) move a lead on its own. */
-export const NO_ANSWER_THRESHOLD = 5
+/** How many unanswered attempts (the fourth included) move a lead on its own. */
+export const NO_ANSWER_THRESHOLD = 4
 
 /**
  * The target column is found by its NAME, not by a new database column or a
