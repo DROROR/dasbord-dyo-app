@@ -1,4 +1,5 @@
 import http from 'node:http'
+import { handleUnsubscribe } from './lead-unsubscribe.mjs'
 
 const HOST = '127.0.0.1'
 const PORT = Number(process.env.ANTHROPIC_PROXY_PORT || 3002)
@@ -148,6 +149,16 @@ function writeTicketStateCache(key, state) {
 const server = http.createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/health') {
     return sendJson(response, 200, { status: 'ok' })
+  }
+
+  // The unsubscribe link in follow-up emails. Public by nature — whoever
+  // clicks it has no account — and guarded by the signature inside the link
+  // instead, so it is answered before the sign-in check below.
+  if (request.url === '/unsubscribe' || request.url.startsWith('/unsubscribe?')) {
+    return handleUnsubscribe(request, response).catch(error => {
+      console.error(`Unsubscribe failed: ${error.message}`)
+      if (!response.headersSent) sendJson(response, 500, { error: 'Something went wrong' })
+    })
   }
 
   const isClaudeRequest = request.method === 'POST' && (request.url === '/v1/messages' || request.url === '/v1/translation-messages')

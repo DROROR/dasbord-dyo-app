@@ -10,6 +10,7 @@ import { getAllMessages, getClientNameMap,
   getClients,
 } from '../lib/database'
 import type { DbMessage, DbMessageTemplate, DbSequenceWithSteps, DbSequenceStep, DbClient } from '../lib/database'
+import { EmailSequenceEditor } from '../components/leads/EmailSequenceEditor'
 import { getChannelLabel } from '../lib/whatsapp'
 import type { Channel } from '../lib/whatsapp'
 import { useCan } from '../hooks/useCan'
@@ -1091,6 +1092,9 @@ function TemplatesTab() {
           </div>
         )}
       </div>
+
+      {/* Follow-up emails for the same leads. Renders nothing until its tables exist. */}
+      <EmailSequenceEditor canEdit={canEdit} />
     </div>
   )
 }

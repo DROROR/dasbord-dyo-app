@@ -19,6 +19,8 @@
 //
 // Nothing here decides who gets enrolled; that is the planner's business.
 
+import { runLeadEmails } from './lead-emails.mjs'
+
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
 
@@ -304,6 +306,20 @@ async function stopReasonFor(progress, lead, noAnswerStatusId) {
 }
 
 async function run() {
+  // The email half. It has its own conditions and its own mailbox, so it runs
+  // whether or not the WhatsApp channel is configured, and a fault in it is
+  // not allowed to cost the WhatsApp half its turn.
+  if (withinSendingHours()) {
+    try {
+      const emails = await runLeadEmails({ rest })
+      if (emails.sent || emails.skipped || emails.failed) {
+        console.log(`[lead-email] ${emails.sent} sent, ${emails.skipped} written off as too late, ${emails.failed} failed`)
+      }
+    } catch (error) {
+      console.error(`[lead-email] run skipped: ${error.message}`)
+    }
+  }
+
   // Checked before anything is claimed. Without a channel every send would
   // throw, and because a step is claimed BEFORE it is sent, a chain would
   // quietly burn through all four of its steps marking them failed — so by
