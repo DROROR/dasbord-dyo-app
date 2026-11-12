@@ -28,6 +28,15 @@ const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
 const GREEN_INSTANCE = process.env.GREEN_API_INSTANCE_SALES || process.env.VITE_GREEN_API_INSTANCE_SALES
 const GREEN_TOKEN    = process.env.GREEN_API_TOKEN_SALES    || process.env.VITE_GREEN_API_TOKEN_SALES
 
+// The client's own WhatsApp gateway (Evolution API v2). When all three are
+// set it is the channel used, and Green API is not consulted. Server-side
+// names only — none of these may ever be given a VITE_ prefix.
+const EVOLUTION_URL      = (process.env.EVOLUTION_API_URL ?? '').trim().replace(/\/+$/, '')
+const EVOLUTION_KEY      = (process.env.EVOLUTION_API_KEY ?? '').trim()
+const EVOLUTION_INSTANCE = (process.env.EVOLUTION_INSTANCE_SALES ?? '').trim()
+const USE_EVOLUTION = Boolean(EVOLUTION_URL && EVOLUTION_KEY && EVOLUTION_INSTANCE)
+const CHANNEL_READY = USE_EVOLUTION || Boolean(GREEN_INSTANCE && GREEN_TOKEN)
+
 // "on" and nothing else sends real messages.
 const SENDING = process.env.LEAD_SEQUENCE_SEND === 'on'
 
@@ -49,6 +58,27 @@ const NO_ANSWER_SEQUENCE_KEYS = ['no_answer', 'noanswer']
 
 const DAY_MS = 86_400_000
 
+// The day of each follow-up call, counted from the day the lead joined the
+// chain. src/lib/leadFollowUp.ts carries the same list (FOLLOW_UP_CALL_DAYS);
+// change them together. A WhatsApp step is held back until every call that
+// falls on or before its day has been confirmed unanswered by a person.
+const CALL_DAYS = [0, 1, 3, 8]
+
+// Two messages of a chain never reach the same person closer together than
+// this, however late the calls before them were confirmed.
+const MIN_GAP_MS = 20 * 60 * 60 * 1000
+
+// New leads join the chain by themselves only when BOTH of these are set: the
+// switch, and the moment from which a lead counts as new. Without the second
+// one every lead already on the board would qualify, so its absence means off.
+const AUTO_ENROL = process.env.LEAD_FOLLOWUP_AUTO_ENROL === 'on'
+const AUTO_ENROL_SINCE = Date.parse(process.env.LEAD_FOLLOWUP_AUTO_ENROL_SINCE ?? '')
+
+// Columns a lead may sit in while its chain runs. Anywhere else — a meeting is
+// booked, it is in production, it was archived — a person has taken over.
+const CHAIN_LEGACY_STATUSES = ['new', 'followup']
+const CHAIN_LABELS = ['cold call', ...NO_ANSWER_LABELS]
+
 if (!SUPABASE_URL || !SERVICE_KEY) {
   console.error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required')
   process.exit(1)
@@ -68,7 +98,11 @@ async function rest(path, init = {}) {
   if (!response.ok) {
     throw new Error(`${init.method ?? 'GET'} ${path} → ${response.status} ${await response.text()}`)
   }
-  return response.status === 204 ? [] : response.json()
+  // An insert answers 201 with an empty body unless a representation was
+  // asked for. Reading that as JSON threw, which made a message that HAD been
+  // sent look like a failure. An empty body is simply "nothing to return".
+  const text = await response.text()
+  return text ? JSON.parse(text) : []
 }
 
 function withinSendingHours(now = new Date()) {
@@ -102,6 +136,16 @@ function chatIdOf(phone) {
 async function sendWhatsApp(phone, message) {
   const chatId = chatIdOf(phone)
   if (!chatId) throw new Error(`unusable phone "${phone}"`)
+  if (USE_EVOLUTION) {
+    const response = await fetch(`${EVOLUTION_URL}/message/sendText/${encodeURIComponent(EVOLUTION_INSTANCE)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', apikey: EVOLUTION_KEY },
+      body: JSON.stringify({ number: chatId.replace('@c.us', ''), text: message }),
+      signal: AbortSignal.timeout(30_000),
+    })
+    if (!response.ok) throw new Error(`Evolution API returned ${response.status}`)
+    return
+  }
   if (!GREEN_INSTANCE || !GREEN_TOKEN) throw new Error('the sales WhatsApp channel is not configured')
   const response = await fetch(`https://api.green-api.com/waInstance${GREEN_INSTANCE}/sendMessage/${GREEN_TOKEN}`, {
     method: 'POST',
@@ -136,6 +180,73 @@ async function closeChain(progress, status) {
   })
 }
 
+/** The same question for a chain that has call tasks: the lead need not be in the No Answer column. */
+async function stopReasonWithCalls(progress, lead, statuses) {
+  if (!lead) return 'the lead is gone'
+  const column = statuses.find(status => status.id === lead.pipeline_status_id)
+  if (column) {
+    const names = [String(column.label_en ?? '').trim().toLowerCase(), String(column.label_he ?? '').trim().toLowerCase()]
+    const allowed = !column.is_archived
+      && (CHAIN_LEGACY_STATUSES.includes(String(column.legacy_status ?? '')) || names.some(name => CHAIN_LABELS.includes(name)))
+    if (!allowed) return 'the lead was moved to another status'
+  }
+  const answered = await rest(
+    `lead_history?lead_id=eq.${progress.lead_id}&kind=eq.completed_call&occurred_at=gt.${encodeURIComponent(progress.started_at)}&select=id&limit=1`,
+  )
+  if (answered.length > 0) return 'the lead answered a call'
+  return null
+}
+
+/**
+ * Follow-up call tasks of the given chains, by chain. Empty when the table is
+ * not there yet, which leaves every chain on the original rules.
+ */
+async function callTasksOf(progressIds) {
+  const byProgress = new Map()
+  if (progressIds.length === 0) return byProgress
+  try {
+    const rows = await rest(`lead_followup_tasks?progress_id=in.(${progressIds.join(',')})&select=progress_id,status,outcome,created_at&limit=5000`)
+    for (const row of rows) byProgress.set(row.progress_id, [...(byProgress.get(row.progress_id) ?? []), row])
+  } catch { /* table absent: no chain has calls */ }
+  return byProgress
+}
+
+/**
+ * Puts leads that have just arrived on the chain: its row, and the first call
+ * task. Only the form's own "new lead" column counts — never the cold-call
+ * list, whose people did not ask to be contacted — and only leads created
+ * after the configured moment, so nothing already on the board is swept in.
+ */
+async function enrolNewLeads(sequence, statuses) {
+  if (!AUTO_ENROL || !Number.isFinite(AUTO_ENROL_SINCE) || !sequence) return
+  const entry = statuses.find(status => status.legacy_status === 'new' && !status.is_archived)
+  if (!entry) return
+  const since = encodeURIComponent(new Date(AUTO_ENROL_SINCE).toISOString())
+  const fresh = await rest(`leads?created_at=gt.${since}&pipeline_status_id=eq.${entry.id}&select=id,name&order=created_at.asc&limit=50`)
+  if (fresh.length === 0) return
+  const known = await rest(`lead_sequence_progress?sequence_id=eq.${sequence.id}&lead_id=in.(${fresh.map(lead => lead.id).join(',')})&select=lead_id`)
+  const seen = new Set(known.map(row => row.lead_id))
+  for (const lead of fresh) {
+    if (seen.has(lead.id)) continue
+    try {
+      // The table allows one row per lead per chain, so a second copy of this
+      // worker loses the insert and creates no second call task.
+      const [progress] = await rest('lead_sequence_progress', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ lead_id: lead.id, sequence_id: sequence.id, status: 'active', last_day_sent: -1 }),
+      })
+      await rest('lead_followup_tasks', {
+        method: 'POST',
+        body: JSON.stringify({ lead_id: lead.id, progress_id: progress.id, step_no: 1, due_at: new Date().toISOString() }),
+      })
+      console.log(`[lead-sequence] ${lead.name} joined ${sequence.seq_key} on arrival`)
+    } catch (error) {
+      console.error(`[lead-sequence] could not enrol ${lead.id}: ${error.message}`)
+    }
+  }
+}
+
 /** Why this chain should stop, or null to carry on. */
 async function stopReasonFor(progress, lead, noAnswerStatusId) {
   if (!lead) return 'the lead is gone'
@@ -154,20 +265,33 @@ async function run() {
   // throw, and because a step is claimed BEFORE it is sent, a chain would
   // quietly burn through all four of its steps marking them failed — so by
   // the time the credentials arrived there would be nothing left to send.
-  if (SENDING && (!GREEN_INSTANCE || !GREEN_TOKEN)) {
+  if (SENDING && !CHANNEL_READY) {
     if (!warnedUnconfigured) {
       warnedUnconfigured = true
-      console.error('[lead-sequence] the sales WhatsApp channel has no credentials — standing down until GREEN_API_INSTANCE_SALES and GREEN_API_TOKEN_SALES are set')
+      console.error('[lead-sequence] the sales WhatsApp channel has no credentials — standing down until EVOLUTION_API_URL / EVOLUTION_API_KEY / EVOLUTION_INSTANCE_SALES (or the Green API pair) are set')
     }
     return
+  }
+
+  if (AUTO_ENROL) {
+    try {
+      const [chains, columns] = await Promise.all([
+        rest('sequences?select=id,seq_key,is_active'),
+        rest('lead_pipeline_statuses?select=id,label_he,label_en,legacy_status,is_archived'),
+      ])
+      await enrolNewLeads(chains.find(chain => chain.is_active && NO_ANSWER_SEQUENCE_KEYS.includes(String(chain.seq_key ?? '').trim().toLowerCase())), columns)
+    } catch (error) {
+      console.error(`[lead-sequence] enrolment skipped: ${error.message}`)
+    }
   }
 
   const running = await rest('lead_sequence_progress?status=eq.active&select=*&order=started_at.asc&limit=200')
   if (running.length === 0) return
 
-  const [sequences, statuses] = await Promise.all([
+  const [sequences, statuses, callTasks] = await Promise.all([
     rest('sequences?select=id,seq_key,label,is_active,sequence_steps(id,step_order,day,message,media_url)'),
-    rest('lead_pipeline_statuses?select=id,label_he,label_en,is_archived'),
+    rest('lead_pipeline_statuses?select=id,label_he,label_en,legacy_status,is_archived'),
+    callTasksOf(running.map(progress => progress.id)),
   ])
   const noAnswerStatus = statuses.find(matchesNoAnswer)
   const byId = new Map(sequences.map(sequence => [sequence.id, sequence]))
@@ -203,12 +327,41 @@ async function run() {
         continue
       }
 
+      // A chain with call tasks of its own follows the calls: a message waits
+      // until every call on or before its day was confirmed unanswered. A
+      // chain without any (started by the five-attempts rule) is untouched.
+      const calls = (callTasks.get(progress.id) ?? []).filter(task => task.created_at >= progress.started_at)
+      const withCalls = calls.length > 0
+      if (withCalls) {
+        const needed = due.day <= 0 ? 0 : CALL_DAYS.filter(day => day <= due.day).length
+        const confirmed = calls.filter(task => task.status === 'done' && task.outcome === 'no_answer').length
+        if (confirmed < needed) continue
+      }
+
       const [lead] = await rest(`leads?id=eq.${progress.lead_id}&select=id,name,phone,pipeline_status_id`)
-      const stop = await stopReasonFor(progress, lead, noAnswerStatus?.id)
+      const stop = withCalls
+        ? await stopReasonWithCalls(progress, lead, statuses)
+        : await stopReasonFor(progress, lead, noAnswerStatus?.id)
       if (stop) {
-        console.log(`[lead-sequence] chain ${progress.id} cancelled — ${stop}`)
-        await closeChain(progress, 'cancelled')
+        console.log(`[lead-sequence] chain ${progress.id} stopped — ${stop}`)
+        // 'stopped' is the value the table allows. This used to say
+        // 'cancelled', which the database refused, so a chain that should
+        // have ended was retried every five minutes instead.
+        await closeChain(progress, 'stopped')
+        if (withCalls) {
+          await rest(`lead_followup_tasks?progress_id=eq.${progress.id}&status=eq.open`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'cancelled', updated_at: new Date().toISOString() }),
+          }).catch(() => {})
+        }
         continue
+      }
+
+      if (withCalls) {
+        const recent = await rest(
+          `messages?recipient_id=eq.${lead.id}&status=eq.sent&sent_at=gt.${encodeURIComponent(new Date(Date.now() - MIN_GAP_MS).toISOString())}&template_key=like.${encodeURIComponent(`${sequence.seq_key}:`)}*&select=id&limit=1`,
+        )
+        if (recent.length > 0) continue
       }
 
       const message = fillPlaceholders(due.message, lead)
@@ -258,6 +411,6 @@ async function run() {
   }
 }
 
-console.log(`[lead-sequence] worker up — ${SENDING ? 'SENDING' : 'DRY RUN'}, ${QUIET_FROM}:00–${QUIET_TO}:00 ${TIMEZONE}, every ${Math.round(POLL_MS / 1000)}s`)
+console.log(`[lead-sequence] worker up — ${SENDING ? 'SENDING' : 'DRY RUN'}, channel ${USE_EVOLUTION ? 'evolution' : CHANNEL_READY ? 'green' : 'none'}, ${QUIET_FROM}:00–${QUIET_TO}:00 ${TIMEZONE}, every ${Math.round(POLL_MS / 1000)}s`)
 setInterval(() => run().catch(error => console.error(`[lead-sequence] ${error.message}`)), POLL_MS)
 void run().catch(error => console.error(`[lead-sequence] ${error.message}`))

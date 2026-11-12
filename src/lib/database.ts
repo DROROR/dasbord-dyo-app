@@ -718,7 +718,7 @@ export interface DbLeadSequenceProgress {
    * the first step unsendable.
    */
   last_day_sent: number
-  status: 'active' | 'cancelled' | 'done' | string
+  status: 'active' | 'paused' | 'done' | 'stopped' | string
   updated_at: string
 }
 
@@ -744,7 +744,9 @@ export async function startLeadSequence(leadId: string, sequenceId: string): Pro
 export async function cancelLeadSequence(id: string): Promise<DbLeadSequenceProgress> {
   const { data, error } = await supabase
     .from('lead_sequence_progress')
-    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    // 'stopped' is the value the table's check constraint allows; 'cancelled'
+    // was refused by the database, so stopping a chain never actually saved.
+    .update({ status: 'stopped', updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single()

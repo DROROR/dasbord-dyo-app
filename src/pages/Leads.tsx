@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { takeLeadFocus, LEAD_FOCUS_EVENT } from '../lib/focusTarget'
-import { Users, UserPlus, Calendar, Clock, AlertTriangle, X, Check, CheckCheck, Phone, PhoneOff, Mail, Archive, Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search, ArrowUp, ArrowDown, Pencil, PhoneCall, Sparkles } from 'lucide-react'
+import { Users, UserPlus, Calendar, Clock, AlertTriangle, X, Check, CheckCheck, Phone, PhoneOff, Mail, Archive, Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search, ArrowUp, ArrowDown, Pencil, PhoneCall, Sparkles, Pause, Play, ListChecks } from 'lucide-react'
 import { getLeadPipelineStatuses, createLeadPipelineStatus, deleteLeadPipelineStatus, createManualLead, updateLead as dbUpdateLead, deleteLead as dbDeleteLead } from '../lib/database'
-import { getSequences, getLeadSequenceProgress, startLeadSequence, cancelLeadSequence } from '../lib/database'
+import { getSequences, getLeadSequenceProgress, startLeadSequence } from '../lib/database'
 import type { DbSequenceWithSteps, DbLeadSequenceProgress } from '../lib/database'
 import { NO_ANSWER_THRESHOLD, countNoAnswer, findNoAnswerStatus, findNoAnswerSequence, mayAutoMove, reachedThreshold } from '../lib/leadNoAnswer'
 import type { DbLead, DbLeadHistory, DbLeadPipelineStatus, LeadStatusColor } from '../lib/database'
@@ -15,6 +15,9 @@ import { AddLeadModal } from '../components/leads/AddLeadModal'
 import { LeadCalendar } from '../components/leads/LeadCalendar'
 import { getAllLeads, getLeadHistory, addLeadHistory, updateLeadPipelineStatus } from '../lib/leadHistory'
 import { LeadHistoryPanel } from '../components/leads/LeadHistoryPanel'
+import { FollowUpTaskRow } from '../components/leads/FollowUpTaskRow'
+import { FOLLOW_UP_CALL_DAYS, FOLLOW_UP_CHANGED_EVENT, completeFollowUpTask, createCallback, getFollowUpTasks, pauseFollowUp, resumeFollowUp, startFollowUp, stopFollowUp, type DbLeadFollowUpTask } from '../lib/leadFollowUp'
+import { useAuth } from '../hooks/useAuth'
 import { getGoogleSheetSyncStatus, syncGoogleSheetLeads, syncColdCallLeads, type GoogleSheetSyncResult } from '../lib/googleSheets'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -505,7 +508,7 @@ function NoAnswerPanel({ lead, status, sequence, progress, canEdit, onStopSequen
               {!nextStep && <>{' · '}{t('הושלם', 'finished')}</>}
             </>
           ) : (
-            <span className="text-gray-500">{t('מעקב וואטסאפ הופסק', 'WhatsApp follow-up stopped')}</span>
+            <span className="text-gray-500">{progress.status === 'paused' ? t('מעקב וואטסאפ מושהה', 'WhatsApp follow-up paused') : progress.status === 'done' ? t('מעקב וואטסאפ הסתיים', 'WhatsApp follow-up finished') : t('מעקב וואטסאפ הופסק', 'WhatsApp follow-up stopped')}</span>
           )}
         </p>
       ) : (
@@ -533,9 +536,128 @@ function NoAnswerPanel({ lead, status, sequence, progress, canEdit, onStopSequen
   </section>
 }
 
+// ─── Follow-up sequence panel ─────────────────────────────────────────────────
+
+/**
+ * The calls-and-WhatsApp follow-up for this one lead: put it on the chain,
+ * answer the call that is due, hold the chain, pick it up again, or end it.
+ *
+ * Everything it does goes through src/lib/leadFollowUp.ts, which announces the
+ * change; the page refetches on that announcement, so this panel keeps no copy
+ * of its own to fall out of step.
+ */
+function FollowUpPanel({ lead, sequence, progress, tasks, statuses, archived }: {
+  lead: Lead
+  sequence?: DbSequenceWithSteps
+  progress?: DbLeadSequenceProgress
+  tasks: DbLeadFollowUpTask[]
+  statuses: DbLeadPipelineStatus[]
+  archived: boolean
+}) {
+  const { t, lang } = useLang()
+  const [busy, setBusy] = useState(false)
+  const [confirmStart, setConfirmStart] = useState(false)
+  const [callbackAt, setCallbackAt] = useState('')
+  const [error, setError] = useState('')
+
+  const chainTasks = progress ? tasks.filter(task => task.progress_id === progress.id && task.created_at >= progress.started_at) : []
+  // A chain started by the old five-attempts rule has no calls of its own and
+  // is left to the panel below, exactly as before.
+  const withCalls = !!progress && chainTasks.length > 0
+  const running = withCalls && progress!.status === 'active'
+  const paused = withCalls && progress!.status === 'paused'
+  const legacyRunning = !!progress && !withCalls && progress.status === 'active'
+  const openChainTask = chainTasks.find(task => task.status === 'open')
+  const callbacks = tasks.filter(task => task.progress_id === null && task.status === 'open')
+  const confirmed = chainTasks.filter(task => task.status === 'done' && task.outcome === 'no_answer').length
+  const steps = [...(sequence?.steps ?? [])].sort((a, b) => a.day - b.day)
+  const leadRef = { id: lead.id, pipeline_status_id: lead.pipelineStatusId }
+  const day = (iso: string) => new Date(iso).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
+
+  const run = async (work: () => Promise<unknown>) => {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try { await work() }
+    catch (err) { setError(err instanceof Error ? err.message : t('הפעולה נכשלה', 'That did not work')) }
+    finally { setBusy(false); setConfirmStart(false) }
+  }
+
+  const outline = 'flex h-8 items-center gap-1 rounded-lg border border-gray-300 bg-surface px-3 text-xs font-semibold text-gray-600 transition-colors hover:border-gray-400 disabled:opacity-40'
+
+  return <section className="space-y-2 border-t border-gray-100 pt-4">
+    <h3 className="flex items-center gap-1.5 text-sm font-bold text-gray-800">
+      <ListChecks size={14} className="text-primary" />
+      {t('רצף מעקב — שיחות ווואטסאפ', 'Follow-up sequence — calls and WhatsApp')}
+    </h3>
+
+    {(running || paused) && (
+      <div className="space-y-2 rounded-xl border border-gray-200 bg-white p-3">
+        <p className="text-xs text-gray-600">
+          <strong className={paused ? 'text-gray-600' : 'text-primary'}>{paused ? t('מושהה', 'Paused') : t('פעיל', 'Running')}</strong>
+          {' · '}{t('התחיל', 'started')} {day(progress!.started_at)}
+          {' · '}{t(`${confirmed} מתוך ${FOLLOW_UP_CALL_DAYS.length} שיחות אושרו ללא מענה`, `${confirmed} of ${FOLLOW_UP_CALL_DAYS.length} calls confirmed unanswered`)}
+        </p>
+        {running && openChainTask && <FollowUpTaskRow task={openChainTask} lead={leadRef} progress={progress} statuses={statuses} />}
+        {running && !openChainTask && (
+          <p className="text-[11px] text-gray-500">{t('כל השיחות בוצעו. הודעות הוואטסאפ שנותרו יישלחו במועדן.', 'All calls are done. The remaining WhatsApp messages go out on their days.')}</p>
+        )}
+        {paused && <p className="text-[11px] text-gray-500">{t('בזמן השהיה לא נשלחות הודעות ולא מוצגות תזכורות.', 'While paused, no messages are sent and no reminders are shown.')}</p>}
+        <div className="flex flex-wrap gap-1.5">
+          {running && <button onClick={() => void run(() => pauseFollowUp(progress!.id))} disabled={busy} className={outline}><Pause size={12} />{t('השהה', 'Pause')}</button>}
+          {paused && <button onClick={() => void run(() => resumeFollowUp(progress!))} disabled={busy} className="flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-semibold text-white disabled:opacity-40"><Play size={12} />{t('המשך', 'Resume')}</button>}
+          <button onClick={() => void run(() => stopFollowUp(progress!.id))} disabled={busy} className={outline}><X size={12} />{t('הסר מהרצף', 'Remove from sequence')}</button>
+          {busy && <Loader2 size={14} className="animate-spin self-center text-primary" />}
+        </div>
+      </div>
+    )}
+
+    {!running && !paused && !legacyRunning && sequence && !archived && (
+      <div className="rounded-xl border border-gray-200 bg-white p-3">
+        {!confirmStart ? (
+          <button onClick={() => setConfirmStart(true)} className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90">
+            <Play size={13} />{t('הוסף לרצף "לידים שלא עונים"', 'Add to the "Unresponsive leads" sequence')}
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs leading-relaxed text-gray-600">
+              {t(
+                `תיווצר משימת שיחה ראשונה להיום, ואחריה עוד ${FOLLOW_UP_CALL_DAYS.length - 1} שיחות (ימים ${FOLLOW_UP_CALL_DAYS.slice(1).join(', ')}) — כל אחת רק אחרי שאישרת את הקודמת.`,
+                `A first call task is created for today, followed by ${FOLLOW_UP_CALL_DAYS.length - 1} more (days ${FOLLOW_UP_CALL_DAYS.slice(1).join(', ')}) — each only after you confirm the one before.`,
+              )}
+              {steps.length > 0 && <>{' '}{t(
+                `הודעות וואטסאפ אוטומטיות: ${steps.map(step => `יום ${step.day}`).join(', ')}.`,
+                `Automatic WhatsApp messages: ${steps.map(step => `day ${step.day}`).join(', ')}.`,
+              )}</>}
+            </p>
+            <div className="flex gap-1.5">
+              <button onClick={() => void run(() => startFollowUp(lead.id, sequence.id, progress))} disabled={busy} className="flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-semibold text-white disabled:opacity-40">
+                {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}{t('התחל', 'Start')}
+              </button>
+              <button onClick={() => setConfirmStart(false)} disabled={busy} className="h-8 px-2 text-xs text-gray-500">{t('ביטול', 'Cancel')}</button>
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+
+    {callbacks.map(task => <FollowUpTaskRow key={task.id} task={task} lead={leadRef} statuses={statuses} />)}
+
+    {!archived && (
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs font-semibold text-gray-500">{t('קבע שיחת חזרה', 'Schedule a callback')}</label>
+        <input type="datetime-local" value={callbackAt} onChange={event => setCallbackAt(event.target.value)} className="h-8 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-700" />
+        <button onClick={() => void run(async () => { await createCallback(lead.id, new Date(callbackAt).toISOString()); setCallbackAt('') })} disabled={busy || !callbackAt} className={outline}><Plus size={12} />{t('הוסף משימה', 'Add task')}</button>
+      </div>
+    )}
+
+    {error && <p className="text-xs text-red-600">{error}</p>}
+  </section>
+}
+
 // ─── Lead modal ───────────────────────────────────────────────────────────────
 
-function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, canDelete, statuses, noAnswerStatus, noAnswerSequence, sequenceProgress, onStopSequence }: {
+function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, canDelete, statuses, noAnswerStatus, noAnswerSequence, sequenceProgress, onStopSequence, followUpTasks, followUpAvailable }: {
   lead: Lead
   onClose: () => void
   onUpdate: (id: string, patch: Partial<Lead>) => Promise<void>
@@ -551,6 +673,10 @@ function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, c
   /** This lead's own place in that chain, if it was ever enrolled. */
   sequenceProgress?: DbLeadSequenceProgress
   onStopSequence?: (progressId: string) => Promise<void>
+  /** This lead's follow-up calls. Empty until it is put on the sequence. */
+  followUpTasks: DbLeadFollowUpTask[]
+  /** False until the follow-up table exists, which keeps the panel away entirely. */
+  followUpAvailable: boolean
 }) {
   const { t, lang } = useLang()
   const [tab,          setTab]          = useState<ModalTab>('details')
@@ -777,6 +903,16 @@ function LeadModal({ lead, onClose, onUpdate, onAddHistory, onDelete, canEdit, c
               </div>
           )}
 
+          {tab === 'details' && canEdit && followUpAvailable && (
+            <FollowUpPanel
+              lead={lead}
+              sequence={noAnswerSequence}
+              progress={sequenceProgress}
+              tasks={followUpTasks}
+              statuses={statuses}
+              archived={!!archivedStatus && lead.pipelineStatusId === archivedStatus.id}
+            />
+          )}
           {tab === 'details' && (
             <NoAnswerPanel
               lead={lead}
@@ -997,6 +1133,11 @@ export function Leads() {
   // the one that moves the lead, so the count is visible without opening the
   // card again.
   const [noAnswerNotice, setNoAnswerNotice] = useState<NoAnswerNotice | null>(null)
+  // Follow-up calls. `followUpAvailable` stays false while the table is not
+  // there, and with it every piece of the follow-up screen stays hidden.
+  const [followUpTasks, setFollowUpTasks] = useState<DbLeadFollowUpTask[]>([])
+  const [followUpAvailable, setFollowUpAvailable] = useState(false)
+  const { profile } = useAuth()
   useEffect(() => { const interval = window.setInterval(() => setClockNow(Date.now()), 60_000); return () => window.clearInterval(interval) }, [])
 
   const load = async (showLoading = true) => {
@@ -1006,12 +1147,13 @@ export function Leads() {
       // The two new reads are additive and failure-tolerant on purpose: a
       // leads board that cannot read the follow-up chains must still load the
       // leads, so neither of them can break this screen.
-      const [rows, pipelineStatuses, history, chains, progress] = await Promise.all([
+      const [rows, pipelineStatuses, history, chains, progress, followUps] = await Promise.all([
         getAllLeads(),
         getLeadPipelineStatuses(),
         getLeadHistory(),
         getSequences().catch(() => [] as DbSequenceWithSteps[]),
         getLeadSequenceProgress().catch(() => [] as DbLeadSequenceProgress[]),
+        getFollowUpTasks().then(tasks => ({ available: true, tasks })).catch(() => ({ available: false, tasks: [] as DbLeadFollowUpTask[] })),
       ])
       const byLead = new Map<string, DbLeadHistory[]>()
       history.forEach(entry => byLead.set(entry.lead_id, [...(byLead.get(entry.lead_id) ?? []), entry]))
@@ -1023,6 +1165,8 @@ export function Leads() {
       setStatuses(pipelineStatuses)
       setSequences(chains)
       setSequenceProgress(progress)
+      setFollowUpTasks(followUps.tasks)
+      setFollowUpAvailable(followUps.available)
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : t('שגיאה בטעינת לידים', 'Failed to load leads'))
     } finally {
@@ -1053,6 +1197,15 @@ export function Leads() {
       window.removeEventListener('focus', refreshIfStale)
       document.removeEventListener('visibilitychange', refreshIfStale)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // A follow-up call was answered, moved or cancelled — here or in the reminder
+  // in the top bar. Either way the board is refetched rather than patched.
+  useEffect(() => {
+    const refetch = () => { void load(false) }
+    window.addEventListener(FOLLOW_UP_CHANGED_EVENT, refetch)
+    return () => window.removeEventListener(FOLLOW_UP_CHANGED_EVENT, refetch)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1220,6 +1373,38 @@ export function Leads() {
     setLeads(prev => prev.map(append))
     setSelectedLead(prev => prev ? append(prev) : null)
     if (kind === 'no_answer') await runNoAnswerAutomation(id, [...(leadsRef.current.find(lead => lead.id === id)?.history ?? []), entry])
+    if (kind === 'no_answer') await confirmOpenCallUnanswered(id)
+  }
+
+  /**
+   * The "No Answer" button in the history panel is the same fact as answering
+   * the open call task with "No Answer", so it closes that task too — once,
+   * with the attempt already written above — instead of leaving the reminder
+   * asking about a call that has just been logged. A lead with no open task,
+   * which is every lead that is not on the sequence, is untouched.
+   */
+  const confirmOpenCallUnanswered = async (id: string) => {
+    if (!canEdit) return
+    const lead = leadsRef.current.find(item => item.id === id)
+    const pausedIds = new Set(sequenceProgress.filter(row => row.status === 'paused').map(row => row.id))
+    const task = followUpTasks
+      .filter(item => item.lead_id === id && item.status === 'open' && !pausedIds.has(item.progress_id ?? ''))
+      .sort((a, b) => a.due_at.localeCompare(b.due_at))[0]
+    if (!lead || !task) return
+    try {
+      await completeFollowUpTask({
+        task,
+        outcome: 'no_answer',
+        progress: sequenceProgress.find(row => row.id === task.progress_id),
+        statuses,
+        lead: { id, pipeline_status_id: lead.pipelineStatusId },
+        userId: profile?.id ?? null,
+        lang: t('he', 'en') as 'he' | 'en',
+        historyAlreadyRecorded: true,
+      })
+    } catch (err) {
+      console.error('Could not close the follow-up call task:', err)
+    }
   }
 
   /**
@@ -1288,7 +1473,7 @@ export function Leads() {
   }
 
   const handleStopSequence = async (progressId: string) => {
-    const stopped = await cancelLeadSequence(progressId)
+    const stopped = await stopFollowUp(progressId)
     setSequenceProgress(prev => prev.map(row => row.id === progressId ? stopped : row))
   }
 
@@ -1460,6 +1645,8 @@ export function Leads() {
           sequenceProgress={sequenceProgress.find(row => row.lead_id === selectedLead.id && row.status === 'active')
             ?? sequenceProgress.find(row => row.lead_id === selectedLead.id)}
           onStopSequence={handleStopSequence}
+          followUpTasks={followUpTasks.filter(task => task.lead_id === selectedLead.id)}
+          followUpAvailable={followUpAvailable}
           onDelete={handleDeleteLead}
           canEdit={canEdit}
           canDelete={canDeleteStatuses}

@@ -13,6 +13,7 @@ import { MeetingReminderDialog } from '../meetings/MeetingReminderDialog'
 import { GoogleMeetIcon } from '../meetings/GoogleMeetIcon'
 import { countdownText, meetingStage, meetingTimeInZone, msUntil, MEETING_ZONES } from '../../lib/meetings'
 import { meetingNotificationsAllowed, notifyMeeting, playMeetingBeep } from '../../lib/meetingAlerts'
+import { FollowUpReminder } from '../leads/FollowUpReminder'
 
 const PAGE_TITLES: Record<string, { he: string; en: string }> = {
   dashboard:   { he: 'לוח בקרה',    en: 'Dashboard' },
@@ -306,6 +307,9 @@ export function Topbar({ activePage, onToggleSidebar, onNavigate }: Props) {
             )}
           </button>
         )}
+
+        {/* Lead follow-up calls due today. Renders nothing unless there are any. */}
+        <FollowUpReminder onNavigate={onNavigate} />
 
         <button
           onClick={toggleTheme}
