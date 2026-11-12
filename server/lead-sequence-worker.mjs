@@ -157,6 +157,49 @@ async function sendWhatsApp(phone, message) {
 }
 
 /**
+ * The part of a step's text that does not depend on who it is sent to: the
+ * longest stretch between its {{placeholders}}, trimmed to a recognisable
+ * length. Empty when the step has too little fixed text to be told apart.
+ */
+// Letters and digits only, lower case: the same sentence typed as
+// "CommuniTree!" by one automation and "Communitree" by another is one text.
+const squash = text => String(text ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+
+function fingerprintOf(template) {
+  const longest = String(template ?? '').split(/\{\{[^}]*\}\}/).map(squash).sort((a, b) => b.length - a.length)[0] ?? ''
+  return longest.length >= 20 ? longest.slice(0, 60) : ''
+}
+
+/**
+ * Whether this lead has already been sent this very text from the business
+ * number — by the client's own new-lead automation, or by a person. The chain
+ * runs alongside those, and the same message twice is worse than none.
+ *
+ * Throws when the gateway cannot be asked; the caller then leaves the step for
+ * the next run rather than guessing.
+ */
+async function alreadySent(phone, template) {
+  if (!USE_EVOLUTION) return false
+  const print = fingerprintOf(template)
+  const chatId = chatIdOf(phone)
+  if (!print || !chatId) return false
+  const response = await fetch(`${EVOLUTION_URL}/chat/findMessages/${encodeURIComponent(EVOLUTION_INSTANCE)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', apikey: EVOLUTION_KEY },
+    body: JSON.stringify({ where: { key: { remoteJid: chatId.replace('@c.us', '@s.whatsapp.net') } }, limit: 100 }),
+    signal: AbortSignal.timeout(30_000),
+  })
+  if (!response.ok) throw new Error(`Evolution API returned ${response.status} for the message history`)
+  const data = await response.json()
+  const records = Array.isArray(data) ? data : (data?.messages?.records ?? [])
+  return records.some(record => {
+    if (!record?.key?.fromMe) return false
+    const text = record.message?.conversation ?? record.message?.extendedTextMessage?.text ?? ''
+    return squash(text).includes(print)
+  })
+}
+
+/**
  * Takes the step away from any other copy of this worker before it is sent.
  * The filter carries the value last_day_sent is expected to still hold, so
  * exactly one caller can move it forward.
@@ -370,6 +413,14 @@ async function run() {
 
       if (!SENDING) {
         console.log(`[lead-sequence] DRY RUN — would send day ${due.day} to ${lead.name} <${lead.phone}>:\n${message}\n`)
+        continue
+      }
+      // Asked before the step is claimed: if the gateway cannot answer, the
+      // step is simply still due next time.
+      if (await alreadySent(lead.phone, due.message)) {
+        if (await claimStep(progress, progress.last_day_sent, due.day)) {
+          console.log(`[lead-sequence] day ${due.day} of ${sequence.seq_key} skipped for ${lead.name} — this text already reached them`)
+        }
         continue
       }
       if (!(await claimStep(progress, progress.last_day_sent, due.day))) continue

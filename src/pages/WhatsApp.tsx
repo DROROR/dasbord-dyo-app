@@ -983,9 +983,12 @@ function TemplatesTab() {
                         <span className="text-xs text-gray-500 shrink-0">יום</span>
                         <input
                           type="number"
-                          min={1}
+                          min={0}
                           value={step.day}
-                          onChange={e => updateStep(step.id, { day: Math.max(1, Number(e.target.value)) })}
+                          // Day 0 is "as soon as the lead joins the chain". The
+                          // field used to refuse anything below 1, so that
+                          // step could not be written here at all.
+                          onChange={e => updateStep(step.id, { day: Math.max(0, Number(e.target.value)) })}
                           className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-surface"
                         />
                         <span className="text-xs text-gray-400">מכניסה לשרשרת</span>
