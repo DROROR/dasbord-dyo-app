@@ -1,6 +1,6 @@
 import { Component, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Clock, PhoneCall } from 'lucide-react'
+import { Clock, PhoneCall, X } from 'lucide-react'
 import { useLang } from '../../contexts/LanguageContext'
 import { useCan } from '../../hooks/useCan'
 import { getLeadPipelineStatuses, getLeadSequenceProgress } from '../../lib/database'
@@ -43,12 +43,16 @@ class Quiet extends Component<{ children: ReactNode }, { failed: boolean }> {
  * for someone with no open tasks, or without edit rights on leads.
  */
 function Reminder({ onNavigate }: { onNavigate: (page: string) => void }) {
-  const { t } = useLang()
+  const { t, dir } = useLang()
   const canEdit = useCan('leads', 'edit')
   const [tasks, setTasks] = useState<FollowUpTaskWithLead[]>([])
   const [progress, setProgress] = useState<DbLeadSequenceProgress[]>([])
   const [statuses, setStatuses] = useState<DbLeadPipelineStatus[]>([])
   const [open, setOpen] = useState(false)
+  // Opened from the counter by the person themselves, as opposed to having
+  // come up on its own. Only the first kind gets a close button: looking at
+  // the list by choice is not the reminder, and closing it dismisses nothing.
+  const [byHand, setByHand] = useState(false)
   const [hour, setHour] = useState(() => readNumber(HOUR_KEY, DEFAULT_HOUR))
   const [now, setNow] = useState(() => Date.now())
 
@@ -96,6 +100,7 @@ function Reminder({ onNavigate }: { onNavigate: (page: string) => void }) {
     if (open || due.length === 0) return
     if (new Date(now).getHours() < hour) return
     if (now < readNumber(SNOOZE_KEY, 0)) return
+    setByHand(false)
     setOpen(true)
   }, [open, due.length, hour, now])
 
@@ -114,7 +119,7 @@ function Reminder({ onNavigate }: { onNavigate: (page: string) => void }) {
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => { setByHand(true); setOpen(true) }}
         title={t('משימות מעקב לידים', 'Lead follow-up tasks')}
         className={`flex h-9 items-center gap-2 rounded-lg border px-2.5 text-xs font-semibold transition-colors ${overdueCount > 0 ? 'border-red-300 bg-white text-red-600 hover:bg-red-50' : 'border-amber-300 bg-white text-amber-700 hover:bg-amber-50'}`}
       >
@@ -125,10 +130,19 @@ function Reminder({ onNavigate }: { onNavigate: (page: string) => void }) {
       </button>
 
       {open && createPortal(
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+        // <body> is right-to-left in the stylesheet whatever the language; the
+        // rest of the app gets its direction from the layout, which this
+        // portal sits outside of. Without `dir` here the list was laid out
+        // for Hebrew while showing English.
+        <div dir={dir} className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={byHand ? () => setOpen(false) : undefined} />
           <div role="dialog" aria-modal="true" className="relative flex max-h-[88vh] w-full max-w-2xl flex-col rounded-2xl bg-surface shadow-2xl">
-            <div className="shrink-0 border-b border-gray-100 p-5">
+            <div className="relative shrink-0 border-b border-gray-100 p-5">
+              {byHand && (
+                <button onClick={() => setOpen(false)} aria-label={t('סגור', 'Close')} className="absolute end-4 top-4 rounded-md p-1 text-gray-400 transition-colors hover:text-gray-600">
+                  <X size={18} />
+                </button>
+              )}
               <h2 className="flex items-center gap-2 text-base font-bold text-primary"><PhoneCall size={18} />{t('משימות המעקב של היום', 'Today\'s follow-up tasks')}</h2>
               <p className="mt-1 text-xs text-gray-500">
                 {t(`${todayCount} להיום · ${overdueCount} באיחור. כל משימה נשארת כאן עד שתעדכן אותה.`, `${todayCount} due today · ${overdueCount} overdue. Each task stays here until you update it.`)}

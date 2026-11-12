@@ -163,6 +163,12 @@ export async function startFollowUp(leadId: string, sequenceId: string, existing
   let progress: DbLeadSequenceProgress
   if (existing) {
     await cancelOpenTasksOf(existing.id)
+    // The calls of the earlier run are let go of the chain, so that "the calls
+    // of this chain" always means the calls of the run in progress. They stay
+    // on the lead as a record; they just no longer count towards this run.
+    const { error: detachError } = await supabase
+      .from('lead_followup_tasks').update({ progress_id: null }).eq('progress_id', existing.id)
+    if (detachError) throw detachError
     progress = await patchProgress(existing.id, { status: 'active', started_at: now, last_day_sent: -1 })
   } else {
     const { data, error } = await supabase
@@ -285,9 +291,8 @@ export interface CompleteTaskResult {
  * next one.
  */
 export async function completeFollowUpTask(input: CompleteTaskInput): Promise<CompleteTaskResult> {
-  const { task, outcome, progress, statuses, lead, date, userId, lang } = input
+  const { task, outcome, userId } = input
   const now = new Date()
-  const label = outcomeLabel(outcome)
 
   const closed = await patchTask(task.id, {
     status: 'done',
@@ -297,6 +302,21 @@ export async function completeFollowUpTask(input: CompleteTaskInput): Promise<Co
   })
   if (!closed) { announceChange(); return { task: null } }
 
+  // Closing the task is one write and what follows is several. If any of them
+  // fails the task is put back to open, so the call is asked about again
+  // rather than left answered with nothing having come of it.
+  try {
+    return await applyOutcome(input, closed, now)
+  } catch (error) {
+    await patchTask(task.id, { status: 'open', outcome: null, completed_at: null, completed_by: null }, false).catch(() => {})
+    announceChange()
+    throw error
+  }
+}
+
+async function applyOutcome(input: CompleteTaskInput, closed: DbLeadFollowUpTask, now: Date): Promise<CompleteTaskResult> {
+  const { task, outcome, progress, statuses, lead, date, lang } = input
+  const label = outcomeLabel(outcome)
   const result: CompleteTaskResult = { task: closed }
   const inChain = !!progress && progress.status !== 'stopped' && progress.status !== 'done' && task.progress_id === progress.id
   const currentStatus = statuses.find(status => status.id === lead.pipeline_status_id)

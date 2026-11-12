@@ -560,7 +560,7 @@ function FollowUpPanel({ lead, sequence, progress, tasks, statuses, archived }: 
   const [callbackAt, setCallbackAt] = useState('')
   const [error, setError] = useState('')
 
-  const chainTasks = progress ? tasks.filter(task => task.progress_id === progress.id && task.created_at >= progress.started_at) : []
+  const chainTasks = progress ? tasks.filter(task => task.progress_id === progress.id) : []
   // A chain started by the old five-attempts rule has no calls of its own and
   // is left to the panel below, exactly as before.
   const withCalls = !!progress && chainTasks.length > 0

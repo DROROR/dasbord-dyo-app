@@ -330,7 +330,9 @@ async function run() {
       // A chain with call tasks of its own follows the calls: a message waits
       // until every call on or before its day was confirmed unanswered. A
       // chain without any (started by the five-attempts rule) is untouched.
-      const calls = (callTasks.get(progress.id) ?? []).filter(task => task.created_at >= progress.started_at)
+      // Restarting a chain detaches the calls of its earlier run, so whatever
+      // is attached here belongs to the run in progress.
+      const calls = callTasks.get(progress.id) ?? []
       const withCalls = calls.length > 0
       if (withCalls) {
         const needed = due.day <= 0 ? 0 : CALL_DAYS.filter(day => day <= due.day).length
