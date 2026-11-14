@@ -18,6 +18,7 @@
 //  4. One email per lead per run, and none within 20 hours of the last.
 //  5. An address that unsubscribed is never written to again.
 
+import net from 'node:net'
 import tls from 'node:tls'
 import dns from 'node:dns/promises'
 import crypto from 'node:crypto'
@@ -141,7 +142,13 @@ export function buildMessage({ to, subject, body, lead }) {
   ].join('\r\n')
 }
 
-// ── A small SMTP client (implicit TLS, port 465) ─────────────────────────────
+// ── A small SMTP client ──────────────────────────────────────────────────────
+//
+// It talks on the submission port (587) and switches to TLS with STARTTLS
+// before anything private is said. Port 465 would be one step shorter, but
+// hosting companies commonly block it outbound — the server this runs on
+// does — while 587 is the port meant for exactly this. Setting
+// SALES_MAIL_SMTPS_PORT brings back TLS-from-the-first-byte on that port.
 
 /** Opens an authenticated session with the sales mailbox's own server. */
 export async function openMailbox() {
@@ -151,9 +158,11 @@ export async function openMailbox() {
     host = records.sort((a, b) => a.priority - b.priority)[0]?.exchange
     if (!host) throw new Error('the mail domain has no MX record')
   }
-  const socket = tls.connect({ host, port: Number(process.env.SALES_MAIL_SMTPS_PORT ?? 465), servername: MAIL_NAME })
-  socket.setEncoding('utf8')
-  socket.setTimeout(30_000, () => socket.destroy(new Error('the mail server stopped answering')))
+  const implicitPort = Number(process.env.SALES_MAIL_SMTPS_PORT ?? 0)
+  const submissionPort = Number(process.env.SALES_MAIL_SMTP_PORT ?? 587)
+  let socket = implicitPort
+    ? tls.connect({ host, port: implicitPort, servername: MAIL_NAME })
+    : net.connect({ host, port: submissionPort })
 
   let buffer = ''
   let waiting = null
@@ -174,9 +183,13 @@ export async function openMailbox() {
       }
     }
   }
-  socket.on('data', chunk => { buffer += chunk; flush() })
-  socket.on('error', error => { failure = error; flush() })
-  socket.on('close', () => { failure ??= new Error('the mail server closed the connection'); flush() })
+  const listen = () => {
+    socket.setTimeout(30_000, () => socket.destroy(new Error('the mail server stopped answering')))
+    socket.on('data', chunk => { buffer += chunk.toString('utf8'); flush() })
+    socket.on('error', error => { failure = error; flush() })
+    socket.on('close', () => { failure ??= new Error('the mail server closed the connection'); flush() })
+  }
+  listen()
   const reply = () => new Promise((resolve, reject) => { waiting = { resolve, reject }; flush() })
   const command = async (line, expected, what) => {
     socket.write(`${line}\r\n`)
@@ -189,6 +202,28 @@ export async function openMailbox() {
     const greeting = await reply()
     if (greeting.code !== 220) throw new Error(`greeting: ${greeting.text.slice(0, 200)}`)
     await command('EHLO planner.dyocourses.com', [250], 'hello')
+    if (!implicitPort) {
+      await command('STARTTLS', [220], 'starting TLS')
+      // The plain connection hands over to an encrypted one. Its listeners
+      // come off first, so nothing it says or does is mistaken for the new one.
+      const plain = socket
+      plain.removeAllListeners('data')
+      plain.removeAllListeners('error')
+      plain.removeAllListeners('close')
+      plain.removeAllListeners('timeout')
+      plain.setTimeout(0)
+      buffer = ''
+      socket = await new Promise((resolve, reject) => {
+        // The certificate is checked against the mailbox's own name, exactly
+        // as on the direct port: a server that cannot prove who it is never
+        // gets the password.
+        const secure = tls.connect({ socket: plain, servername: MAIL_NAME })
+        secure.once('secureConnect', () => { secure.removeListener('error', reject); resolve(secure) })
+        secure.once('error', reject)
+      })
+      listen()
+      await command('EHLO planner.dyocourses.com', [250], 'hello over TLS')
+    }
     await command('AUTH LOGIN', [334], 'sign-in')
     await command(Buffer.from(MAIL_USER).toString('base64'), [334], 'sign-in')
     await command(Buffer.from(MAIL_PASS).toString('base64'), [235], 'sign-in')
