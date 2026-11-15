@@ -84,6 +84,26 @@ test('404 after retries counts as failure', async () => {
   }
 })
 
+test('byte total is the sum of all files when downloads run in parallel', async () => {
+  const files = {}
+  const objects = []
+  for (let i = 0; i < 8; i++) {
+    files[`/storage/v1/object/authenticated/task-attachments/f${i}.bin`] = 'x'.repeat(100 + i)
+    objects.push({ bucket: 'task-attachments', name: `f${i}.bin`, size: 100 + i })
+  }
+  const storage = await fakeStorage(files)
+  try {
+    const result = await exportObjects({
+      objects, outDir: await tempDir(), baseUrl: storage.baseUrl, key: KEY,
+    })
+    assert.equal(result.failed, 0)
+    assert.equal(result.files, 8)
+    assert.equal(result.bytes, 828)
+  } finally {
+    await storage.close()
+  }
+})
+
 test('sends both auth headers', async () => {
   const storage = await fakeStorage({
     '/storage/v1/object/authenticated/task-attachments/a.txt': 'x',

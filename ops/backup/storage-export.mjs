@@ -57,7 +57,10 @@ export async function exportObjects({ objects, outDir, baseUrl, key, fetchImpl =
     while (queue.length) {
       const object = queue.shift()
       try {
-        result.bytes += await download(object, { outDir, baseUrl, key, fetchImpl })
+        // Await first: `result.bytes += await ...` would read the total before
+        // the download and drop the other workers' bytes.
+        const bytes = await download(object, { outDir, baseUrl, key, fetchImpl })
+        result.bytes += bytes
         result.files++
       } catch (error) {
         result.failed++
