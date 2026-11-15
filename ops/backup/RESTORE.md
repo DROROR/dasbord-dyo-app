@@ -22,7 +22,9 @@ On the server, which already has the CLI and the settings:
 
 ```bash
 set -a; . ~/.config/dyo-planner/backup.env; set +a
-. /opt/dashboard-dyo-app/ops/backup/s3-env.sh
+export AWS_ACCESS_KEY_ID=$HETZNER_S3_ACCESS_KEY AWS_SECRET_ACCESS_KEY=$HETZNER_S3_SECRET_KEY AWS_DEFAULT_REGION=$HETZNER_S3_REGION AWS_REQUEST_CHECKSUM_CALCULATION=when_required AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+s3() { ~/.local/bin/aws --endpoint-url "https://${HETZNER_S3_ENDPOINT#https://}" "$@"; }
+S3_BUCKET=$HETZNER_S3_BUCKET S3_PREFIX=${HETZNER_S3_ROOT_FOLDER:-planner}
 s3 s3 ls "s3://$S3_BUCKET/$S3_PREFIX/"                       # pick a date
 D=2026-11-15
 mkdir -p ~/restore-$D && cd ~/restore-$D

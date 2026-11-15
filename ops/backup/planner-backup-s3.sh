@@ -1,25 +1,18 @@
 #!/usr/bin/env bash
-# Nightly backup of the Planner to S3: the whole database (public, auth,
-# storage schemas) as one pg_dump file, every Supabase Storage file, and a
-# manifest.json uploaded LAST, so a folder without a manifest is never a good
-# backup. Retention (7 days) is an S3 lifecycle rule, not this script.
+# Nightly backup of the Planner to Hetzner Object Storage: the whole database
+# (public, auth, storage schemas) as one pg_dump file, every Supabase Storage
+# file, and a manifest.json uploaded LAST, so a folder without a manifest is
+# never a good backup. The bucket's lifecycle rule deletes backups after 8 days.
 #
-#   planner-backup-s3.sh [--env <file>] [--no-upload]
+#   planner-backup-s3.sh [--env <file>]
 #
-# --no-upload stops after building the backup locally (for testing).
 # Settings: ~/.config/dyo-planner/backup.env (see backup.env.example).
+# Log: $LOCAL_DIR/backup.log. Last good backup: $LOCAL_DIR/latest/.
 set -Eeuo pipefail
 umask 077
 
 ENV_FILE="$HOME/.config/dyo-planner/backup.env"
-UPLOAD=1
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --env) ENV_FILE="$2"; shift 2 ;;
-    --no-upload) UPLOAD=0; shift ;;
-    *) echo "unknown argument: $1" >&2; exit 64 ;;
-  esac
-done
+if [ "${1:-}" = "--env" ]; then ENV_FILE="$2"; fi
 
 set -a
 # shellcheck source=/dev/null
@@ -28,19 +21,33 @@ set +a
 
 : "${PG_HOST:?}" "${PG_PORT:?}" "${PG_USER:?}" "${PG_DB:?}" "${PGPASSFILE:?}"
 : "${SUPABASE_URL:?}" "${SUPABASE_SERVICE_ROLE_KEY:?}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ "$UPLOAD" = 1 ]; then
-  # shellcheck source=s3-env.sh
-  . "$SCRIPT_DIR/s3-env.sh"
-fi
+: "${HETZNER_S3_ENDPOINT:?}" "${HETZNER_S3_REGION:?}" "${HETZNER_S3_BUCKET:?}"
+: "${HETZNER_S3_ACCESS_KEY:?}" "${HETZNER_S3_SECRET_KEY:?}"
+
+case "$HETZNER_S3_ENDPOINT" in
+  http://*|https://*) S3_ENDPOINT="$HETZNER_S3_ENDPOINT" ;;
+  *) S3_ENDPOINT="https://$HETZNER_S3_ENDPOINT" ;;
+esac
+S3_PREFIX="${HETZNER_S3_ROOT_FOLDER:-planner}"
+S3_PREFIX="${S3_PREFIX#/}"
+S3_PREFIX="${S3_PREFIX%/}"
+export AWS_ACCESS_KEY_ID="$HETZNER_S3_ACCESS_KEY"
+export AWS_SECRET_ACCESS_KEY="$HETZNER_S3_SECRET_KEY"
+export AWS_DEFAULT_REGION="$HETZNER_S3_REGION"
+# AWS CLI 2.23+ adds checksums by default that some S3-compatible stores
+# reject; only send them when the operation requires it.
+export AWS_REQUEST_CHECKSUM_CALCULATION=when_required
+export AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+s3() { "${AWS_BIN:-aws}" --endpoint-url "$S3_ENDPOINT" s3 "$@" --only-show-errors; }
+
 LOCAL_DIR="${LOCAL_DIR:-$HOME/planner-s3-backups}"
 NODE_BIN="${NODE_BIN:-node}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PGCONNECT_TIMEOUT=15
 
 mkdir -p "$LOCAL_DIR"
 chmod 700 "$LOCAL_DIR"
-LOG="$LOCAL_DIR/backup.log"
-exec > >(tee -a "$LOG") 2>&1
+exec >> "$LOCAL_DIR/backup.log" 2>&1
 
 exec 9>"$LOCAL_DIR/.lock"
 if ! flock -n 9; then
@@ -49,19 +56,9 @@ if ! flock -n 9; then
 fi
 
 STEP=start
-notify() {
-  [ -n "${SLACK_BACKUP_WEBHOOK_URL:-}" ] || { echo "slack: no webhook set, not posting"; return 0; }
-  local body
-  body="$("$NODE_BIN" -e 'process.stdout.write(JSON.stringify({ text: process.argv[1] }))' "$1")"
-  curl -sS --max-time 10 -H 'Content-Type: application/json' -d "$body" \
-    "$SLACK_BACKUP_WEBHOOK_URL" >/dev/null || echo "slack: post failed"
-}
 on_exit() {
   local rc=$?
-  if [ "$rc" -ne 0 ]; then
-    echo "$(date -Is) FAILED at step '$STEP' (exit $rc)"
-    notify "❌ Planner backup failed at step '$STEP' (exit $rc). Log: $LOG on $(hostname)"
-  fi
+  [ "$rc" -eq 0 ] || echo "$(date -Is) FAILED at step $STEP (exit $rc)"
 }
 trap on_exit EXIT
 
@@ -127,24 +124,17 @@ cat > "$WORK/manifest.json" <<EOF
 EOF
 "$NODE_BIN" -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$WORK/manifest.json"
 
-if [ "$UPLOAD" = 1 ]; then
-  DEST="s3://$S3_BUCKET/$S3_PREFIX/$DATE"
-  STEP=upload-dump
-  s3 s3 cp "$WORK/db.dump" "$DEST/db.dump" --only-show-errors
-  STEP=upload-storage
-  if [ -n "$(ls -A "$WORK/storage")" ]; then
-    s3 s3 cp "$WORK/storage" "$DEST/storage/" --recursive --only-show-errors
-  fi
-  STEP=upload-manifest
-  s3 s3 cp "$WORK/manifest.json" "$DEST/manifest.json" --only-show-errors
+DEST="s3://$HETZNER_S3_BUCKET/$S3_PREFIX/$DATE"
+STEP=upload-dump
+s3 cp "$WORK/db.dump" "$DEST/db.dump"
+STEP=upload-storage
+if [ -n "$(ls -A "$WORK/storage")" ]; then
+  s3 cp "$WORK/storage" "$DEST/storage/" --recursive
 fi
+STEP=upload-manifest
+s3 cp "$WORK/manifest.json" "$DEST/manifest.json"
 
 STEP=finish
 rm -rf "$LOCAL_DIR/latest"
 mv "$WORK" "$LOCAL_DIR/latest"
-SIZE="$(du -sh "$LOCAL_DIR/latest" | cut -f1)"
-FILES="$(wc -l < "$LOCAL_DIR/latest/storage-list.tsv" | tr -d ' ')"
-echo "$(date -Is) backup $DATE done: $SIZE, $FILES files, upload=$UPLOAD"
-if [ "$UPLOAD" = 1 ]; then
-  notify "✅ Planner backup $DATE: database $(numfmt --to=iec "$DUMP_BYTES"), $FILES files, total $SIZE"
-fi
+echo "$(date -Is) backup $DATE done: $(du -sh "$LOCAL_DIR/latest" | cut -f1), $(wc -l < "$LOCAL_DIR/latest/storage-list.tsv" | tr -d ' ') files"
