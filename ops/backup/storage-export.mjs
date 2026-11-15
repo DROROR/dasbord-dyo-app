@@ -11,7 +11,8 @@
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 const ATTEMPTS = 3
 const CONCURRENCY = 4
@@ -106,7 +107,12 @@ async function main() {
   process.exit(result.failed === 0 ? 0 : 1)
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Compare real paths: Node resolves symlinks for import.meta.url but not for
+// argv[1], and a mismatch would silently skip main().
+const isMain = (() => {
+  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)) } catch { return false }
+})()
+if (isMain) {
   main().catch(error => {
     console.error(`storage-export: ${error.message}`)
     process.exit(1)

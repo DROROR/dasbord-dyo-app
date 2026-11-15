@@ -13,6 +13,19 @@ umask 077
 
 ENV_FILE="$HOME/.config/dyo-planner/backup.env"
 if [ "${1:-}" = "--env" ]; then ENV_FILE="$2"; fi
+export LC_ALL=C.UTF-8
+
+# Log first, so even a broken settings file leaves a trace.
+LOCAL_DIR="$HOME/planner-s3-backups"
+mkdir -p "$LOCAL_DIR"
+chmod 700 "$LOCAL_DIR"
+exec >> "$LOCAL_DIR/backup.log" 2>&1
+STEP=settings
+on_exit() {
+  local rc=$?
+  [ "$rc" -eq 0 ] || echo "$(date -Is) FAILED at step $STEP (exit $rc)"
+}
+trap on_exit EXIT
 
 set -a
 # shellcheck source=/dev/null
@@ -40,14 +53,9 @@ export AWS_REQUEST_CHECKSUM_CALCULATION=when_required
 export AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
 s3() { "${AWS_BIN:-aws}" --endpoint-url "$S3_ENDPOINT" s3 "$@" --only-show-errors; }
 
-LOCAL_DIR="${LOCAL_DIR:-$HOME/planner-s3-backups}"
 NODE_BIN="${NODE_BIN:-node}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PGCONNECT_TIMEOUT=15
-
-mkdir -p "$LOCAL_DIR"
-chmod 700 "$LOCAL_DIR"
-exec >> "$LOCAL_DIR/backup.log" 2>&1
 
 exec 9>"$LOCAL_DIR/.lock"
 if ! flock -n 9; then
@@ -56,22 +64,16 @@ if ! flock -n 9; then
 fi
 
 STEP=start
-on_exit() {
-  local rc=$?
-  [ "$rc" -eq 0 ] || echo "$(date -Is) FAILED at step $STEP (exit $rc)"
-}
-trap on_exit EXIT
-
 PSQL=(psql -w -X -q -v ON_ERROR_STOP=1 -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB")
 DATE="$(TZ=Asia/Jerusalem date +%F)"
 WORK="$LOCAL_DIR/work-$DATE"
-rm -rf "$WORK"
+rm -rf "$LOCAL_DIR"/work-*
 mkdir -p "$WORK/storage"
 STARTED_AT="$(date -u +%FT%TZ)"
 echo "$(date -Is) backup $DATE starting"
 
 STEP=dump
-pg_dump -w -Fc --schema=public --schema=auth --schema=storage \
+pg_dump -w -Fc --lock-wait-timeout=120s --schema=public --schema=auth --schema=storage \
   -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -f "$WORK/db.dump"
 
 STEP=verify-dump
@@ -95,6 +97,11 @@ TABLE_COUNTS="$("${PSQL[@]}" -tAc "select coalesce(json_object_agg(table_name,
 AUTH_USERS="$("${PSQL[@]}" -tAc "select count(*) from auth.users")"
 PG_VERSION="$("${PSQL[@]}" -tAc "show server_version")"
 
+DEST="s3://$HETZNER_S3_BUCKET/$S3_PREFIX/$DATE"
+# The database goes up first: a Storage problem must never cost us it.
+STEP=upload-dump
+s3 cp "$WORK/db.dump" "$DEST/db.dump"
+
 STEP=storage
 "${PSQL[@]}" -tA -F $'\t' -c "select bucket_id, name, coalesce((metadata->>'size')::bigint, 0)
   from storage.objects where name is not null order by 1, 2" > "$WORK/storage-list.tsv"
@@ -105,6 +112,13 @@ STORAGE_SUMMARY="$("${PSQL[@]}" -tAc "select coalesce(json_object_agg(bucket_id,
 "$NODE_BIN" "$SCRIPT_DIR/storage-export.mjs" --list "$WORK/storage-list.tsv" \
   --out "$WORK/storage" --url "$SUPABASE_URL" > "$WORK/storage-export.json"
 echo "storage export: $(cat "$WORK/storage-export.json")"
+# Belt and braces: every listed object must be on disk.
+LISTED="$(wc -l < "$WORK/storage-list.tsv" | tr -d ' ')"
+ON_DISK="$(find "$WORK/storage" -type f | wc -l | tr -d ' ')"
+if [ "$LISTED" != "$ON_DISK" ]; then
+  echo "storage: $LISTED objects listed but $ON_DISK files on disk"
+  exit 1
+fi
 
 STEP=manifest
 DUMP_BYTES="$(stat -c %s "$WORK/db.dump")"
@@ -124,9 +138,6 @@ cat > "$WORK/manifest.json" <<EOF
 EOF
 "$NODE_BIN" -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$WORK/manifest.json"
 
-DEST="s3://$HETZNER_S3_BUCKET/$S3_PREFIX/$DATE"
-STEP=upload-dump
-s3 cp "$WORK/db.dump" "$DEST/db.dump"
 STEP=upload-storage
 if [ -n "$(ls -A "$WORK/storage")" ]; then
   s3 cp "$WORK/storage" "$DEST/storage/" --recursive

@@ -35,11 +35,15 @@ sha256sum db.dump; grep dump_sha256 manifest.json            # must be equal
 ## 2a. Full restore (new or emptied Supabase project)
 
 Supabase projects already contain the `auth` and `storage` schemas, so restore with
-`--clean --if-exists`. That replaces them with the backup's content. Run it as a
-superuser:
-- In a Supabase project, use the direct connection string from the dashboard
-  (Project Settings → Database).
-- In a local `supabase/postgres` container, use `supabase_admin`.
+`--clean --if-exists`. That replaces them with the backup's content.
+
+- **Proven:** restoring into a local `supabase/postgres` container as `supabase_admin`.
+- **Not tested yet: a hosted Supabase project.** There you only get the `postgres` role,
+  which cannot drop or own the `auth`/`storage` tables, so expect errors on those two
+  schemas. If that happens:
+  1. Restore `public` with `pg_restore --clean --if-exists -n public`.
+  2. Load `auth` and `storage` data-only with `pg_restore --data-only -n auth -n storage`,
+     after `SET session_replication_role = replica;`.
 
 ```bash
 pg_restore --clean --if-exists -d "<connection string of the TARGET database>" db.dump
@@ -68,13 +72,18 @@ Remove the container afterwards with `docker rm -f restore`.
 ## 3. Put the Storage files back
 
 Files are under `storage/<bucket>/<path>`, exactly as the paths in `storage.objects`.
-Upload them with the Supabase dashboard, or with the Storage API and the service-role key:
+Upload them with the Supabase dashboard, or with the Storage API and the service-role key.
+This loop URL-encodes each path segment (names can be Hebrew or contain spaces). It uses
+`x-upsert`, because after a full restore (2a) `storage.objects` already lists the files.
+Not tested yet: try it on one file first.
 
 ```bash
-curl -X POST "$SUPABASE_URL/storage/v1/object/<bucket>/<path>" \
-  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-  --data-binary @"storage/<bucket>/<path>"
+cd storage
+find . -type f | sed 's|^\./||' | while IFS= read -r f; do
+  url="$SUPABASE_URL/storage/v1/object/$(node -e 'process.stdout.write(process.argv[1].split("/").map(encodeURIComponent).join("/"))' "$f")"
+  type="$(file -b --mime-type "$f")"
+  curl -sS -f -X POST "$url" -H "x-upsert: true" -H "Content-Type: $type" \
+    -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+    --data-binary @"$f" >/dev/null || echo "FAILED: $f"
+done
 ```
-
-After a full database restore (2a), `storage.objects` already lists the files. Only the
-file contents need uploading.
