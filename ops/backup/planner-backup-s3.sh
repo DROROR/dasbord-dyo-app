@@ -28,14 +28,13 @@ set +a
 
 : "${PG_HOST:?}" "${PG_PORT:?}" "${PG_USER:?}" "${PG_DB:?}" "${PGPASSFILE:?}"
 : "${SUPABASE_URL:?}" "${SUPABASE_SERVICE_ROLE_KEY:?}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ "$UPLOAD" = 1 ]; then
-  : "${S3_BUCKET:?}" "${AWS_REGION:?}" "${AWS_ACCESS_KEY_ID:?}" "${AWS_SECRET_ACCESS_KEY:?}"
+  # shellcheck source=s3-env.sh
+  . "$SCRIPT_DIR/s3-env.sh"
 fi
-S3_PREFIX="${S3_PREFIX:-planner}"
 LOCAL_DIR="${LOCAL_DIR:-$HOME/planner-s3-backups}"
 NODE_BIN="${NODE_BIN:-node}"
-AWS_BIN="${AWS_BIN:-aws}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PGCONNECT_TIMEOUT=15
 
 mkdir -p "$LOCAL_DIR"
@@ -131,13 +130,13 @@ EOF
 if [ "$UPLOAD" = 1 ]; then
   DEST="s3://$S3_BUCKET/$S3_PREFIX/$DATE"
   STEP=upload-dump
-  "$AWS_BIN" s3 cp "$WORK/db.dump" "$DEST/db.dump" --only-show-errors
+  s3 s3 cp "$WORK/db.dump" "$DEST/db.dump" --only-show-errors
   STEP=upload-storage
   if [ -n "$(ls -A "$WORK/storage")" ]; then
-    "$AWS_BIN" s3 cp "$WORK/storage" "$DEST/storage/" --recursive --only-show-errors
+    s3 s3 cp "$WORK/storage" "$DEST/storage/" --recursive --only-show-errors
   fi
   STEP=upload-manifest
-  "$AWS_BIN" s3 cp "$WORK/manifest.json" "$DEST/manifest.json" --only-show-errors
+  s3 s3 cp "$WORK/manifest.json" "$DEST/manifest.json" --only-show-errors
 fi
 
 STEP=finish

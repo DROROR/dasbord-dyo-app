@@ -13,13 +13,12 @@ set -a
 # shellcheck source=/dev/null
 . "$ENV_FILE"
 set +a
-: "${S3_BUCKET:?}" "${AWS_REGION:?}" "${AWS_ACCESS_KEY_ID:?}" "${AWS_SECRET_ACCESS_KEY:?}"
-S3_PREFIX="${S3_PREFIX:-planner}"
+# shellcheck source=s3-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/s3-env.sh"
 NODE_BIN="${NODE_BIN:-node}"
-AWS_BIN="${AWS_BIN:-aws}"
 
 DATE="$(TZ=Asia/Jerusalem date +%F)"
-if "$AWS_BIN" s3 ls "s3://$S3_BUCKET/$S3_PREFIX/$DATE/manifest.json" >/dev/null 2>&1; then
+if s3 s3 ls "s3://$S3_BUCKET/$S3_PREFIX/$DATE/manifest.json" >/dev/null 2>&1; then
   echo "$(date -Is) backup $DATE is in S3"
   exit 0
 fi

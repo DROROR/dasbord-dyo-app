@@ -1,5 +1,7 @@
 # Planner daily backup to S3 — design
 
+> Update 2026-11-15: the bucket is **Hetzner Object Storage** (S3-compatible), configured with `HETZNER_S3_*` variables. Hetzner keys cannot be limited to no-delete, so the "key that cannot delete" goal is replaced by: versioning on, key kept only in the server file.
+
 Status: draft, waiting for approval. Date: 2026-11-15.
 
 ## Why
