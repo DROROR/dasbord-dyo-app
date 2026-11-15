@@ -8,7 +8,7 @@ import { Avatar } from '../Avatar'
 import { useNotifications } from '../../contexts/NotificationContext'
 import { useTimer, TIMER_ENTRY_SAVED_EVENT, type TimerEntrySavedDetail } from '../../contexts/TimerContext'
 import { useWorkLang } from '../../contexts/WorkLanguageContext'
-import type { Task, TaskPlatform, TaskSubtask, TaskSubtaskStatus, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption, Board } from '../../types/work'
+import type { Task, TaskPlatform, TaskSubtask, TaskSubtaskStatus, TimeEntry, PriorityDef, StatusHistoryEntry, TaskComment, Attachment, BoardStatus, AssigneeOption, Board, DeploymentDetails } from '../../types/work'
 import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL, ticketKindOf, type TicketKind } from '../../data/workConstants'
 import {
   addSubtaskComment, addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask, deleteTaskComment,
@@ -84,6 +84,144 @@ export interface TicketDoneAnswers {
   requiresAppUpdate: boolean
   /** now = write the customer message, wait = write it but hold, none = skip */
   messageChoice: 'now' | 'wait' | 'none'
+}
+
+// ─── Deployment details panel ─────────────────────────────────────────────────
+
+function DeploymentDetailsPanel({ details, appName }: { details: DeploymentDetails; appName: string }) {
+  const textRows: Array<{ label: string; value: string }> = []
+
+  const push = (label: string, value: string | undefined) => {
+    if (value && value.trim()) textRows.push({ label, value: value.trim() })
+  }
+  push('Contact Email',    details.contact_email)
+  push('Category',         details.app_category)
+  push('Age Group',        details.age_group)
+  push('Keywords',         details.keywords)
+  push('Target Platforms', details.target_platforms?.join(', '))
+
+  const hasImages =
+    details.logo_url ||
+    details.feature_url ||
+    (details.mobile_screenshots_urls?.length ?? 0) > 0 ||
+    (details.tablet_screenshots_urls?.length ?? 0) > 0
+
+  const hasLinks = details.privacy_policy_url || details.terms_of_use_url
+
+  return (
+    <div className="px-6 py-4 shrink-0 border-b border-indigo-100 bg-indigo-50/40">
+      <p className="text-[11px] font-bold text-indigo-600 uppercase tracking-wide mb-3">
+        App Deployment Details — {appName}
+      </p>
+
+      {/* Text info */}
+      {textRows.length > 0 && (
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 mb-4">
+          {textRows.map(r => (
+            <div key={r.label} className="flex items-baseline gap-1.5 min-w-0 col-span-1">
+              <span className="text-xs text-gray-500 shrink-0">{r.label}:</span>
+              <span className="text-xs font-medium text-gray-900 truncate" title={r.value}>{r.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Legal links */}
+      {hasLinks && (
+        <div className="flex flex-wrap gap-3 mb-4">
+          {details.privacy_policy_url && (
+            <a href={details.privacy_policy_url} target="_blank" rel="noopener noreferrer"
+              className="text-xs font-semibold text-indigo-600 underline underline-offset-2 hover:text-indigo-800">
+              Privacy Policy ↗
+            </a>
+          )}
+          {details.terms_of_use_url && (
+            <a href={details.terms_of_use_url} target="_blank" rel="noopener noreferrer"
+              className="text-xs font-semibold text-indigo-600 underline underline-offset-2 hover:text-indigo-800">
+              Terms of Use ↗
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* Description fields */}
+      {details.short_description && (
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Short Description</p>
+          <p className="text-xs text-gray-700 leading-relaxed">{details.short_description}</p>
+        </div>
+      )}
+      {details.full_description && (
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Full Description</p>
+          <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{details.full_description}</p>
+        </div>
+      )}
+
+      {/* Images */}
+      {hasImages && (
+        <div>
+          {/* Logo + Feature Graphic side by side */}
+          {(details.logo_url || details.feature_url) && (
+            <div className="flex flex-wrap gap-4 mb-3">
+              {details.logo_url && (
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Logo</p>
+                  <a href={details.logo_url} target="_blank" rel="noopener noreferrer" title="Open full image">
+                    <img src={details.logo_url} alt="App Logo"
+                      className="h-16 w-16 rounded-xl object-contain border border-indigo-100 bg-white hover:opacity-80 transition-opacity" />
+                  </a>
+                </div>
+              )}
+              {details.feature_url && (
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Feature Graphic</p>
+                  <a href={details.feature_url} target="_blank" rel="noopener noreferrer" title="Open full image">
+                    <img src={details.feature_url} alt="Feature Graphic"
+                      className="h-16 rounded-xl object-contain border border-indigo-100 bg-white hover:opacity-80 transition-opacity" style={{ maxWidth: '160px' }} />
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Mobile screenshots */}
+          {(details.mobile_screenshots_urls?.length ?? 0) > 0 && (
+            <div className="mb-3">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                Mobile Screenshots ({details.mobile_screenshots_urls!.length})
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {details.mobile_screenshots_urls!.map((url, i) => (
+                  <a key={i} href={url} target="_blank" rel="noopener noreferrer" title={`Mobile Screenshot ${i + 1}`}>
+                    <img src={url} alt={`Mobile Screenshot ${i + 1}`}
+                      className="h-24 rounded-lg object-contain border border-indigo-100 bg-white hover:opacity-80 transition-opacity" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tablet screenshots */}
+          {(details.tablet_screenshots_urls?.length ?? 0) > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                Tablet Screenshots ({details.tablet_screenshots_urls!.length})
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {details.tablet_screenshots_urls!.map((url, i) => (
+                  <a key={i} href={url} target="_blank" rel="noopener noreferrer" title={`Tablet Screenshot ${i + 1}`}>
+                    <img src={url} alt={`Tablet Screenshot ${i + 1}`}
+                      className="h-24 rounded-lg object-contain border border-indigo-100 bg-white hover:opacity-80 transition-opacity" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function TaskDetailModal({
@@ -1649,6 +1787,11 @@ export function TaskDetailModal({
               ))}
             </div>
           </div>
+        )}
+
+        {/* App deployment details — shown for app_deployment_request board tasks */}
+        {task.board === 'app_deployment_request' && task.deploymentDetails && (
+          <DeploymentDetailsPanel details={task.deploymentDetails} appName={task.clientName ?? task.title} />
         )}
 
         {/* Update Admin — any task linked to a client app. Rendered only once

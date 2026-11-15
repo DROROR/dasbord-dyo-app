@@ -133,6 +133,28 @@ export interface TicketDetails {
   [key: string]: string | undefined
 }
 
+/**
+ * App store submission data for tasks on the app_deployment_request board.
+ * Written only by the create-app-deployment-request edge function; snake_case
+ * keys match the DB column and the edge function payload exactly.
+ */
+export interface DeploymentDetails {
+  short_description?: string
+  full_description?: string
+  keywords?: string
+  contact_email?: string
+  app_category?: string
+  age_group?: string
+  target_platforms?: string[]
+  logo_url?: string
+  feature_url?: string
+  mobile_screenshots_urls?: string[]
+  tablet_screenshots_urls?: string[]
+  privacy_policy_url?: string
+  terms_of_use_url?: string
+  push_notification_setup?: boolean
+}
+
 export interface Task {
   id: string
   title: string
@@ -200,6 +222,11 @@ export interface Task {
   titleEn?: string
   /** Machine-translated English version of the description (set when original is Hebrew). */
   descriptionEn?: string
+  /**
+   * App store submission payload for app_deployment_request board tasks.
+   * Written only by the create-app-deployment-request edge function, never overwritten here.
+   */
+  deploymentDetails?: DeploymentDetails
 }
 
 export type DocAccessLevel = 'none' | 'view' | 'full'
