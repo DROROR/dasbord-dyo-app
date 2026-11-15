@@ -1,0 +1,18 @@
+{
+  "Rules": [
+    {
+      "ID": "planner-7-days",
+      "Filter": { "Prefix": "planner/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 8 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 8 }
+    },
+    {
+      "ID": "planner-test-cleanup",
+      "Filter": { "Prefix": "planner-test/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 1 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 }
+    }
+  ]
+}
