@@ -37,7 +37,11 @@ interface TimerContextValue {
   elapsed: number               // live seconds since start
   /** True while a stop() is persisting — callers should disable their own Stop control to avoid a second concurrent attempt. */
   saving: boolean
-  start: (taskId: string, taskTitle: string, loggedBy: string, loggedById?: string) => void
+  /** Returns false (and changes nothing) when another task's timer is already
+   *  running in this tab — starting would silently throw its time away. */
+  start: (taskId: string, taskTitle: string, loggedBy: string, loggedById?: string) => boolean
+  /** Drops the running timer without saving, e.g. when its task was deleted. */
+  discard: () => void
   /** Persists via the same addTaskTimeEntry RPC every other entry uses, and only clears
    *  the running timer once that save is confirmed. On failure the timer is left running
    *  and recoverable so the caller can show an error and let the user retry. */
@@ -75,10 +79,18 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   }, [timerState?.taskId, timerState?.startTime])
 
   function start(taskId: string, taskTitle: string, loggedBy: string, loggedById?: string) {
+    if (timerState && timerState.taskId !== taskId) return false
+    if (timerState) return true
     const startTime = Date.now()
     const state: TimerState = { taskId, taskTitle, startTime, loggedBy, loggedById }
     sessionStorage.setItem(TIMER_KEY, JSON.stringify(state))
     setTimerState(state)
+    return true
+  }
+
+  function discard() {
+    sessionStorage.removeItem(TIMER_KEY)
+    setTimerState(null)
   }
 
   async function stop(opts?: { subtaskId?: string }): Promise<StopResult> {
@@ -123,6 +135,14 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       }))
       return { entry, taskId: snap.taskId, discarded: false, error: null }
     } catch (err) {
+      // The task no longer exists (deleted while the timer ran): no retry
+      // can ever succeed, so keeping the timer would make it unstoppable.
+      if ((err as { code?: string } | null)?.code === 'P0002') {
+        sessionStorage.removeItem(TIMER_KEY)
+        setTimerState(null)
+        window.alert(`The task "${snap.taskTitle}" was deleted, so its timer was stopped. The time could not be saved.`)
+        return { entry: null, taskId: snap.taskId, discarded: true, error: null }
+      }
       // Persistence failed — the timer stays exactly as it was
       // (still in timerState and TIMER_KEY), so the user can retry.
       return {
@@ -135,7 +155,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <TimerContext.Provider value={{ timerState, elapsed, saving, start, stop }}>
+    <TimerContext.Provider value={{ timerState, elapsed, saving, start, discard, stop }}>
       {children}
     </TimerContext.Provider>
   )

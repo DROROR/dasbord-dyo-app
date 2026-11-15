@@ -30,7 +30,9 @@ interface AuthValue {
   signOut: () => Promise<void>
 }
 
-const DEV_BYPASS = import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
+// Only ever in `vite` dev mode: a production build ignores the flag, so a
+// stray VITE_DEV_BYPASS_AUTH=true on a server can never open the app.
+const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
 
 const DEV_USER = { id: 'dev-local', email: 'dev@local' } as User
 const DEV_PROFILE: UserProfile = {

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Settings2, MessageSquare, CheckCircle, XCircle, Pencil, Save, X, User, Loader2, Check, AlertCircle } from 'lucide-react'
+import { Settings2, MessageSquare, Pencil, Save, X, User, Loader2, Check, AlertCircle } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { updateOwnName } from '../lib/database'
 
@@ -86,9 +86,9 @@ function PersonalProfileCard() {
 }
 
 function WAChannelCard({
-  title, channel, accent, configured,
+  title, channel, accent,
 }: {
-  title: string; channel: 'service' | 'sales'; accent: string; configured: boolean
+  title: string; channel: 'service' | 'sales'; accent: string
 }) {
   const storageKey        = `waPhoneLabel_${channel}`
   const [label, setLabel] = useState(() => localStorage.getItem(storageKey) ?? '')
@@ -110,19 +110,6 @@ function WAChannelCard({
           <p className="text-xs text-gray-400 mt-0.5">
             {channel === 'service' ? 'שימוש: לקוחות' : 'שימוש: לידים'}
           </p>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {configured ? (
-            <>
-              <CheckCircle size={14} className="text-green-500" />
-              <span className="text-xs text-green-600 font-medium">מחובר</span>
-            </>
-          ) : (
-            <>
-              <XCircle size={14} className="text-gray-300" />
-              <span className="text-xs text-gray-400">לא מוגדר</span>
-            </>
-          )}
         </div>
       </div>
 
@@ -199,15 +186,6 @@ export function Settings() {
 }
 
 function WhatsAppSettingsCard() {
-  const serviceConfigured = !!(
-    import.meta.env.VITE_GREEN_API_INSTANCE_SERVICE &&
-    import.meta.env.VITE_GREEN_API_TOKEN_SERVICE
-  )
-  const salesConfigured = !!(
-    import.meta.env.VITE_GREEN_API_INSTANCE_SALES &&
-    import.meta.env.VITE_GREEN_API_TOKEN_SALES
-  )
-
   return (
     <div className="bg-surface rounded-2xl border border-gray-100 shadow-sm p-5">
       <div className="flex items-center gap-2.5 mb-5">
@@ -223,18 +201,16 @@ function WhatsAppSettingsCard() {
           title="שירות לקוחות"
           channel="service"
           accent="border-blue-100 bg-blue-50/30"
-          configured={serviceConfigured}
         />
         <WAChannelCard
           title="מכירות"
           channel="sales"
           accent="border-green-100 bg-green-50/30"
-          configured={salesConfigured}
         />
       </div>
 
       <p className="text-xs text-gray-300 mt-4">
-        ערכי החיבור (Instance ID + Token) מוגדרים כמשתני סביבה בקובץ .env
+        החיבור ל-WhatsApp מוגדר בשרת בלבד — הטוקנים לעולם לא נשלחים לדפדפן
       </p>
     </div>
   )

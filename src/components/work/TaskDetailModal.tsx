@@ -485,7 +485,13 @@ export function TaskDetailModal({
 
   function startTimer() {
     if (!canLogTime) return
-    timerCtx.start(task.id, task.title, currentUser, currentUserId)
+    setTimeError(null)
+    if (!timerCtx.start(task.id, task.title, currentUser, currentUserId)) {
+      setTimeError(tr(
+        `טיימר כבר רץ על "${timerCtx.timerState?.taskTitle ?? ''}". עצור אותו קודם.`,
+        `A timer is already running on "${timerCtx.timerState?.taskTitle ?? ''}". Stop it first.`,
+      ))
+    }
   }
   async function stopTimer() {
     if (!canLogTime || timeSaving) return
@@ -1225,6 +1231,8 @@ export function TaskDetailModal({
     setDeleteError(null)
     try {
       await deleteTask(task.id)
+      // A timer left running on a deleted task could never be saved or stopped.
+      if (timerCtx.timerState?.taskId === task.id) timerCtx.discard()
       onDeleted?.(task.id)
     } catch (err) {
       setDeleting(false)
@@ -2198,7 +2206,7 @@ export function TaskDetailModal({
             {/* Client link */}
             <div>
               <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Client link</p>
-              <select value={clientId} disabled={readonly} onChange={e => { setClientId(e.target.value); save({ clientId: e.target.value || undefined, clientName: clients.find(c => c.id === e.target.value)?.name }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50">
+              <select value={clientId} disabled={readonly} onChange={e => { setClientId(e.target.value); save({ clientId: e.target.value, clientName: clients.find(c => c.id === e.target.value)?.name ?? '' }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50">
                 <option value="">No client linked</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -2212,7 +2220,7 @@ export function TaskDetailModal({
               <select
                 value={linkedAppId}
                 disabled={readonly || !!task.ticketId}
-                onChange={e => { setLinkedAppId(e.target.value); save({ appId: e.target.value || undefined }) }}
+                onChange={e => { setLinkedAppId(e.target.value); save({ appId: e.target.value }) }}
                 className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50"
               >
                 <option value="">{tr('לא מקושר', 'Not linked')}</option>
@@ -2245,13 +2253,13 @@ export function TaskDetailModal({
             {/* Start date */}
             <div>
               <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Start date</p>
-              <input type="date" value={startDate} disabled={readonly} onChange={e => { setStartDate(e.target.value); save({ startDate: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50" />
+              <input type="date" value={startDate} disabled={readonly} onChange={e => { setStartDate(e.target.value); save({ startDate: e.target.value }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50" />
             </div>
 
             {/* Due date */}
             <div>
               <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Due date</p>
-              <input type="date" value={dueDate} disabled={readonly} onChange={e => { setDueDate(e.target.value); save({ dueDate: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50" />
+              <input type="date" value={dueDate} disabled={readonly} onChange={e => { setDueDate(e.target.value); save({ dueDate: e.target.value }) }} className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition bg-white disabled:bg-gray-50" />
             </div>
 
             {/* Time estimate */}
@@ -2422,7 +2430,7 @@ export function TaskDetailModal({
             {status === 'pending_code_review' && (
               <div className="border border-purple-200 bg-purple-50 rounded-xl p-3">
                 <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">Code Reviewer</p>
-                <select value={codeRev} disabled={readonly} onChange={e => { setCodeRev(e.target.value); save({ codeReviewer: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-purple-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-purple-200 transition bg-white disabled:bg-purple-50">
+                <select value={codeRev} disabled={readonly} onChange={e => { setCodeRev(e.target.value); save({ codeReviewer: e.target.value }) }} className="w-full text-sm text-gray-700 border border-purple-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-purple-200 transition bg-white disabled:bg-purple-50">
                   <option value="">Select reviewer...</option>
                   {assignees.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
@@ -2433,7 +2441,7 @@ export function TaskDetailModal({
             {status === 'pending_ux_review' && (
               <div className="border border-pink-200 bg-pink-50 rounded-xl p-3">
                 <p className="text-xs font-bold text-gray-900 uppercase tracking-wide mb-1.5">UI/UX Reviewer</p>
-                <select value={uxRev} disabled={readonly} onChange={e => { setUxRev(e.target.value); save({ uxReviewer: e.target.value || undefined }) }} className="w-full text-sm text-gray-700 border border-pink-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-pink-200 transition bg-white disabled:bg-pink-50">
+                <select value={uxRev} disabled={readonly} onChange={e => { setUxRev(e.target.value); save({ uxReviewer: e.target.value }) }} className="w-full text-sm text-gray-700 border border-pink-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-pink-200 transition bg-white disabled:bg-pink-50">
                   <option value="">Select reviewer...</option>
                   {assignees.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
