@@ -1102,7 +1102,7 @@ export function Leads() {
   const [leads,        setLeads]        = useState<Lead[]>([])
   const [loading,      setLoading]      = useState(true)
   const [fetchError,   setFetchError]   = useState<string | null>(null)
-  const [view, setView] = useState<'kanban' | 'calendar' | 'archive'>('kanban')
+  const [view, setView] = useState<'kanban' | 'calendar' | 'archive'>('calendar')
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   // Kept current for the focus listener, which is registered once at mount.
   const leadsRef = useRef<Lead[]>([])
@@ -1633,7 +1633,7 @@ export function Leads() {
       )}
 
       {view === 'calendar' && (
-        <LeadCalendar leads={leads.filter(lead => lead.dueAt).map(lead => ({ id: lead.id, name: lead.name, phone: lead.phone, dueAt: lead.dueAt!, pipelineStatusId: lead.pipelineStatusId, statusUpdatedAt: lead.statusUpdatedAt, meetingPending: isPendingMeeting(lead) }))} statuses={statuses} onOpen={id => setSelectedLead(leads.find(lead => lead.id === id) ?? null)} />
+        <LeadCalendar leads={leads.filter(lead => lead.dueAt).map(lead => ({ id: lead.id, name: lead.name, phone: lead.phone, email: lead.email, dueAt: lead.dueAt!, pipelineStatusId: lead.pipelineStatusId, meetingPending: isPendingMeeting(lead), source: lead.source, category: lead.formAnswer || LEAD_TYPE_LABEL[lead.leadType].en, campaignName: lead.campaignName, clientName: lead.clientName }))} statuses={statuses} onOpen={id => setSelectedLead(leads.find(lead => lead.id === id) ?? null)} />
       )}
 
       {view === 'archive' && <ArchiveView leads={filteredBoardLeads.filter(isArchivedLead)} onLeadClick={setSelectedLead} />}
