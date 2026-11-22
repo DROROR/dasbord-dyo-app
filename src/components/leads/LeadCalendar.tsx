@@ -1,13 +1,16 @@
-import { AlertTriangle, ChevronLeft, ChevronRight, Clock, ExternalLink, Mail, Phone, Search, SlidersHorizontal, X } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight, Clock, ExternalLink, Mail, Phone, Search, SlidersHorizontal, Video, X } from 'lucide-react'
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { useLang } from '../../contexts/LanguageContext'
-import type { DbLeadPipelineStatus } from '../../lib/database'
+import type { DbGoogleCalendar, DbGoogleCalendarEvent, DbLeadPipelineStatus } from '../../lib/database'
 import { LEAD_STATUS_COLORS } from './AddLeadStatusModal'
 
 export interface CalendarLead {
-  id: string; name: string; phone: string; email: string; dueAt: string
+  id: string; name: string; phone: string; email: string; dueAt: string; endsAt: string | null
+  googleEventId: string | null; calendarId: string | null
   pipelineStatusId: string | null; meetingPending: boolean
   source: string; category: string; campaignName: string; clientName: string
+  // Set on events that come straight from Google and belong to no lead.
+  google?: { htmlLink: string | null; meetLink: string | null }
 }
 
 type CalendarView = 'day' | 'week' | 'month' | 'schedule'
@@ -19,6 +22,9 @@ const HOUR_HEIGHT = 48
 const MEETING_MINUTES = 30
 const SCHEDULE_DAYS = 60
 const NO_STATUS = 'none'
+const CALENDAR_COLORS: Record<string, string> = {
+  pink: 'bg-pink-500', blue: 'bg-blue-500', green: 'bg-emerald-500', purple: 'bg-violet-500', orange: 'bg-orange-500', teal: 'bg-teal-500',
+}
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
 const addDays = (date: Date, amount: number) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + amount)
@@ -26,6 +32,11 @@ const startOfWeek = (date: Date) => addDays(startOfDay(date), -date.getDay())
 const dayKey = (date: Date) => date.toLocaleDateString('en-CA')
 const sameDay = (a: Date, b: Date) => dayKey(a) === dayKey(b)
 const minutesOf = (date: Date) => date.getHours() * 60 + date.getMinutes()
+const endOf = (lead: CalendarLead) => {
+  const start = Date.parse(lead.dueAt)
+  const end = lead.endsAt ? Date.parse(lead.endsAt) : NaN
+  return new Date(end > start ? end : start + MEETING_MINUTES * 60_000)
+}
 
 function initialView(): CalendarView {
   try {
@@ -38,18 +49,19 @@ function initialView(): CalendarView {
 }
 
 function layoutDay(events: CalendarLead[]) {
-  const placed: { lead: CalendarLead; start: number; column: number; columns: number }[] = []
+  const placed: { lead: CalendarLead; start: number; minutes: number; column: number; columns: number }[] = []
   let cluster: typeof placed = []
   let columnEnds: number[] = []
   let clusterEnd = -1
   const flush = () => { cluster.forEach(item => { item.columns = columnEnds.length }); cluster = []; columnEnds = [] }
   for (const lead of events) {
     const start = minutesOf(new Date(lead.dueAt))
-    const end = start + MEETING_MINUTES
+    const minutes = Math.max((endOf(lead).getTime() - Date.parse(lead.dueAt)) / 60_000, 15)
+    const end = start + minutes
     if (start >= clusterEnd) flush()
     let column = columnEnds.findIndex(columnEnd => columnEnd <= start)
     if (column === -1) { column = columnEnds.length; columnEnds.push(end) } else columnEnds[column] = end
-    const item = { lead, start, column, columns: 1 }
+    const item = { lead, start, minutes, column, columns: 1 }
     cluster.push(item); placed.push(item)
     clusterEnd = Math.max(clusterEnd, end)
   }
@@ -73,8 +85,9 @@ function Popover({ anchor, width = 320, onClose, children }: { anchor: Anchor; w
   </>
 }
 
-export function LeadCalendar({ leads, statuses, onOpen }: {
-  leads: CalendarLead[]; statuses: DbLeadPipelineStatus[]; onOpen: (id: string) => void
+export function LeadCalendar({ leads, calendars, googleEvents, statuses, onOpen }: {
+  leads: CalendarLead[]; calendars: DbGoogleCalendar[]; googleEvents: DbGoogleCalendarEvent[]
+  statuses: DbLeadPipelineStatus[]; onOpen: (id: string) => void
 }) {
   const { t, lang } = useLang()
   const locale = lang === 'he' ? 'he-IL' : 'en-GB'
@@ -84,6 +97,7 @@ export function LeadCalendar({ leads, statuses, onOpen }: {
   const [now, setNow] = useState(() => new Date())
   const [query, setQuery] = useState('')
   const [hiddenStatuses, setHiddenStatuses] = useState<Set<string>>(() => new Set())
+  const [hiddenCalendars, setHiddenCalendars] = useState<Set<string>>(() => new Set())
   const [source, setSource] = useState('all')
   const [category, setCategory] = useState('all')
   const [campaign, setCampaign] = useState('all')
@@ -100,11 +114,17 @@ export function LeadCalendar({ leads, statuses, onOpen }: {
   const statusById = new Map(statuses.map(status => [status.id, status]))
   const statusKey = (lead: CalendarLead) => lead.pipelineStatusId && statusById.has(lead.pipelineStatusId) ? lead.pipelineStatusId : NO_STATUS
   const colorOf = (lead: CalendarLead) => LEAD_STATUS_COLORS[statusById.get(lead.pipelineStatusId ?? '')?.color ?? 'slate']
+  // A lead meeting not yet in Google is about to be created in the first calendar.
+  const calendarById = new Map(calendars.map(calendar => [calendar.calendar_id, calendar]))
+  const calendarOf = (lead: CalendarLead) => calendarById.get(lead.calendarId ?? '') ?? calendars[0]
+  const calendarName = (calendar: DbGoogleCalendar) => calendar.name || calendar.calendar_id
+  const calendarTone = (calendar?: DbGoogleCalendar) => CALENDAR_COLORS[calendar?.color ?? ''] ?? 'bg-slate-500'
+  const tone = (lead: CalendarLead) => calendars.length ? calendarTone(calendarOf(lead)) : colorOf(lead).dot
   const statusLabel = (lead: CalendarLead) => { const status = statusById.get(lead.pipelineStatusId ?? ''); return status ? (lang === 'he' ? status.label_he : status.label_en) : t('ללא סטטוס', 'No status') }
   const isOverdue = (lead: CalendarLead) => lead.meetingPending && new Date(lead.dueAt).getTime() < now.getTime()
-  const isPast = (lead: CalendarLead) => new Date(lead.dueAt).getTime() + MEETING_MINUTES * 60_000 < now.getTime()
+  const isPast = (lead: CalendarLead) => endOf(lead).getTime() < now.getTime()
   const fmtTime = (date: Date) => date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
-  const fmtRange = (lead: CalendarLead) => { const start = new Date(lead.dueAt); return `${fmtTime(start)} – ${fmtTime(new Date(start.getTime() + MEETING_MINUTES * 60_000))}` }
+  const fmtRange = (lead: CalendarLead) => `${fmtTime(new Date(lead.dueAt))} – ${fmtTime(endOf(lead))}`
 
   const options = (pick: (lead: CalendarLead) => string) => Array.from(new Set(leads.map(pick).filter(Boolean))).sort()
   const sourceOptions = options(lead => lead.source)
@@ -119,23 +139,42 @@ export function LeadCalendar({ leads, statuses, onOpen }: {
     return rows
   })()
 
+  const position = new Map(calendars.map(calendar => [calendar.calendar_id, calendar.position]))
+  const linked = new Set(leads.map(lead => lead.googleEventId).filter(Boolean))
+  const seen = new Set<string>()
+  const googleItems: CalendarLead[] = googleEvents
+    .filter(event => calendarById.has(event.calendar_id))
+    .sort((a, b) => (position.get(a.calendar_id) ?? 0) - (position.get(b.calendar_id) ?? 0))
+    .filter(event => { if (linked.has(event.event_id) || seen.has(event.event_id)) return false; seen.add(event.event_id); return true })
+    .map(event => ({
+      id: `g:${event.calendar_id}:${event.event_id}`, name: event.summary || t('(ללא כותרת)', '(No title)'), phone: '', email: '',
+      dueAt: event.starts_at, endsAt: event.ends_at, googleEventId: event.event_id, calendarId: event.calendar_id,
+      pipelineStatusId: null, meetingPending: false, source: '', category: '', campaignName: '', clientName: '',
+      google: { htmlLink: event.html_link, meetLink: event.meet_link },
+    }))
+  const leadOnlyFilters = source !== 'all' || category !== 'all' || campaign !== 'all' || client !== 'all' || overdueOnly
+  const toggleCalendar = (id: string) => setHiddenCalendars(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })
+
   const filtered = (() => {
     const q = query.trim().toLowerCase()
-    return leads.filter(lead => !hiddenStatuses.has(statusKey(lead))
+    const shownCalendar = (lead: CalendarLead) => !calendars.length || !hiddenCalendars.has(calendarOf(lead).calendar_id)
+    const events = googleItems.filter(item => !leadOnlyFilters && shownCalendar(item) && (!q || item.name.toLowerCase().includes(q)))
+    return leads.filter(lead => shownCalendar(lead) && !hiddenStatuses.has(statusKey(lead))
       && (source === 'all' || lead.source === source)
       && (category === 'all' || lead.category === category)
       && (campaign === 'all' || lead.campaignName === campaign)
       && (client === 'all' || lead.clientName === client)
       && (!overdueOnly || isOverdue(lead))
       && (!q || `${lead.name} ${lead.phone} ${lead.email}`.toLowerCase().includes(q)))
-      .sort((a, b) => a.dueAt.localeCompare(b.dueAt))
+      .concat(events)
+      .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt))
   })()
   const byDay = new Map<string, CalendarLead[]>()
   filtered.forEach(lead => { const key = dayKey(new Date(lead.dueAt)); byDay.set(key, [...(byDay.get(key) ?? []), lead]) })
   const eventsOn = (date: Date) => byDay.get(dayKey(date)) ?? []
 
-  const hasFilters = Boolean(query || hiddenStatuses.size || source !== 'all' || category !== 'all' || campaign !== 'all' || client !== 'all' || overdueOnly)
-  const clearFilters = () => { setQuery(''); setHiddenStatuses(new Set()); setSource('all'); setCategory('all'); setCampaign('all'); setClient('all'); setOverdueOnly(false) }
+  const hasFilters = Boolean(query || hiddenStatuses.size || hiddenCalendars.size || leadOnlyFilters)
+  const clearFilters = () => { setQuery(''); setHiddenStatuses(new Set()); setHiddenCalendars(new Set()); setSource('all'); setCategory('all'); setCampaign('all'); setClient('all'); setOverdueOnly(false) }
   const overdueCount = leads.filter(isOverdue).length
   const todayEvents = eventsOn(now)
   const nextEvent = todayEvents.find(lead => !isPast(lead))
@@ -213,7 +252,7 @@ export function LeadCalendar({ leads, statuses, onOpen }: {
             const isNext = lead.id === nextEvent?.id
             const past = isPast(lead)
             return <button key={lead.id} onClick={event => openEvent(lead, event)} className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-start transition-colors ${isNext ? 'bg-surface shadow-sm ring-1 ring-primary/30' : 'hover:bg-surface'} ${past ? 'opacity-50' : ''}`}>
-              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${isOverdue(lead) ? 'bg-red-500' : colorOf(lead).dot}`} />
+              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${isOverdue(lead) ? 'bg-red-500' : tone(lead)}`} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-xs font-semibold text-gray-800">{lead.name}</span>
                 <span className="block text-[11px] text-gray-500">{fmtTime(new Date(lead.dueAt))}</span>
@@ -224,6 +263,19 @@ export function LeadCalendar({ leads, statuses, onOpen }: {
           })}
         </div>
       </div>
+
+      {calendars.length > 0 && <div>
+        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">{t('יומנים', 'Calendars')}</p>
+        <div className="space-y-0.5">
+          {calendars.map(calendar => {
+            const visible = !hiddenCalendars.has(calendar.calendar_id)
+            return <button key={calendar.calendar_id} onClick={() => toggleCalendar(calendar.calendar_id)} className="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1 text-start hover:bg-gray-50">
+              <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded ${visible ? calendarTone(calendar) : 'border-2 border-gray-300'}`}>{visible && <svg viewBox="0 0 12 12" className="h-3 w-3 text-white"><path d="M2.5 6.2 5 8.5l4.5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}</span>
+              <span className="min-w-0 flex-1 truncate text-xs text-gray-700">{calendarName(calendar)}</span>
+            </button>
+          })}
+        </div>
+      </div>}
 
       <div>
         <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">{t('סטטוסים', 'Statuses')}</p>
@@ -278,7 +330,7 @@ export function LeadCalendar({ leads, statuses, onOpen }: {
           <div className="flex items-center gap-2 overflow-x-auto border-b border-gray-200 bg-blue-50/40 px-2.5 py-2 lg:hidden">
             <span className="shrink-0 text-xs font-bold text-gray-700">{t('היום', 'Today')} · {todayEvents.length}</span>
             {todayEvents.map(lead => <button key={lead.id} onClick={event => openEvent(lead, event)} className={`flex shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-surface px-2.5 py-1 text-xs ${isPast(lead) ? 'opacity-50' : ''} ${lead.id === nextEvent?.id ? 'ring-1 ring-primary/40' : ''}`}>
-              <span className={`h-2 w-2 rounded-full ${isOverdue(lead) ? 'bg-red-500' : colorOf(lead).dot}`} />
+              <span className={`h-2 w-2 rounded-full ${isOverdue(lead) ? 'bg-red-500' : tone(lead)}`} />
               <span className="font-semibold text-gray-700">{fmtTime(new Date(lead.dueAt))}</span>
               <span className="max-w-28 truncate text-gray-600">{lead.name}</span>
               {lead.id === nextEvent?.id && <span className="font-bold text-primary">{countdown(lead)}</span>}
@@ -289,7 +341,7 @@ export function LeadCalendar({ leads, statuses, onOpen }: {
         {(view === 'day' || view === 'week') && (
           <TimeGrid key={`${view}-${dayKey(view === 'day' ? anchorDate : weekStart)}`} days={view === 'day' ? [anchorDate] : Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))}
             now={now} locale={locale} eventsOn={eventsOn} weekdayShort={weekdayShort} fmtTime={fmtTime}
-            colorOf={colorOf} isOverdue={isOverdue} isPast={isPast} selectedId={selected?.lead.id} onEvent={openEvent} onDay={goToDay} />
+            tone={tone} isOverdue={isOverdue} isPast={isPast} selectedId={selected?.lead.id} onEvent={openEvent} onDay={goToDay} />
         )}
 
         {view === 'month' && (() => {
@@ -309,7 +361,7 @@ export function LeadCalendar({ leads, statuses, onOpen }: {
                   <div className="mb-0.5 flex justify-center"><button onClick={() => goToDay(date)} className={`flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[11px] font-semibold hover:bg-gray-100 ${isToday ? 'bg-primary text-white hover:bg-primary' : outside ? 'text-gray-300' : 'text-gray-700'}`}>{date.getDate()}</button></div>
                   <div className="space-y-px">
                     {events.slice(0, 3).map(lead => <button key={lead.id} onClick={event => openEvent(lead, event)} title={`${fmtTime(new Date(lead.dueAt))} ${lead.name}`} className={`flex w-full min-w-0 items-center gap-1 rounded px-1 py-0.5 text-start text-[11px] hover:bg-gray-100 ${isPast(lead) ? 'opacity-60' : ''}`}>
-                      <span className={`h-2 w-2 shrink-0 rounded-full ${isOverdue(lead) ? 'bg-red-500' : colorOf(lead).dot}`} />
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${isOverdue(lead) ? 'bg-red-500' : tone(lead)}`} />
                       <span className="hidden shrink-0 text-gray-500 sm:inline">{fmtTime(new Date(lead.dueAt))}</span>
                       <span className={`truncate font-semibold ${isOverdue(lead) ? 'text-red-600' : 'text-gray-700'}`}>{lead.name}</span>
                     </button>)}
@@ -334,10 +386,10 @@ export function LeadCalendar({ leads, statuses, onOpen }: {
                 </button>
                 <div className="min-w-0 flex-1 space-y-0.5">
                   {eventsOn(date).map(lead => <button key={lead.id} onClick={event => openEvent(lead, event)} className={`flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-start hover:bg-gray-50 ${isPast(lead) ? 'opacity-60' : ''}`}>
-                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${isOverdue(lead) ? 'bg-red-500' : colorOf(lead).dot}`} />
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${isOverdue(lead) ? 'bg-red-500' : tone(lead)}`} />
                     <span className="w-28 shrink-0 text-xs text-gray-500">{fmtRange(lead)}</span>
                     <span className={`min-w-0 flex-1 truncate text-sm font-semibold ${isOverdue(lead) ? 'text-red-600' : 'text-gray-800'}`}>{lead.name}</span>
-                    <span className="hidden truncate text-xs text-gray-400 sm:inline">{statusLabel(lead)}</span>
+                    <span className="hidden truncate text-xs text-gray-400 sm:inline">{lead.google ? calendarName(calendarOf(lead)) : statusLabel(lead)}</span>
                   </button>)}
                 </div>
               </div>
@@ -356,7 +408,7 @@ export function LeadCalendar({ leads, statuses, onOpen }: {
             <button onClick={() => setDayList(null)} className="rounded-full p-1 text-gray-400 hover:bg-gray-100" aria-label={t('סגור', 'Close')}><X size={15} /></button>
           </div>
           <div className="space-y-1">
-            {eventsOn(dayList.date).map(lead => <button key={lead.id} onClick={event => openEvent(lead, event)} className={`block w-full truncate rounded-md px-2 py-1 text-start text-xs font-semibold text-white ${isOverdue(lead) ? 'bg-red-500' : colorOf(lead).dot} ${isPast(lead) ? 'opacity-60' : ''}`}>{fmtTime(new Date(lead.dueAt))} {lead.name}</button>)}
+            {eventsOn(dayList.date).map(lead => <button key={lead.id} onClick={event => openEvent(lead, event)} className={`block w-full truncate rounded-md px-2 py-1 text-start text-xs font-semibold text-white ${isOverdue(lead) ? 'bg-red-500' : tone(lead)} ${isPast(lead) ? 'opacity-60' : ''}`}>{fmtTime(new Date(lead.dueAt))} {lead.name}</button>)}
           </div>
         </Popover>
       )}
@@ -364,30 +416,39 @@ export function LeadCalendar({ leads, statuses, onOpen }: {
       {selected && (
         <Popover anchor={selected} onClose={() => setSelected(null)}>
           <div className="flex items-start gap-3">
-            <span className={`mt-1.5 h-3.5 w-3.5 shrink-0 rounded ${isOverdue(selected.lead) ? 'bg-red-500' : colorOf(selected.lead).dot}`} />
+            <span className={`mt-1.5 h-3.5 w-3.5 shrink-0 rounded ${isOverdue(selected.lead) ? 'bg-red-500' : tone(selected.lead)}`} />
             <div className="min-w-0 flex-1">
               <p className="break-words text-lg font-semibold text-gray-800">{selected.lead.name}</p>
               <p className="text-xs text-gray-500">{new Date(selected.lead.dueAt).toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' })} · {fmtRange(selected.lead)}</p>
             </div>
             <button onClick={() => setSelected(null)} className="rounded-full p-1 text-gray-400 hover:bg-gray-100" aria-label={t('סגור', 'Close')}><X size={15} /></button>
           </div>
+          {selected.lead.google ? <div className="mt-3 space-y-2 text-xs text-gray-600">
+            <p className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${tone(selected.lead)}`} />{calendarName(calendarOf(selected.lead))}{!isPast(selected.lead) && sameDay(new Date(selected.lead.dueAt), now) && <span className="flex items-center gap-1 font-semibold text-primary"><Clock size={12} />{countdown(selected.lead)}</span>}</p>
+            <div className="flex gap-2 pt-2">
+              {selected.lead.google.meetLink && <a href={selected.lead.google.meetLink} target="_blank" rel="noreferrer" className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary text-sm font-semibold text-white hover:bg-primary/90"><Video size={14} />{t('הצטרף ל־Meet', 'Join Meet')}</a>}
+              {selected.lead.google.htmlLink && <a href={selected.lead.google.htmlLink} target="_blank" rel="noreferrer" className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"><ExternalLink size={14} />Google Calendar</a>}
+            </div>
+          </div> : <>
           <div className="mt-3 space-y-2 text-xs text-gray-600">
+            {calendars.length > 0 && <p className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${tone(selected.lead)}`} />{calendarName(calendarOf(selected.lead))}</p>}
             <p className="flex items-center gap-2"><span className={`rounded-md px-2 py-0.5 font-semibold ${colorOf(selected.lead).badge}`}>{statusLabel(selected.lead)}</span>{isOverdue(selected.lead) && <span className="flex items-center gap-1 rounded-md bg-red-100 px-2 py-0.5 font-semibold text-red-600"><AlertTriangle size={12} />{t('באיחור', 'Overdue')}</span>}{!isPast(selected.lead) && sameDay(new Date(selected.lead.dueAt), now) && <span className="flex items-center gap-1 font-semibold text-primary"><Clock size={12} />{countdown(selected.lead)}</span>}</p>
             {selected.lead.phone && <a href={`tel:${selected.lead.phone}`} dir="ltr" className="flex items-center gap-2 hover:text-primary"><Phone size={13} className="text-gray-400" />{selected.lead.phone}</a>}
             {selected.lead.email && <a href={`mailto:${selected.lead.email}`} className="flex min-w-0 items-center gap-2 hover:text-primary"><Mail size={13} className="shrink-0 text-gray-400" /><span className="truncate">{selected.lead.email}</span></a>}
             {[[t('מקור', 'Source'), selected.lead.source], [t('קטגוריה', 'Category'), selected.lead.category], [t('קמפיין', 'Campaign'), selected.lead.campaignName], [t('לקוח', 'Client'), selected.lead.clientName]].filter(([, value]) => value).map(([label, value]) => <p key={label} className="flex gap-2"><span className="w-16 shrink-0 text-gray-400">{label}</span><span className="min-w-0 truncate">{value}</span></p>)}
           </div>
           <button onClick={() => { onOpen(selected.lead.id); setSelected(null) }} className="mt-4 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-primary text-sm font-semibold text-white hover:bg-primary/90"><ExternalLink size={14} />{t('פתח ליד', 'Open lead')}</button>
+          </>}
         </Popover>
       )}
     </section>
   )
 }
 
-function TimeGrid({ days, now, locale, eventsOn, weekdayShort, fmtTime, colorOf, isOverdue, isPast, selectedId, onEvent, onDay }: {
+function TimeGrid({ days, now, locale, eventsOn, weekdayShort, fmtTime, tone, isOverdue, isPast, selectedId, onEvent, onDay }: {
   days: Date[]; now: Date; locale: string
   eventsOn: (date: Date) => CalendarLead[]; weekdayShort: (date: Date) => string; fmtTime: (date: Date) => string
-  colorOf: (lead: CalendarLead) => { dot: string }; isOverdue: (lead: CalendarLead) => boolean; isPast: (lead: CalendarLead) => boolean
+  tone: (lead: CalendarLead) => string; isOverdue: (lead: CalendarLead) => boolean; isPast: (lead: CalendarLead) => boolean
   selectedId?: string; onEvent: (lead: CalendarLead, event: MouseEvent<HTMLElement>) => void; onDay: (date: Date) => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -421,11 +482,11 @@ function TimeGrid({ days, now, locale, eventsOn, weekdayShort, fmtTime, colorOf,
           const isToday = sameDay(date, now)
           return <div key={date.toISOString()} className={`relative border-s border-gray-200 ${isToday ? 'bg-blue-50/30' : ''}`}>
             {hours.slice(1).map(hour => <div key={hour} className="absolute inset-x-0 border-t border-gray-100" style={{ top: hour * HOUR_HEIGHT }} />)}
-            {layoutDay(eventsOn(date)).map(({ lead, start, column, columns: count }) => {
+            {layoutDay(eventsOn(date)).map(({ lead, start, minutes, column, columns: count }) => {
               const overdue = isOverdue(lead)
               return <button key={lead.id} onClick={event => onEvent(lead, event)} title={`${fmtTime(new Date(lead.dueAt))} ${lead.name}`}
-                style={{ top: (start / 60) * HOUR_HEIGHT + 1, height: (MEETING_MINUTES / 60) * HOUR_HEIGHT - 2, insetInlineStart: `calc(${(column / count) * 100}% + 1px)`, width: `calc(${100 / count}% - 4px)` }}
-                className={`absolute z-10 flex items-center gap-1 overflow-hidden rounded-md px-1.5 text-start text-[11px] leading-tight text-white shadow-sm transition-shadow hover:z-20 hover:shadow-md ${overdue ? 'bg-red-500' : colorOf(lead).dot} ${isPast(lead) && !overdue ? 'opacity-60' : ''} ${selectedId === lead.id ? 'ring-2 ring-gray-800 ring-offset-1' : ''}`}>
+                style={{ top: (start / 60) * HOUR_HEIGHT + 1, height: Math.max((minutes / 60) * HOUR_HEIGHT - 2, 20), insetInlineStart: `calc(${(column / count) * 100}% + 1px)`, width: `calc(${100 / count}% - 4px)` }}
+                className={`absolute z-10 flex items-center gap-1 overflow-hidden rounded-md px-1.5 text-start text-[11px] leading-tight text-white shadow-sm transition-shadow hover:z-20 hover:shadow-md ${overdue ? 'bg-red-500' : tone(lead)} ${isPast(lead) && !overdue ? 'opacity-60' : ''} ${selectedId === lead.id ? 'ring-2 ring-gray-800 ring-offset-1' : ''}`}>
                 {overdue && <AlertTriangle size={11} className="shrink-0" />}
                 <span className="truncate font-semibold">{lead.name}</span>
                 <span className="hidden shrink-0 opacity-90 sm:inline">{fmtTime(new Date(lead.dueAt))}</span>

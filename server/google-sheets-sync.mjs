@@ -1,6 +1,6 @@
 import http from 'node:http'
-import { createHash, createSign } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { googleAccessToken, googleCredentialsConfigured } from './google-auth.mjs'
 
 const HOST = '127.0.0.1'
 const PORT = Number(process.env.GOOGLE_SHEETS_SYNC_PORT || 3003)
@@ -8,8 +8,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const SHEET_ID = process.env.GOOGLE_SHEET_ID
 const SHEET_TAB = process.env.GOOGLE_SHEET_TAB_NAME
-const CREDENTIALS_FILE = process.env.GOOGLE_SERVICE_ACCOUNT_FILE
-const CREDENTIALS_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly'
 const SYNC_INTERVAL_MS = Number(process.env.GOOGLE_SHEET_SYNC_INTERVAL_MS || 300_000)
 const REQUIRED_HEADERS = ['id', 'created_time', 'מה_מתאר_אותך_הכי_טוב_כרגע', 'email', 'full_name', 'phone_number']
 // Meta publishes each new version of the lead form to its own tab in the same
@@ -54,45 +53,11 @@ function sendJson(response, status, body) {
 }
 
 function configured() {
-  return Boolean(SUPABASE_URL && SERVICE_KEY && SHEET_ID && SHEET_TAB && (CREDENTIALS_FILE || CREDENTIALS_JSON))
+  return Boolean(SUPABASE_URL && SERVICE_KEY && SHEET_ID && SHEET_TAB && googleCredentialsConfigured())
 }
 
 function coldConfigured() {
-  return Boolean(SUPABASE_URL && SERVICE_KEY && COLD_SHEET_ID && COLD_TAB && (CREDENTIALS_FILE || CREDENTIALS_JSON))
-}
-
-function base64url(value) {
-  return Buffer.from(value).toString('base64url')
-}
-
-async function credentials() {
-  const raw = CREDENTIALS_JSON || await readFile(CREDENTIALS_FILE, 'utf8')
-  const parsed = JSON.parse(raw)
-  if (!parsed.client_email || !parsed.private_key) throw new Error('Invalid Google service-account credentials')
-  return parsed
-}
-
-async function googleAccessToken() {
-  const account = await credentials()
-  const now = Math.floor(Date.now() / 1000)
-  const unsigned = `${base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))}.${base64url(JSON.stringify({
-    iss: account.client_email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
-    aud: 'https://oauth2.googleapis.com/token',
-    iat: now,
-    exp: now + 3600,
-  }))}`
-  const signer = createSign('RSA-SHA256')
-  signer.update(unsigned)
-  const assertion = `${unsigned}.${signer.sign(account.private_key, 'base64url')}`
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }),
-    signal: AbortSignal.timeout(20_000),
-  })
-  if (!response.ok) throw new Error(`Google authentication failed (${response.status})`)
-  return (await response.json()).access_token
+  return Boolean(SUPABASE_URL && SERVICE_KEY && COLD_SHEET_ID && COLD_TAB && googleCredentialsConfigured())
 }
 
 const adminHeaders = () => ({ apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'content-type': 'application/json' })
@@ -185,7 +150,7 @@ async function tabRows(token, title) {
 }
 
 async function syncSheet() {
-  const token = await googleAccessToken()
+  const token = await googleAccessToken(SHEETS_SCOPE)
 
   const statusResponse = await fetch(`${SUPABASE_URL}/rest/v1/lead_pipeline_statuses?legacy_status=eq.new&select=id&limit=1`, { headers: adminHeaders() })
   if (!statusResponse.ok) throw new Error('Could not load the New Lead pipeline status')
@@ -357,7 +322,7 @@ function coldNotes(get) {
 }
 
 async function syncColdCallSheet() {
-  const token = await googleAccessToken()
+  const token = await googleAccessToken(SHEETS_SCOPE)
   const range = encodeURIComponent(`${COLD_TAB}!A:O`)
   const sheetResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(COLD_SHEET_ID)}/values/${range}?majorDimension=ROWS`, {
     headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000),

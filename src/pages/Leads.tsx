@@ -3,7 +3,8 @@ import { takeLeadFocus, LEAD_FOCUS_EVENT } from '../lib/focusTarget'
 import { Users, UserPlus, Calendar, Clock, AlertTriangle, X, Check, CheckCheck, Phone, PhoneOff, Mail, Archive, Loader2, RefreshCw, AlertCircle, Plus, Trash2, ChevronDown, CalendarDays, Search, ArrowUp, ArrowDown, Pencil, PhoneCall, Sparkles, Pause, Play, ListChecks } from 'lucide-react'
 import { getLeadPipelineStatuses, createLeadPipelineStatus, deleteLeadPipelineStatus, createManualLead, updateLead as dbUpdateLead, deleteLead as dbDeleteLead } from '../lib/database'
 import { getSequences, getLeadSequenceProgress } from '../lib/database'
-import type { DbSequenceWithSteps, DbLeadSequenceProgress } from '../lib/database'
+import { getGoogleCalendars, getGoogleCalendarEvents } from '../lib/database'
+import type { DbSequenceWithSteps, DbLeadSequenceProgress, DbGoogleCalendar, DbGoogleCalendarEvent } from '../lib/database'
 import { NO_ANSWER_THRESHOLD, countNoAnswer, findNoAnswerStatus, findNoAnswerSequence, mayAutoMove, reachedThreshold } from '../lib/leadNoAnswer'
 import type { DbLead, DbLeadHistory, DbLeadPipelineStatus, LeadStatusColor } from '../lib/database'
 import { useCan } from '../hooks/useCan'
@@ -25,7 +26,7 @@ import { getGoogleSheetSyncStatus, syncGoogleSheetLeads, syncColdCallLeads, type
 type LeadStatus   = 'new' | 'meeting_set' | 'producer' | 'follow_up' | 'archived'
 type ActiveStatus = Exclude<LeadStatus, 'archived'>
 type LeadType     = 'has_course' | 'producing'
-type LeadSource   = 'Facebook' | 'Instagram' | 'Manual'
+type LeadSource   = 'Facebook' | 'Instagram' | 'Website' | 'Manual'
 type FollowUpTone = 'friendly' | 'professional' | 'urgent'
 type ModalTab     = 'details' | 'whatsapp' | 'followup'
 type StatsRange   = 'all' | 'today' | 'yesterday' | 'week' | '30d'
@@ -40,6 +41,9 @@ interface Lead {
   sheetRowKey: string | null
   formAnswer: string
   dueAt: string | null
+  meetingEndsAt: string | null
+  googleEventId: string | null
+  googleCalendarId: string | null
   statusUpdatedAt: string
   entryDate: string; lastUpdate: string
   meetingDate?: string; followUpDate?: string
@@ -55,6 +59,7 @@ const TODAY = new Date()
 const SOURCE_COLOR: Record<LeadSource, string> = {
   Facebook:  'bg-blue-100 text-blue-700',
   Instagram: 'bg-pink-100 text-pink-700',
+  Website:   'bg-emerald-100 text-emerald-700',
   Manual:    'bg-gray-100 text-gray-600',
 }
 
@@ -113,6 +118,7 @@ const UI_STATUS_MAP: Record<LeadStatus, DbLead['status']> = {
 const DB_SOURCE_MAP: Record<NonNullable<DbLead['source']>, LeadSource> = {
   facebook:  'Facebook',
   instagram: 'Instagram',
+  website:   'Website',
 }
 
 function dbLeadToLead(row: DbLead): Lead {
@@ -132,6 +138,9 @@ function dbLeadToLead(row: DbLead): Lead {
     history: [],
     formAnswer: row.form_answer ?? '',
     dueAt: row.due_at,
+    meetingEndsAt: row.meeting_ends_at,
+    googleEventId: row.google_event_id ?? null,
+    googleCalendarId: row.google_calendar_id ?? null,
     statusUpdatedAt: row.status_updated_at,
     entryDate:     row.created_at,
     lastUpdate:    row.follow_up_date ?? row.status_updated_at ?? row.created_at,
@@ -1108,6 +1117,8 @@ export function Leads() {
   const leadsRef = useRef<Lead[]>([])
   const noticeTimerRef = useRef<number | null>(null)
   const [statuses, setStatuses] = useState<DbLeadPipelineStatus[]>([])
+  const [googleCalendars, setGoogleCalendars] = useState<DbGoogleCalendar[]>([])
+  const [googleEvents, setGoogleEvents] = useState<DbGoogleCalendarEvent[]>([])
   const [addingStatus, setAddingStatus] = useState(false)
   const [addingLead, setAddingLead] = useState(false)
   const [deletingStatus, setDeletingStatus] = useState<DbLeadPipelineStatus | null>(null)
@@ -1158,13 +1169,15 @@ export function Leads() {
       // The two new reads are additive and failure-tolerant on purpose: a
       // leads board that cannot read the follow-up chains must still load the
       // leads, so neither of them can break this screen.
-      const [rows, pipelineStatuses, history, chains, progress, followUps] = await Promise.all([
+      const [rows, pipelineStatuses, history, chains, progress, followUps, calendars, calendarEvents] = await Promise.all([
         getAllLeads(),
         getLeadPipelineStatuses(),
         getLeadHistory(),
         getSequences().catch(() => [] as DbSequenceWithSteps[]),
         getLeadSequenceProgress().catch(() => [] as DbLeadSequenceProgress[]),
         getFollowUpTasks().then(tasks => ({ available: true, tasks })).catch(() => ({ available: false, tasks: [] as DbLeadFollowUpTask[] })),
+        getGoogleCalendars().catch(() => [] as DbGoogleCalendar[]),
+        getGoogleCalendarEvents().catch(() => [] as DbGoogleCalendarEvent[]),
       ])
       const byLead = new Map<string, DbLeadHistory[]>()
       history.forEach(entry => byLead.set(entry.lead_id, [...(byLead.get(entry.lead_id) ?? []), entry]))
@@ -1178,6 +1191,8 @@ export function Leads() {
       setSequenceProgress(progress)
       setFollowUpTasks(followUps.tasks)
       setFollowUpAvailable(followUps.available)
+      setGoogleCalendars(calendars)
+      setGoogleEvents(calendarEvents)
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : t('שגיאה בטעינת לידים', 'Failed to load leads'))
     } finally {
@@ -1542,7 +1557,7 @@ export function Leads() {
 
   const handleAddLead = async (data: { name: string; phone: string; email: string; formAnswer: string; statusId: string; source: LeadSource; createdAt: string }) => {
     const selectedStatus = statuses.find(status => status.id === data.statusId)
-    const created = await createManualLead({ name: data.name, phone: data.phone, email: data.email, form_answer: data.formAnswer, pipeline_status_id: data.statusId, source: data.source === 'Manual' ? null : data.source.toLowerCase() as 'facebook' | 'instagram', status: selectedStatus?.legacy_status ?? 'new', created_at: data.createdAt })
+    const created = await createManualLead({ name: data.name, phone: data.phone, email: data.email, form_answer: data.formAnswer, pipeline_status_id: data.statusId, source: data.source === 'Manual' ? null : data.source.toLowerCase() as 'facebook' | 'instagram' | 'website', status: selectedStatus?.legacy_status ?? 'new', created_at: data.createdAt })
     setLeads(prev => [dbLeadToLead(created), ...prev])
   }
 
@@ -1603,7 +1618,7 @@ export function Leads() {
         <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-gray-100 bg-surface p-2">
           <label className="relative min-w-44 flex-1 sm:max-w-64"><Search size={14} className="absolute start-2.5 top-2 text-gray-400" /><input value={leadQuery} onChange={e => setLeadQuery(e.target.value)} placeholder={t('חפש שם, טלפון או אימייל', 'Search name, phone or email')} className="h-8 w-full rounded-lg border border-gray-200 bg-surface ps-8 pe-3 text-xs outline-none focus:border-primary" /></label>
           <select value={leadStatusFilter} onChange={e => setLeadStatusFilter(e.target.value)} className="h-8 min-w-36 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל הסטטוסים', 'All statuses')}</option>{statuses.map(status => <option key={status.id} value={status.id}>{t(status.label_he, status.label_en)}</option>)}</select>
-          <select value={leadSourceFilter} onChange={e => setLeadSourceFilter(e.target.value)} className="h-8 min-w-28 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל המקורות', 'All sources')}</option><option value="Manual">{t('ידני', 'Manual')}</option><option value="Facebook">Facebook</option><option value="Instagram">Instagram</option></select>
+          <select value={leadSourceFilter} onChange={e => setLeadSourceFilter(e.target.value)} className="h-8 min-w-28 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל המקורות', 'All sources')}</option><option value="Manual">{t('ידני', 'Manual')}</option><option value="Facebook">Facebook</option><option value="Instagram">Instagram</option><option value="Website">{t('אתר', 'Website')}</option></select>
           <select value={leadCategoryFilter} onChange={e => setLeadCategoryFilter(e.target.value)} className="h-8 min-w-32 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל הקטגוריות', 'All categories')}</option>{categoryOptions.map(category => <option key={category} value={category}>{category}</option>)}</select>
           <select value={campaignFilter} onChange={e => setCampaignFilter(e.target.value)} aria-label={t('קמפיין', 'Campaign')} className="h-8 min-w-32 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל הקמפיינים', 'All campaigns')}</option>{campaignOptions.map(campaign => <option key={campaign} value={campaign}>{campaign}</option>)}</select>
           <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} aria-label={t('לקוח', 'Client')} className="h-8 min-w-28 rounded-lg border border-gray-200 bg-surface px-2 text-xs text-gray-600"><option value="all">{t('כל הלקוחות', 'All clients')}</option>{clientOptions.map(client => <option key={client} value={client}>{client}</option>)}</select>
@@ -1633,7 +1648,7 @@ export function Leads() {
       )}
 
       {view === 'calendar' && (
-        <LeadCalendar leads={leads.filter(lead => lead.dueAt).map(lead => ({ id: lead.id, name: lead.name, phone: lead.phone, email: lead.email, dueAt: lead.dueAt!, pipelineStatusId: lead.pipelineStatusId, meetingPending: isPendingMeeting(lead), source: lead.source, category: lead.formAnswer || LEAD_TYPE_LABEL[lead.leadType].en, campaignName: lead.campaignName, clientName: lead.clientName }))} statuses={statuses} onOpen={id => setSelectedLead(leads.find(lead => lead.id === id) ?? null)} />
+        <LeadCalendar leads={leads.filter(lead => lead.dueAt).map(lead => ({ id: lead.id, name: lead.name, phone: lead.phone, email: lead.email, dueAt: lead.dueAt!, endsAt: lead.meetingEndsAt, googleEventId: lead.googleEventId, calendarId: lead.googleCalendarId, pipelineStatusId: lead.pipelineStatusId, meetingPending: isPendingMeeting(lead), source: lead.source, category: lead.formAnswer || LEAD_TYPE_LABEL[lead.leadType].en, campaignName: lead.campaignName, clientName: lead.clientName }))} calendars={googleCalendars} googleEvents={googleEvents} statuses={statuses} onOpen={id => setSelectedLead(leads.find(lead => lead.id === id) ?? null)} />
       )}
 
       {view === 'archive' && <ArchiveView leads={filteredBoardLeads.filter(isArchivedLead)} onLeadClick={setSelectedLead} />}

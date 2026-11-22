@@ -58,7 +58,7 @@ export interface DbLead {
   id: string
   name: string
   phone: string
-  source: 'facebook' | 'instagram' | null
+  source: 'facebook' | 'instagram' | 'website' | null
   status: 'new' | 'meeting' | 'producing' | 'followup' | 'irrelevant'
   lead_type: 'has_course' | 'producing' | null
   follow_up_date: string | null
@@ -70,6 +70,9 @@ export interface DbLead {
   form_answer: string | null
   notes: string | null
   due_at: string | null
+  meeting_ends_at: string | null
+  google_event_id: string | null
+  google_calendar_id: string | null
   status_updated_at: string
   sheet_row_key: string | null
   campaign_name: string | null
@@ -293,6 +296,40 @@ export async function getLeads(): Promise<DbLead[]> {
   return data as DbLead[]
 }
 
+export interface DbGoogleCalendar {
+  calendar_id: string
+  name: string | null
+  color: string | null
+  position: number
+}
+
+export interface DbGoogleCalendarEvent {
+  calendar_id: string
+  event_id: string
+  summary: string | null
+  starts_at: string
+  ends_at: string
+  html_link: string | null
+  meet_link: string | null
+}
+
+export async function getGoogleCalendars(): Promise<DbGoogleCalendar[]> {
+  const { data, error } = await supabase.from('google_calendars').select('calendar_id,name,color,position').order('position')
+  if (error) throw error
+  return data as DbGoogleCalendar[]
+}
+
+export async function getGoogleCalendarEvents(): Promise<DbGoogleCalendarEvent[]> {
+  const { data, error } = await supabase
+    .from('google_calendar_events')
+    .select('calendar_id,event_id,summary,starts_at,ends_at,html_link,meet_link')
+    .gte('starts_at', new Date(Date.now() - 120 * 86_400_000).toISOString())
+    .order('starts_at')
+    .limit(5000)
+  if (error) throw error
+  return data as DbGoogleCalendarEvent[]
+}
+
 export async function getLeadPipelineStatuses(): Promise<DbLeadPipelineStatus[]> {
   const { data, error } = await supabase
     .from('lead_pipeline_statuses')
@@ -328,7 +365,7 @@ export async function createManualLead(data: {
   email?: string
   form_answer?: string
   pipeline_status_id: string
-  source?: 'facebook' | 'instagram' | null
+  source?: 'facebook' | 'instagram' | 'website' | null
   status?: DbLead['status']
   created_at?: string
 }): Promise<DbLead> {

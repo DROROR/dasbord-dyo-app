@@ -60,6 +60,21 @@ module.exports = {
       env: { NODE_ENV: 'production' },
     },
     {
+      // Two-way sync of lead meetings with the team's Google Calendars, every
+      // minute. Shares the Sheets sync's env file (service account, Supabase
+      // keys) plus GOOGLE_CALENDAR_IDS; it idles until that is set.
+      name: 'dashboard-google-calendar-sync',
+      script: 'server/google-calendar-sync.mjs',
+      cwd: '/opt/dashboard-dyo-app',
+      interpreter: '/home/fahad/.nvm/versions/node/v22.23.2/bin/node',
+      node_args: '--env-file=/home/fahad/.config/dyo-planner/google-sheets-sync.env',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      max_memory_restart: '256M',
+      env: { NODE_ENV: 'production' },
+    },
+    {
       // Sends the WhatsApp follow-up chain to leads nobody could reach by
       // phone. Starts in dry run: it logs what it would send and writes
       // nothing until LEAD_SEQUENCE_SEND=on is set in .env.
