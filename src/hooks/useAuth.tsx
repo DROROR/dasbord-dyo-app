@@ -12,6 +12,8 @@ export interface UserProfile {
   is_owner: boolean
   is_technical_support: boolean
   is_active: boolean
+  /** Gets the daily lead follow-up reminder: the person making the sales calls. */
+  handles_lead_followups?: boolean
 }
 
 interface AuthValue {

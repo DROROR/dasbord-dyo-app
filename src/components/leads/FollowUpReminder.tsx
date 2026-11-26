@@ -2,6 +2,7 @@ import { Component, useCallback, useEffect, useMemo, useState, type ReactNode } 
 import { createPortal } from 'react-dom'
 import { Clock, PhoneCall, X } from 'lucide-react'
 import { useLang } from '../../contexts/LanguageContext'
+import { useAuth } from '../../hooks/useAuth'
 import { useCan } from '../../hooks/useCan'
 import { getLeadPipelineStatuses, getLeadSequenceProgress } from '../../lib/database'
 import type { DbLeadPipelineStatus, DbLeadSequenceProgress } from '../../lib/database'
@@ -40,11 +41,13 @@ class Quiet extends Component<{ children: ReactNode }, { failed: boolean }> {
  * The list has no close button. Each call leaves it only by being given a
  * result, a new time, or a cancellation; the one way to put the list aside is
  * "remind me in 30 minutes", after which it is back. Nothing renders at all
- * for someone with no open tasks, or without edit rights on leads.
+ * for someone with no open tasks, or who is not the one making the calls.
  */
 function Reminder({ onNavigate }: { onNavigate: (page: string) => void }) {
   const { t, dir } = useLang()
-  const canEdit = useCan('leads', 'edit')
+  const leadsEditor = useCan('leads', 'edit')
+  const caller = useAuth().profile?.handles_lead_followups === true
+  const canEdit = leadsEditor && caller
   const [tasks, setTasks] = useState<FollowUpTaskWithLead[]>([])
   const [progress, setProgress] = useState<DbLeadSequenceProgress[]>([])
   const [statuses, setStatuses] = useState<DbLeadPipelineStatus[]>([])
