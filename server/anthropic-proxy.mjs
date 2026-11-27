@@ -1,5 +1,6 @@
 import http from 'node:http'
 import { handleUnsubscribe } from './lead-unsubscribe.mjs'
+import { handleFinanceDocs, handleFinanceWorkHours } from './finance-api.mjs'
 
 const HOST = '127.0.0.1'
 const PORT = Number(process.env.ANTHROPIC_PROXY_PORT || 3002)
@@ -160,6 +161,16 @@ const server = http.createServer(async (request, response) => {
       if (!response.headersSent) sendJson(response, 500, { error: 'Something went wrong' })
     })
   }
+
+  // The finance platform's read-only hours API, guarded by its own key.
+  const path = request.url.split('?')[0]
+  if (path === '/finance/work-hours') {
+    return handleFinanceWorkHours(request, response).catch(error => {
+      console.error(`Finance API failed: ${error.message}`)
+      if (!response.headersSent) sendJson(response, 500, { error: 'Something went wrong' })
+    })
+  }
+  if (path === '/finance/docs' || path === '/finance/openapi.json') return handleFinanceDocs(request, response)
 
   const isClaudeRequest = request.method === 'POST' && (request.url === '/v1/messages' || request.url === '/v1/translation-messages')
   const isDeployNotification = request.method === 'POST' && request.url === '/notify-ticket-deployed'
