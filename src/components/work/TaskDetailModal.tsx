@@ -13,7 +13,7 @@ import { DEFAULT_BOARD_STATUSES, STATUS_PILL, STATUS_LABEL, ticketKindOf, type T
 import {
   addSubtaskComment, addTaskComment, addTaskTimeEntry, claimTask, createTaskSubtask, deleteTaskComment,
   deleteTask, deleteTaskSubtask, deployTask, resetDeployTask, getTaskBoardMoves, getTaskComments, updateTaskSubtask,
-  updateTaskTimeEntry, handoffTaskAssignment, updateTask, fetchClientApps,
+  updateTaskTimeEntry, deleteTaskTimeEntry, handoffTaskAssignment, updateTask, fetchClientApps,
   type TaskBoardMove, type ClientApp,
 } from '../../lib/database'
 import { MoveTaskModal } from './MoveTaskModal'
@@ -679,14 +679,20 @@ export function TaskDetailModal({
       setTimeSaving(false)
     }
   }
-  // Full board editors only — deleting stays on the existing generic
-  // save() path (still gated by the "tasks: update" RLS policy, which
-  // requires board-full access), never exposed to a plain logger of
-  // their own entry. There is deliberately no employee-facing delete RPC.
-  function deleteEntry(id: string) {
-    if (readonly) return
-    const updated = timeEntries.filter(e => e.id !== id)
-    setTimeEntries(updated); save({ timeEntries: updated })
+  // Full board editors only, enforced again by delete_task_time_entry().
+  async function deleteEntry(id: string) {
+    if (readonly || timeSaving) return
+    setTimeSaving(true)
+    setTimeError(null)
+    try {
+      const updated = await deleteTaskTimeEntry(task.id, id)
+      setTimeEntries(updated)
+      onTimeEntriesChanged?.(task.id, updated)
+    } catch (err) {
+      setTimeError(err instanceof Error ? err.message : tr('מחיקת הזמן נכשלה', 'Failed to delete time'))
+    } finally {
+      setTimeSaving(false)
+    }
   }
   // A full board editor may edit any entry. Anyone else may only edit
   // an entry whose loggedById is their own — deliberately NOT gated on
@@ -2556,7 +2562,8 @@ export function TaskDetailModal({
                         )}
                         {!readonly && (
                           <button
-                            onClick={() => deleteEntry(entry.id)}
+                            onClick={() => void deleteEntry(entry.id)}
+                            disabled={timeSaving}
                             className="flex shrink-0 items-center justify-center rounded-lg border border-red-300 bg-white p-1.5 text-red-600 transition-colors hover:border-red-500 hover:bg-red-50"
                           >
                             <X size={10} />

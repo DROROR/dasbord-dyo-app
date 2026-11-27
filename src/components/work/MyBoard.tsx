@@ -364,7 +364,7 @@ export function MyBoard({
   const unclaimedSupportBoard = new Set(
     boards.filter(b => b.allTasksToSupportQueue).map(b => b.id),
   )
-  const thisMonth = new Date().toISOString().slice(0, 7)
+  const thisMonth = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }).slice(0, 7)
   // Personal total follows the logger UUID across every visible task, even
   // after a collaboration subtask is completed and leaves the action tiles.
   const hoursThisMonth = tasks

@@ -1035,11 +1035,28 @@ export function Work() {
     return () => window.removeEventListener(TIMER_ENTRY_SAVED_EVENT, handleTimerEntry)
   }, [])
 
+  // Only the fields an edit actually changed are written. Sending the whole
+  // task wrote back this page's copy of every column, so a status change in a
+  // tab opened yesterday erased the hours logged since then. Time entries and
+  // comments are never written here at all: they have their own row-locked RPCs.
+  function changedFields(updated: Task): Partial<Task> {
+    const before = tasksRef.current.find(t => t.id === updated.id)
+    const patch: Partial<Task> = {}
+    for (const key of Object.keys(updated) as (keyof Task)[]) {
+      if (key === 'timeEntries' || key === 'comments') continue
+      if (before && JSON.stringify(before[key]) === JSON.stringify(updated[key])) continue
+      Object.assign(patch, { [key]: updated[key] })
+    }
+    return patch
+  }
+
   // Optimistic update + background DB sync
   function updateTask(updated: Task) {
     if (!canEdit) return
-    setTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
-    void dbUpdateTask(updated.id, updated).catch(err => console.error('Task sync failed:', err))
+    const patch = changedFields(updated)
+    setTasks(prev => prev.map(t => t.id === updated.id ? { ...t, ...patch } : t))
+    if (Object.keys(patch).length === 0) return
+    void dbUpdateTask(updated.id, patch).catch(err => console.error('Task sync failed:', err))
   }
 
   // Non-optimistic sibling of updateTask(), used only by the Gantt's own
@@ -1052,7 +1069,9 @@ export function Work() {
   // field edit) is deliberately left untouched.
   async function updateTaskConfirmed(updated: Task): Promise<Task> {
     if (!canEdit) throw new Error('Insufficient permission to edit this task')
-    const saved = await dbUpdateTask(updated.id, updated)
+    const patch = changedFields(updated)
+    if (Object.keys(patch).length === 0) return updated
+    const saved = await dbUpdateTask(updated.id, patch)
     setTasks(prev => prev.map(t => t.id === saved.id ? saved : t))
     return saved
   }

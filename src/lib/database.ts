@@ -1150,6 +1150,13 @@ export async function updateTaskTimeEntry(
   return data as TimeEntry[]
 }
 
+/** Full board editors only; removes just this entry, server-side. */
+export async function deleteTaskTimeEntry(taskId: string, entryId: string): Promise<TimeEntry[]> {
+  const { data, error } = await supabase.rpc('delete_task_time_entry', { task_id_in: taskId, entry_id_in: entryId })
+  if (error) throw error
+  return data as TimeEntry[]
+}
+
 // Restricted handoff — see handoff_task_assignment() in
 // 20260816090000_time_entry_edit_and_assignee_handoff.sql. The server
 // rejects this unless the caller IS the task's current assignee_id;
